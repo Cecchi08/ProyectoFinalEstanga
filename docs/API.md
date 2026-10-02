@@ -1,6 +1,8 @@
-# API — Autenticación y gestión de conciertos
+# API — Autenticación, conciertos, compras y entradas
 
 El contrato de conciertos, artistas, géneros, ubicaciones y tipos de entrada está en [Etapa 3](VENTI_ETAPA_3.md). Las rutas de autenticación siguientes se conservan.
+
+El contrato de compras/reservas, tickets, validación QR, estados y cancelaciones está en [Etapa 4](VENTI_ETAPA_4.md).
 
 Base: `http://localhost:3000`. JSON, nombres de campos indicados abajo; se rechazan propiedades extra en cuerpos de autenticación. Emails normalizados a minúsculas y sin espacios exteriores. Contraseña nueva: mínimo 12 caracteres, máximo 72 bytes UTF-8 (límite de bcrypt). IDs como strings.
 

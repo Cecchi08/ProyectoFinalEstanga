@@ -12,6 +12,7 @@ import { authRoutes } from './routes/auth.routes.js';
 import { AccessTokens } from './utils/jwt.util.js';
 import { AppError } from './utils/app-error.util.js';
 import { managementRoutes } from './routes/management.routes.ts';
+import { commerceRoutes } from './routes/commerce.routes.ts';
 export function createApp({ env, database, mailer, oauthClient }) {
     const app = express();
     app.disable('x-powered-by');
@@ -30,6 +31,7 @@ export function createApp({ env, database, mailer, oauthClient }) {
     const oauth = new OAuthService(env, auth, oauthClient ?? new HttpOAuthProviderClient(env));
     app.use('/auth', authRoutes(new AuthController(auth), new OAuthController(oauth, env), authenticate(tokens, auth), env));
     app.use(managementRoutes(database, authenticate(tokens, auth)));
+    app.use(commerceRoutes(database, authenticate(tokens, auth)));
     app.use(notFound);
     app.use(errorHandler());
     return app;

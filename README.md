@@ -1,6 +1,6 @@
-# VENTI — Etapa 3
+# VENTI — Etapa 4
 
-Backend REST con Node.js 22+, Express 5 y MySQL 8.4 (compatible con el esquema MySQL 8+). Incluye autenticación y gestión de conciertos, artistas, géneros, ubicaciones y tipos de entrada. Los módulos nuevos usan TypeScript estricto; la Etapa 2 conserva JavaScript. No incluye frontend, compras ni QR.
+Backend REST con Node.js 22+, Express 5 y MySQL 8.4 (compatible con el esquema MySQL 8+). Incluye autenticación, gestión de conciertos, compras/reservas con stock transaccional, tickets individuales y validación QR. Los módulos nuevos usan TypeScript estricto; la Etapa 2 conserva JavaScript. No incluye frontend ni pagos externos.
 
 ## Instalación
 
@@ -41,6 +41,7 @@ Opcionalmente levantar MySQL de prueba con `docker compose -f compose.test.yml u
 - [Contrato REST y OAuth](docs/API.md)
 - [Permisos y seguridad](docs/permissions.md)
 - [Gestión de conciertos: contrato y reglas de Etapa 3](docs/VENTI_ETAPA_3.md)
+- [Compras, entradas y QR: contrato y reglas de Etapa 4](docs/VENTI_ETAPA_4.md)
 - [Documento original de Etapa 1](docs/VENTI_ETAPA_1.md)
 
 El documento de Etapa 1 y `database/schema.sql` se conservan sin cambios. Etapa 3 incorpora TypeScript sin migrar ni reescribir la autenticación existente.
