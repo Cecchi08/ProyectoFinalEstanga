@@ -40,9 +40,9 @@ export class OAuthService {
         if (identity.provider !== provider)
             throw new AppError(401, 'OAUTH_PROVIDER_MISMATCH', 'Proveedor inválido.');
         const userId = await this.auth.oauthIdentity(identity, flow.linkUserId);
-        if (flow.mode === 'mobile' && flow.codeChallenge) {
+        if (flow.codeChallenge) {
             const handoff = this.handoffs.put({ userId, challenge: flow.codeChallenge });
-            const url = new URL(this.env.APP_DEEP_LINK);
+            const url = new URL(flow.mode === 'mobile' ? this.env.APP_DEEP_LINK : this.env.WEB_OAUTH_REDIRECT_URL);
             url.searchParams.set('code', handoff);
             return { redirect: url.toString() };
         }

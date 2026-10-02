@@ -1,5 +1,9 @@
 # API — Autenticación, conciertos, compras y entradas
 
+Recomendaciones y preferencias: [Etapa 6](VENTI_ETAPA_6.md).
+
+El contrato de favoritos persistentes, asignaciones Staff y asistentes está en [Ajuste 5.1](VENTI_AJUSTE_5_1.md).
+
 El contrato de conciertos, artistas, géneros, ubicaciones y tipos de entrada está en [Etapa 3](VENTI_ETAPA_3.md). Las rutas de autenticación siguientes se conservan.
 
 El contrato de compras/reservas, tickets, validación QR, estados y cancelaciones está en [Etapa 4](VENTI_ETAPA_4.md).
@@ -41,7 +45,9 @@ Google usa `email_verified` de UserInfo ([referencia oficial](https://developers
 
 Si el proveedor no entrega email, un usuario nuevo recibe `OAUTH_EMAIL_REQUIRED`: registrarse por email, verificar, iniciar sesión y vincular explícitamente. La vinculación explícita se completa en un navegador que conserve la cookie de `/link`; el cliente web debe usar `credentials: include`. No se acepta un `userId` ni un redirect arbitrario del cliente.
 
-## React Native / Expo preparado
+En Etapa 5, `mode=web&codeChallenge=<S256>` redirige a `WEB_OAUTH_REDIRECT_URL` con un código efímero y utiliza `/auth/oauth/exchange`, igual que Mobile. El destino es fijo y configurado por servidor (HTTPS en producción). El modo web sin challenge conserva la respuesta JSON anterior.
+
+## React Native / Expo
 
 1. El cliente genera `codeVerifier` aleatorio de 43–128 caracteres permitidos por PKCE y conserva ese valor.
 2. Calcula `codeChallenge = base64url(SHA256(codeVerifier))`, sin padding.

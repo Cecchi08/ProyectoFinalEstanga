@@ -1,0 +1,20 @@
+import { test } from 'node:test';
+import assert from 'node:assert/strict';
+import { OAuthService } from '../src/services/oauth.service.js';
+import { pkceChallenge } from '../src/utils/token.util.js';
+import { testEnv } from './helpers.js';
+test('web PKCE callback returns a fixed URL, no tokens, exchange is one-use', async () => {
+    const env = testEnv(); const session = { accessToken: 'access-secret', refreshToken: 'refresh-secret' };
+    const service = new OAuthService(env, { oauthIdentity: async () => '1', oauthSession: async () => session }, { identity: async provider => ({ provider }) });
+    const verifier = 'a'.repeat(64); const flow = service.start('google', 'web', pkceChallenge(verifier));
+    const state = new URL(flow.url).searchParams.get('state');
+    const result = await service.callback('google', state, flow.browser, 'provider-code');
+    const redirect = new URL(result.redirect);
+    assert.equal(redirect.origin + redirect.pathname, env.WEB_OAUTH_REDIRECT_URL);
+    assert.equal(redirect.searchParams.size, 1);
+    assert.ok(!result.redirect.includes('secret'));
+    const code = redirect.searchParams.get('code');
+    assert.throws(() => service.exchange(code, 'b'.repeat(64)), { code: 'OAUTH_EXCHANGE_INVALID' });
+    assert.deepEqual(await service.exchange(code, verifier), session);
+    assert.throws(() => service.exchange(code, verifier), { code: 'OAUTH_EXCHANGE_INVALID' });
+});

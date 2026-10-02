@@ -30,7 +30,10 @@ const schema = z.object({
     FACEBOOK_CLIENT_ID: optional, FACEBOOK_CLIENT_SECRET: optional, FACEBOOK_CALLBACK_URL: optional,
     FACEBOOK_GRAPH_VERSION: z.string().regex(/^v\d+\.\d+$/).default('v23.0'),
     APP_DEEP_LINK: z.url().default('venti://oauth-callback'),
+    WEB_OAUTH_REDIRECT_URL: z.url().default('http://localhost:8081/oauth-callback'),
 }).superRefine((env, ctx) => {
+    if (!/^https?:\/\//.test(env.WEB_OAUTH_REDIRECT_URL) || (env.NODE_ENV === 'production' && !env.WEB_OAUTH_REDIRECT_URL.startsWith('https://')))
+        ctx.addIssue({ code: 'custom', path: ['WEB_OAUTH_REDIRECT_URL'], message: 'Callback web HTTP válido; HTTPS en producción.' });
     const ttl = parseInt(env.JWT_ACCESS_EXPIRES_IN, 10) * (env.JWT_ACCESS_EXPIRES_IN.endsWith('m') ? 60 : 1);
     if (ttl < 60 || ttl > 1800)
         ctx.addIssue({ code: 'custom', path: ['JWT_ACCESS_EXPIRES_IN'], message: 'Usar entre 60s y 30m.' });

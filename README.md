@@ -1,6 +1,12 @@
-# VENTI — Etapa 4
+# VENTI — Etapa 6
 
-Backend REST con Node.js 22+, Express 5 y MySQL 8.4 (compatible con el esquema MySQL 8+). Incluye autenticación, gestión de conciertos, compras/reservas con stock transaccional, tickets individuales y validación QR. Los módulos nuevos usan TypeScript estricto; la Etapa 2 conserva JavaScript. No incluye frontend ni pagos externos.
+[Venti Discover](docs/VENTI_ETAPA_6.md): recomendaciones explicables al vuelo y preferencias ON/OFF, sin IA externa ni cambios de schema.
+
+Incluye [Ajuste 5.1: favoritos persistentes, asignaciones Staff y asistentes](docs/VENTI_AJUSTE_5_1.md).
+
+Backend REST con Node.js 22+, Express 5 y MySQL 8.4 (compatible con el esquema MySQL 8+), integrado con frontend React Native + Expo para Mobile y Web/Desktop. Incluye autenticación, gestión de conciertos, compras/reservas con stock transaccional, tickets individuales y validación QR. Los módulos nuevos usan TypeScript estricto; la Etapa 2 conserva JavaScript. No incluye pagos externos.
+
+Frontend: `cd frontend`, `npm ci`, configurar `.env` desde `.env.example`, y `npm run web` o `npm start`. Consultar [Etapa 5: configuración, funciones, pruebas y límites reales](docs/VENTI_ETAPA_5.md).
 
 ## Instalación
 
@@ -15,7 +21,7 @@ Generar el secreto JWT: `node -e "console.log(require('crypto').randomBytes(48).
 
 La configuración se valida al iniciar. Las credenciales OAuth pueden quedar vacías; ese proveedor responderá `OAUTH_NOT_CONFIGURED` hasta configurarlo. Registrar en cada proveedor el callback exacto `https://<api>/auth/oauth/<google|github|facebook>/callback`. HTTPS es obligatorio en producción.
 
-Los enlaces de emails apuntan a `EMAIL_VERIFY_URL` y `PASSWORD_RESET_URL`, con el token en el fragmento `#token=...`. Un cliente debe leerlo y hacer el POST correspondiente. No hay frontend en esta etapa. Para pruebas manuales se puede copiar el token desde el email.
+Los enlaces de emails apuntan a `EMAIL_VERIFY_URL` y `PASSWORD_RESET_URL`, con el token en el fragmento `#token=...`. El frontend lee el fragmento y envía el POST correspondiente al confirmar. También permite copiar el token desde el email.
 
 ## Pruebas
 

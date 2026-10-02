@@ -13,7 +13,7 @@ type Table = keyof typeof columns;
 const placeholders = (ids: string[]) => ids.map(() => '?').join(',');
 const normalize = <T extends Row>(row: T): T => Object.fromEntries(Object.entries(row).map(([key, value]) =>
     [key, value !== null && (key === 'id' || key.endsWith('_id')) ? String(value) : value])) as T;
-const concertSelect = `SELECT c.*, s.code AS status, ct.code AS type,
+export const concertSelect = `SELECT c.*, s.code AS status, ct.code AS type,
     v.name AS venue_name, v.city_id, ci.name AS city_name, ci.province_id, p.name AS province_name
     FROM concerts c JOIN concert_statuses s ON s.id = c.status_id
     JOIN concert_types ct ON ct.id = c.concert_type_id JOIN venues v ON v.id = c.venue_id

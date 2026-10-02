@@ -1,5 +1,7 @@
 # Roles y permisos — Etapas 2 y 3
 
+Ajuste 5.1: `/favorites` siempre opera sobre la cuenta autenticada, incluido ADMIN. `/staff/assignments` permite STAFF (solo asignados) y ADMIN (global). `/concerts/:id/attendees` permite STAFF asignado, ORGANIZER propietario o ADMIN; multirol conserva la unión de permisos. No se amplía el CRUD de STAFF ni la visibilidad de `/concerts`. [Contrato 5.1](VENTI_AJUSTE_5_1.md).
+
 `USER`, `ORGANIZER`, `STAFF` y `ADMIN` son roles independientes; un usuario puede tener varios. Registro y alta OAuth asignan solamente `USER` y crean `user_preferences`, en la misma transacción que el usuario. `organizer_profiles` no se crea para usuarios comunes. No hay endpoints públicos para asignar roles ni crear organizadores en esta etapa.
 
 `authenticate(tokens, auth)` exige Bearer JWT HS256 con firma, issuer, audience y expiración válidos. Consulta usuario activo, política de email y todos los roles actuales en MySQL antes de asignar `req.user={id,roles}`. Alterar body o headers personalizados no modifica permisos.

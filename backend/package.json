@@ -11,7 +11,10 @@
     "build": "npm run check && tsc",
     "check": "tsc --noEmit && node scripts/check.js",
     "start": "node dist/server.js",
-    "test": "node --import tsx --test --test-concurrency=1 tests/*.test.js"
+    "test": "node --import tsx --test --test-concurrency=1 tests/*.test.js",
+    "test:e2e": "node --import tsx --test scripts/stage5-e2e.mjs",
+    "test:5.1": "node --import tsx --test --test-concurrency=1 tests/auth.test.js tests/commerce.test.js tests/management.test.js tests/participation.test.js tests/security.test.js",
+    "test:6": "node --import tsx --test --test-concurrency=1 tests/auth.test.js tests/commerce.test.js tests/management.test.js tests/participation.test.js tests/recommendations.test.js tests/security.test.js"
   },
   "dependencies": {
     "bcrypt": "^6.0.0",

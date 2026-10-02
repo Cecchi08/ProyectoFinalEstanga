@@ -18,7 +18,9 @@ export class PermissionsService {
                 return;
             if (scope === 'owner')
                 return assertConcertOwner(principal, ownerId);
-            if (scope === 'staff' && principal.roles.includes('STAFF') && await repo.staffAssigned(concertId, principal.id))
+            if (scope === 'attendees' && principal.roles.includes('ORGANIZER') && String(ownerId) === principal.id)
+                return assertConcertOwner(principal, ownerId);
+            if ((scope === 'staff' || scope === 'attendees') && principal.roles.includes('STAFF') && await repo.staffAssigned(concertId, principal.id))
                 return;
             throw new AppError(403, 'FORBIDDEN', 'No tenés permisos sobre este concierto.');
         });

@@ -1,0 +1,23 @@
+{
+  "expo": {
+    "name": "VENTI",
+    "slug": "venti",
+    "scheme": "venti",
+    "version": "1.0.0",
+    "userInterfaceStyle": "dark",
+    "plugins": [
+      "expo-router",
+      "expo-secure-store",
+      [
+        "expo-camera",
+        {
+          "cameraPermission": "Permitir a VENTI escanear entradas QR.",
+          "recordAudioAndroid": false
+        }
+      ]
+    ],
+    "web": { "bundler": "metro", "output": "single", "name": "VENTI" },
+    "ios": { "supportsTablet": true, "bundleIdentifier": "com.venti.app" },
+    "android": { "package": "com.venti.app" }
+  }
+}
