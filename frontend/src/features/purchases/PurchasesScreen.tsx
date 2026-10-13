@@ -3,6 +3,7 @@ import { router, useLocalSearchParams } from "expo-router";
 import { useResource } from "../../hooks/useResource";
 import { api } from "../../services/api";
 import type { Purchase } from "../../types/api";
+import { useNotifications } from '../../contexts/NotificationsContext';
 import {
   ActionFeedback,
   Button,
@@ -44,6 +45,7 @@ export default function PurchasesScreen() {
   );
 }
 export function PurchaseDetail() {
+  const notifications = useNotifications();
   const { id } = useLocalSearchParams<{ id: string }>();
   const resource = useResource<Purchase>(`/purchases/${id}`);
   const action = useAction();
@@ -57,6 +59,7 @@ export function PurchaseDetail() {
           body: {},
         });
         setCancel(false);
+        await notifications.reload();
       } finally {
         // An expired reservation can change state even when confirmation fails.
         await resource.reload();

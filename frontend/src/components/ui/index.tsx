@@ -139,7 +139,7 @@ export function Button({
 }
 export function Field({ label, ...props }: TextInputProps & { label: string }) {
   return (
-    <View style={{ gap: 7, flexGrow: 1 }}>
+    <View style={{ gap: 7, flexGrow: 1, flexShrink: 1, minWidth: 0, maxWidth: "100%" }}>
       <Text style={styles.muted}>{label}</Text>
       <TextInput
         accessibilityLabel={label}
@@ -257,7 +257,7 @@ export function ActionFeedback({
     <>
       <Notice message={action.error} error />
       <Notice message={action.message} />
-      {action.busy && <ActivityIndicator color={colors.accent} />}
+      {action.busy && <ActivityIndicator accessibilityLabel="Procesando" color={colors.accent} />}
     </>
   );
 }

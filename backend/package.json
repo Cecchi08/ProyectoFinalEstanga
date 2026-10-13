@@ -10,9 +10,12 @@
     "dev": "tsx watch src/server.js",
     "build": "npm run check && tsc",
     "check": "tsc --noEmit && node scripts/check.js",
+    "db:check": "node scripts/db-check.js",
+    "lint": "npm --prefix ../frontend run lint:backend",
     "start": "node dist/server.js",
     "test": "node --import tsx --test --test-concurrency=1 tests/*.test.js",
     "test:e2e": "node --import tsx --test scripts/stage5-e2e.mjs",
+    "test:7": "node --import tsx --test --test-concurrency=1 tests/insights.test.js tests/recommendations.test.js tests/commerce.test.js tests/management.test.js tests/security.test.js",
     "test:5.1": "node --import tsx --test --test-concurrency=1 tests/auth.test.js tests/commerce.test.js tests/management.test.js tests/participation.test.js tests/security.test.js",
     "test:6": "node --import tsx --test --test-concurrency=1 tests/auth.test.js tests/commerce.test.js tests/management.test.js tests/participation.test.js tests/recommendations.test.js tests/security.test.js"
   },

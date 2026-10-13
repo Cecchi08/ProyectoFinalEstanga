@@ -9,6 +9,7 @@ import {
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useAuth } from "../../contexts/AuthContext";
 import { PreferencesProvider } from "../../contexts/PreferencesContext";
+import { NotificationsProvider, NotificationBadge } from "../../contexts/NotificationsContext";
 import { hasRoles, type Role } from "../../types/api";
 import { colors, Copy, Page, ResourceState } from "../ui";
 export function Guard({ roles }: { roles: Role[] }) {
@@ -38,6 +39,7 @@ export default function Shell() {
     { path: "/recommendations", label: "Venti Discover" },
     { path: "/tickets", label: "Entradas" },
     { path: "/favorites", label: "Favoritos" },
+    { path: "/notifications", label: "Notificaciones" },
     { path: "/profile", label: "Mi cuenta" },
     ...(hasRoles(auth.roles, ["ORGANIZER", "ADMIN"])
       ? [{ path: "/organizer", label: "Organizer" }]
@@ -76,6 +78,7 @@ export default function Shell() {
             }}
           >
             {link.label}
+            {link.path === '/notifications' && <NotificationBadge />}
           </Text>
         </Pressable>
       ))}
@@ -83,6 +86,7 @@ export default function Shell() {
   );
   return (
     <PreferencesProvider key={auth.user.id}>
+      <NotificationsProvider>
       <SafeAreaView
         style={{
           flex: 1,
@@ -91,9 +95,11 @@ export default function Shell() {
         }}
       >
         {desktop && (
-          <View
+          <ScrollView
             style={{
               width: 220,
+              flexGrow: 0,
+              flexShrink: 0,
               borderRightWidth: 1,
               borderColor: colors.border,
             }}
@@ -109,7 +115,7 @@ export default function Shell() {
               VENTI
             </Text>
             {navigation}
-          </View>
+          </ScrollView>
         )}
         <View style={{ flex: 1, minWidth: 0 }}>
           <Slot key={auth.user.id} />
@@ -122,6 +128,7 @@ export default function Shell() {
           </View>
         )}
       </SafeAreaView>
+      </NotificationsProvider>
     </PreferencesProvider>
   );
 }

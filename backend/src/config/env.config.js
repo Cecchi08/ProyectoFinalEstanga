@@ -1,12 +1,11 @@
 import 'dotenv/config';
 import { z } from 'zod';
+import { databaseConfig } from './db.config.js';
 const boolean = z.enum(['true', 'false']).transform(v => v === 'true');
 const optional = z.string().default('');
 const schema = z.object({
     NODE_ENV: z.enum(['development', 'test', 'production']).default('development'),
     PORT: z.coerce.number().int().min(1).max(65535).default(3000),
-    DB_HOST: z.string().default('127.0.0.1'), DB_PORT: z.coerce.number().int().positive().default(3306),
-    DB_USER: z.string().min(1), DB_PASSWORD: optional, DB_NAME: z.string().default('venti'),
     DB_CONNECTION_LIMIT: z.coerce.number().int().min(1).max(100).default(10),
     JWT_ACCESS_SECRET: z.string().min(32),
     JWT_ACCESS_EXPIRES_IN: z.string().regex(/^\d+[sm]$/).default('15m'),
@@ -31,7 +30,7 @@ const schema = z.object({
     FACEBOOK_GRAPH_VERSION: z.string().regex(/^v\d+\.\d+$/).default('v23.0'),
     APP_DEEP_LINK: z.url().default('venti://oauth-callback'),
     WEB_OAUTH_REDIRECT_URL: z.url().default('http://localhost:8081/oauth-callback'),
-}).superRefine((env, ctx) => {
+}).passthrough().superRefine((env, ctx) => {
     if (!/^https?:\/\//.test(env.WEB_OAUTH_REDIRECT_URL) || (env.NODE_ENV === 'production' && !env.WEB_OAUTH_REDIRECT_URL.startsWith('https://')))
         ctx.addIssue({ code: 'custom', path: ['WEB_OAUTH_REDIRECT_URL'], message: 'Callback web HTTP válido; HTTPS en producción.' });
     const ttl = parseInt(env.JWT_ACCESS_EXPIRES_IN, 10) * (env.JWT_ACCESS_EXPIRES_IN.endsWith('m') ? 60 : 1);
@@ -65,5 +64,6 @@ export function loadEnv(source = process.env) {
     const parsed = schema.safeParse(source);
     if (!parsed.success)
         throw new Error(`Configuración inválida: ${parsed.error.issues.map(i => `${i.path.join('.')}: ${i.message}`).join('; ')}`);
+    databaseConfig(source);
     return parsed.data;
 }

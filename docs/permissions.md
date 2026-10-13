@@ -1,5 +1,7 @@
 # Roles y permisos — Etapas 2 y 3
 
+Etapa 7: `/notifications` y `/preferences` operan exclusivamente sobre `req.user.id`, incluso para ADMIN. `/organizer/statistics` y `/organizer/concerts/:id/statistics` exigen ORGANIZER y filtran siempre por ese usuario; concierto ajeno devuelve 404. `/admin/statistics` exige ADMIN. USER/STAFF no acceden a estadísticas administrativas. Los guards del frontend acompañan la autorización real del backend. [Contrato](VENTI_ETAPA_7.md).
+
 Ajuste 5.1: `/favorites` siempre opera sobre la cuenta autenticada, incluido ADMIN. `/staff/assignments` permite STAFF (solo asignados) y ADMIN (global). `/concerts/:id/attendees` permite STAFF asignado, ORGANIZER propietario o ADMIN; multirol conserva la unión de permisos. No se amplía el CRUD de STAFF ni la visibilidad de `/concerts`. [Contrato 5.1](VENTI_AJUSTE_5_1.md).
 
 `USER`, `ORGANIZER`, `STAFF` y `ADMIN` son roles independientes; un usuario puede tener varios. Registro y alta OAuth asignan solamente `USER` y crean `user_preferences`, en la misma transacción que el usuario. `organizer_profiles` no se crea para usuarios comunes. No hay endpoints públicos para asignar roles ni crear organizadores en esta etapa.

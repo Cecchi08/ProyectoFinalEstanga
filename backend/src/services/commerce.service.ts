@@ -85,6 +85,7 @@ export class CommerceService {
                 }
                 for (const item of initial.items)
                     for (let index = 0; index < item.quantity; index++) await repo.addTicket(item.id, createQrToken());
+                await repo.notifications.purchase(purchase.user_id, id, initial.items[0].concert_id);
             } else {
                 if (!['PENDING', 'RESERVED', 'CONFIRMED'].includes(purchase.status)) fail(409, 'INVALID_STATE', 'La compra no puede cancelarse.');
                 const tickets = await repo.purchaseTickets(id);

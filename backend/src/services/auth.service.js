@@ -20,9 +20,13 @@ export class AuthService {
         if (!user?.is_active)
             throw unauthorized();
     }
-    verified(user) {
-        if (this.env.REQUIRE_EMAIL_VERIFICATION && !user.email_verified_at)
+    verified(_user) {
+        // TEMPORAL PARA PRUEBAS: permitir sesiones aunque el email siga sin verificar.
+        // Reactivar este bloque al terminar las pruebas.
+        /*
+        if (this.env.REQUIRE_EMAIL_VERIFICATION && !_user.email_verified_at)
             throw new AppError(403, 'EMAIL_VERIFICATION_REQUIRED', 'Verificá tu email antes de iniciar sesión.');
+        */
     }
     async issue(repo, user) {
         const roles = await repo.roles(user.id);

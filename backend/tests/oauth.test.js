@@ -151,7 +151,7 @@ test('adaptador Facebook no confunde verified del perfil con verificación de em
     const client = providerClient([{ access_token: 'access' }, { id: 'facebook-id', email: 'facebook@example.com', verified: true }], (url, init) => {
         if (url.includes('/me?')) {
             proof = new URL(url).searchParams.has('appsecret_proof');
-            assert.equal((init?.headers).Authorization, 'Bearer access');
+            assert.equal(init?.headers?.Authorization, 'Bearer access');
         }
     });
     const identity = await client.identity('facebook', 'code', 'verifier');

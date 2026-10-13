@@ -13,6 +13,21 @@ export interface TokenStorage {
   set(key: string, value: string): Promise<void>;
   remove(key: string): Promise<void>;
 }
+const record = (value: unknown): value is Record<string, unknown> =>
+  typeof value === "object" && value !== null && !Array.isArray(value);
+const statusMessage = (status: number) => {
+  if (status >= 500) return "VENTI no está disponible en este momento. Intentá nuevamente más tarde.";
+  const messages: Record<number, string> = {
+    400: "No pudimos procesar la solicitud. Revisá los datos.",
+    401: "Iniciá sesión nuevamente.",
+    403: "No tenés permiso para realizar esta acción.",
+    404: "No encontramos el recurso solicitado.",
+    409: "El estado cambió. Actualizá la pantalla antes de continuar.",
+    422: "Revisá los campos y sus formatos antes de continuar.",
+    429: "Demasiadas solicitudes. Esperá unos minutos antes de reintentar.",
+  };
+  return messages[status] ?? "No se pudo completar la operación.";
+};
 export class HttpClient {
   private session: Session | null = null;
   private refreshFlight: Promise<Session> | null = null;
@@ -147,30 +162,24 @@ export class HttpClient {
     } catch {
       throw new ApiError(
         "INVALID_RESPONSE",
-        "Respuesta inesperada del servidor.",
+        response.ok ? "Respuesta inesperada del servidor. Intentá nuevamente." : statusMessage(response.status),
         response.status,
       );
     }
     if (!response.ok) {
-      const error = (
-        payload as {
-          error?: {
-            code?: string;
-            message?: string;
-            details?: { message: string }[];
-          };
-        }
-      ).error;
+      const error = record(payload) && record(payload.error) ? payload.error : {};
       throw new ApiError(
-        error?.code ?? "API_ERROR",
-        [
-          error?.message ?? "No se pudo completar la operación.",
-          ...(error?.details?.map((detail) => detail.message) ?? []),
-        ].join(" "),
+        typeof error.code === "string" ? error.code : "API_ERROR",
+        response.status >= 500 || error.code === "INTERNAL_ERROR" ||
+        (response.status === 422 && error.code === "VALIDATION_ERROR") || typeof error.message !== "string"
+          ? statusMessage(response.status)
+          : error.message,
         response.status,
       );
     }
-    return payload as Envelope<T>;
+    if (!record(payload) || payload.success !== true || !("data" in payload) || payload.data === null)
+      throw new ApiError("INVALID_RESPONSE", "Respuesta inesperada del servidor. Intentá nuevamente.", response.status);
+    return payload as unknown as Envelope<T>;
   }
 }
 export const query = (values: Record<string, string | number | undefined>) => {

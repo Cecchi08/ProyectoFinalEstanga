@@ -2,12 +2,20 @@ node_modules/
 dist/
 dist-native/
 coverage/
-.env
-.env.*
-!.env.example
+# Local credentials; keep only the committed templates.
+**/.env
+**/.env.*
+!**/.env.example
 .local/
 *.log
 .npm-cache/
 .expo/
 test-results/
 playwright-report/
+*.jks
+*.keystore
+*.p12
+*.mobileprovision
+credentials.json
+*.apk
+*.aab

@@ -15,6 +15,8 @@ import { managementRoutes } from './routes/management.routes.ts';
 import { commerceRoutes } from './routes/commerce.routes.ts';
 import { participationRoutes } from './routes/participation.routes.ts';
 import { recommendationsRoutes } from './routes/recommendations.routes.ts';
+import { notificationsRoutes } from './routes/notifications.routes.ts';
+import { statisticsRoutes } from './routes/statistics.routes.ts';
 export function createApp({ env, database, mailer, oauthClient }) {
     const app = express();
     app.disable('x-powered-by');
@@ -36,6 +38,8 @@ export function createApp({ env, database, mailer, oauthClient }) {
     app.use(commerceRoutes(database, authenticate(tokens, auth)));
     app.use(participationRoutes(database, authenticate(tokens, auth)));
     app.use(recommendationsRoutes(database, authenticate(tokens, auth)));
+    app.use(notificationsRoutes(database, authenticate(tokens, auth)));
+    app.use(statisticsRoutes(database, authenticate(tokens, auth)));
     app.use(notFound);
     app.use(errorHandler());
     return app;

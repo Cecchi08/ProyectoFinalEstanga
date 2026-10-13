@@ -25,6 +25,20 @@ export interface Envelope<T> {
   data: T;
   pagination?: Pagination;
 }
+export interface Notification {
+  id: string;
+  type: 'RECOMMENDATION' | 'PURCHASE_CONFIRMED' | 'CONCERT_REMINDER' | 'SCHEDULE_CHANGE' | 'CONCERT_CANCELLED' | 'IMPORTANT_INFO';
+  title: string; message: string; read_at: string | null; created_at: string;
+  concert_id: string | null; purchase_id: string | null; concert_status: string | null;
+}
+export interface Notifications { items: Notification[]; unread_count: number }
+export interface Statistics {
+  tickets_sold: number; revenue: string; attendees: number; tickets_used: number; tickets_pending: number;
+  capacity: number; occupancy_percent: number; concerts: number; active_concerts: number; confirmed_purchases: number;
+  users?: number; organizers?: number;
+  sales_by_day: { date: string; tickets_sold: number; revenue: string }[];
+  activity: { status: string; purchases: number }[];
+}
 export interface Named {
   id: string;
   name: string;

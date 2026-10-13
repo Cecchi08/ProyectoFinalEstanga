@@ -1,65 +1,77 @@
-# VENTI — Etapa 6
+# VENTI
 
-[Venti Discover](docs/VENTI_ETAPA_6.md): recomendaciones explicables al vuelo y preferencias ON/OFF, sin IA externa ni cambios de schema.
+Aplicación académica para descubrir conciertos, reservar y confirmar entradas, presentar QR y controlar el ingreso. Un mismo frontend funciona en Android, iOS y Web/Desktop. La confirmación y devolución son internas: **no procesa pagos reales**.
 
-Incluye [Ajuste 5.1: favoritos persistentes, asignaciones Staff y asistentes](docs/VENTI_AJUSTE_5_1.md).
+## Funcionalidades y roles
 
-Backend REST con Node.js 22+, Express 5 y MySQL 8.4 (compatible con el esquema MySQL 8+), integrado con frontend React Native + Expo para Mobile y Web/Desktop. Incluye autenticación, gestión de conciertos, compras/reservas con stock transaccional, tickets individuales y validación QR. Los módulos nuevos usan TypeScript estricto; la Etapa 2 conserva JavaScript. No incluye pagos externos.
+| Rol | Funciones |
+| --- | --- |
+| USER | Registro, verificación, login/OAuth, recuperación, búsqueda, favoritos persistentes, reservas, compras, entradas QR, Venti Discover y notificaciones. |
+| ORGANIZER | Crear, editar y publicar conciertos propios, gestionar tipos de entrada y consultar estadísticas de ventas/ingresos. |
+| STAFF | Consultar conciertos asignados y asistentes; validar QR una sola vez. |
+| ADMIN | Administrar artistas, géneros, provincias, ciudades, venues y conciertos; estadísticas globales y control de ingreso. |
 
-Frontend: `cd frontend`, `npm ci`, configurar `.env` desde `.env.example`, y `npm run web` o `npm start`. Consultar [Etapa 5: configuración, funciones, pruebas y límites reales](docs/VENTI_ETAPA_5.md).
+Los roles se pueden combinar. El registro asigna USER; roles, perfiles Organizer y asignaciones Staff se provisionan en MySQL siguiendo [Instalación](docs/INSTALLATION.md). La aplicación no incluye administración de cuentas/roles ni asignaciones desde la interfaz.
 
-## Instalación
+## Tecnologías y arquitectura
 
-1. Importar `database/schema.sql` en MySQL. Es una copia exacta del archivo proporcionado; incluye roles y proveedores requeridos.
-2. Crear un usuario MySQL para la aplicación con `SELECT`, `INSERT`, `UPDATE` y `DELETE` sobre `venti.*`. No ejecutar la API con credenciales administrativas.
-3. Desde `backend/`, ejecutar `npm ci`, copiar `.env.example` a `.env` y completar conexión, secreto JWT, SMTP y proveedores OAuth que se usarán.
-4. Ejecutar `npm run build` y `npm start` (o `npm run dev`).
+- React Native 0.86, React 19, Expo SDK 57, Expo Router y TypeScript estricto; almacenamiento seguro nativo y refresh token en almacenamiento local Web.
+- Node.js, Express 5, MySQL 8+, mysql2, Zod, bcrypt y JWT. Backend mixto JS/TS: los módulos TypeScript usan `strict`; la autenticación conserva JavaScript.
+- API REST → controladores → servicios/permisos → repositorios → MySQL. Reservas, stock, confirmación, notificaciones y validación QR usan transacciones.
+- Discover calcula recomendaciones explicables con historial/favoritos, sin IA externa. Las notificaciones se consultan periódicamente; no son push.
 
-`npm run build` comprueba TypeScript estricto y sintaxis JavaScript, y genera `dist/`. `npm start` ejecuta `dist/server.js`; construir antes de iniciar. `npm run dev` usa `tsx watch` sobre las fuentes. `npm test` ejecuta las pruebas con `tsx`. Las validaciones de entrada y configuración usan Zod.
-
-Generar el secreto JWT: `node -e "console.log(require('crypto').randomBytes(48).toString('hex'))"`.
-
-La configuración se valida al iniciar. Las credenciales OAuth pueden quedar vacías; ese proveedor responderá `OAUTH_NOT_CONFIGURED` hasta configurarlo. Registrar en cada proveedor el callback exacto `https://<api>/auth/oauth/<google|github|facebook>/callback`. HTTPS es obligatorio en producción.
-
-Los enlaces de emails apuntan a `EMAIL_VERIFY_URL` y `PASSWORD_RESET_URL`, con el token en el fragmento `#token=...`. El frontend lee el fragmento y envía el POST correspondiente al confirmar. También permite copiar el token desde el email.
-
-## Pruebas
-
-Las pruebas HTTP usan el esquema original en **MySQL real**, bcrypt, JWT y transacciones. OAuth usa respuestas controladas; SMTP se verifica con un servidor local efímero. No contactan proveedores externos.
-
-Configurar `TEST_DB_HOST`, `TEST_DB_PORT`, `TEST_DB_USER` y `TEST_DB_PASSWORD`; valores por defecto: `127.0.0.1`, `3306`, `root`, contraseña vacía. Usar una instancia local aislada y un usuario que pueda crear y borrar bases **de prueba**. Cada suite crea `venti_test_<16 caracteres aleatorios>` y elimina exclusivamente esa base al finalizar; no utiliza `DB_NAME` ni borra `venti`.
-
-Ejemplo PowerShell desde `backend/`:
-
-```powershell
-$env:TEST_DB_HOST='127.0.0.1'
-$env:TEST_DB_PORT='3306'
-$env:TEST_DB_USER='venti_test_runner'
-$env:TEST_DB_PASSWORD='<contraseña local de pruebas>'
-npm run build
-npm test
+```text
+backend/src/         API, autenticación, permisos y reglas de negocio
+backend/tests/       Pruebas HTTP con MySQL real
+backend/scripts/     Checks y recorrido E2E en navegador
+database/schema.sql  Esquema original y catálogos iniciales
+frontend/app/        Rutas Expo Router
+frontend/src/        Pantallas, componentes, contextos y cliente HTTP
+frontend/tests/      Pruebas unitarias del cliente
+docs/                Contratos, instalación y manual
 ```
 
-Opcionalmente levantar MySQL de prueba con `docker compose -f compose.test.yml up -d --wait`; usar puerto `33316`, usuario `root` y contraseña `venti-local-tests-only`. Detener con `docker compose -f compose.test.yml down`. Su almacenamiento es efímero.
+## Inicio local
 
-## Documentación
+Requisitos: Node **22.13+** (validado con 24), npm, MySQL 8.0+/8.4 y SMTP de desarrollo o real. OAuth requiere credenciales propias y es opcional. Instrucciones completas y SQL: [Instalación](docs/INSTALLATION.md).
 
-- [Contrato REST y OAuth](docs/API.md)
+1. En MySQL, ejecutar `SOURCE /ruta/al/proyecto/database/schema.sql;` sobre una instalación nueva y crear el usuario limitado de la API.
+2. Ejecutar `npm ci --prefix backend` y `npm ci --prefix frontend`.
+3. Copiar `backend/.env.example` a `backend/.env` y `frontend/.env.example` a `frontend/.env`. Configurar MySQL, secreto JWT aleatorio, SMTP y URL de la API.
+4. En una terminal: `cd backend`, `npm run build`, `npm start` (desarrollo: `npm run dev`).
+5. En otra: `cd frontend`, `npm run web` para navegador o `npm start` para Expo. En teléfono, usar la IP LAN de la API; `localhost` apunta al propio dispositivo.
+
+API local: `http://localhost:3000`; Web: `http://localhost:8081`. `.env.example` contiene todas las variables; los secretos nunca van en `EXPO_PUBLIC_*` ni en Git. Para APK usar una API HTTPS accesible desde el teléfono.
+
+## Verificación
+
+Instalar ambas carpetas primero: las herramientas de lint compartidas están en `frontend/devDependencies`. Los tests backend crean y eliminan únicamente bases aleatorias `venti_test_*`; requieren MySQL aislado y variables `TEST_DB_*` ([pasos](docs/INSTALLATION.md#tests)).
+
+```text
+backend:  npm run check
+backend:  npm run db:check
+backend:  npm run lint
+backend:  npm test
+backend:  npm run build
+frontend: npm run typecheck
+frontend: npm run lint
+frontend: npm test
+frontend: npm run build
+frontend: npm run build:native
+frontend: npx expo install --check
+backend:  npm run test:e2e
+```
+
+El E2E necesita Web exportado con API `http://localhost:3000`, Chromium de Playwright (o `E2E_BROWSER_CHANNEL=msedge`) y puertos 3000/8081 libres. Comprueba el recorrido a **390, 768 y 1440 px**, incluido QR leído desde la imagen y rechazo del segundo escaneo. `build:native` exporta bundles Android/iOS; no produce APK ni reemplaza una prueba física.
+
+## Entrega y documentación
+
+- [Instalación desde cero y Android/EAS](docs/INSTALLATION.md)
+- [API: rutas, bodies, permisos y errores](docs/API.md)
+- [Manual por rol y demostración](docs/USER_MANUAL.md)
 - [Permisos y seguridad](docs/permissions.md)
-- [Gestión de conciertos: contrato y reglas de Etapa 3](docs/VENTI_ETAPA_3.md)
-- [Compras, entradas y QR: contrato y reglas de Etapa 4](docs/VENTI_ETAPA_4.md)
-- [Documento original de Etapa 1](docs/VENTI_ETAPA_1.md)
+- [Etapa 8: resultados y pendientes](docs/VENTI_ETAPA_8.md)
 
-El documento de Etapa 1 y `database/schema.sql` se conservan sin cambios. Etapa 3 incorpora TypeScript sin migrar ni reescribir la autenticación existente.
+El esquema permanece intacto. SMTP/OAuth reales y APK firmado requieren configuración externa. Antes de exposición pública, revisar los avisos transitivos de Expo detallados en el informe de entrega.
 
-## Operación
-
-- Fechas en UTC tanto en mysql2 como en cada sesión MySQL. IDs BIGINT se representan como strings.
-- `authenticate` valida JWT y consulta usuario activo y roles vigentes en MySQL. No se usan roles del cliente.
-- Los access tokens duran 15 minutos por defecto. Logout y reset revocan refresh tokens; un access token ya emitido conserva su vigencia corta, sin blacklist.
-- El usuario debe verificar su email antes del login por defecto. `REQUIRE_EMAIL_VERIFICATION=false` permite desactivar esa política explícitamente.
-- Producción: TLS en el proxy/API, SMTP con TLS y secreto JWT aleatorio. `TRUST_PROXY_HOPS=0` por defecto; configurar únicamente para la topología real de proxies.
-- Esta implementación opera con **una instancia Node**: los estados OAuth, códigos de deep link y contadores de rate limit están en memoria, acotados y con expiración. Reiniciar cancela flujos OAuth pendientes. Para varias réplicas se requiere un almacén compartido con consumo atómico y rate limiting compartido; la rotación de refresh ya es transaccional en MySQL.
-- SMTP se envía después del commit sin bloquear respuestas genéricas de recuperación. Los fallos se registran sin secretos; el usuario puede reenviar la verificación o recuperación. No hay cola de email persistente; un reinicio puede interrumpir envíos pendientes.
-- No registrar headers Authorization, cuerpos de `/auth`, cookies, query strings OAuth ni enlaces con tokens en proxies/APM.
-- Configurar credenciales reales de SMTP y OAuth y completar una prueba con cada proveedor antes del despliegue. Las pruebas automatizadas no certifican configuración de aplicaciones externas.
+La operación actual admite una instancia Node: estados OAuth y rate limiting están en memoria. Access JWT de 15 minutos por defecto; logout/reset revocan refresh, sin blacklist de access. SMTP se envía después del commit sin cola persistente. Producción requiere TLS, CORS exacto y `TRUST_PROXY_HOPS` acorde al proxy real. No registrar cuerpos de autenticación, Authorization, QR ni URLs con tokens.

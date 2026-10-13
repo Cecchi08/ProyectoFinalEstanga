@@ -11,6 +11,7 @@ export function useResource<T>(path: string | null) {
     if (!path) {
       setLoading(false);
       setResult(null);
+      setError("");
       return;
     }
     setLoading(true);

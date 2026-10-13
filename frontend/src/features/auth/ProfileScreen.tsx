@@ -1,6 +1,7 @@
 import { router } from "expo-router";
 import { Switch } from "react-native";
 import { usePreferences } from "../../contexts/PreferencesContext";
+import NotificationPreference from '../notifications/NotificationPreference';
 import { useAuth } from "../../contexts/AuthContext";
 import { useResource } from "../../hooks/useResource";
 import type { Role, User } from "../../types/api";
@@ -58,6 +59,7 @@ export default function ProfileScreen() {
         title="Historial de compras"
         onPress={() => router.push("/purchases")}
       />
+      <NotificationPreference />
       <Button
         title="Restablecer contraseña"
         secondary

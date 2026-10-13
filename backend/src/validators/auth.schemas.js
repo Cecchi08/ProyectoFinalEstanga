@@ -2,6 +2,7 @@ import { z } from 'zod';
 export const emailSchema = z.string().trim().toLowerCase().max(190).pipe(z.email());
 export const passwordSchema = z.string().min(12).max(72).refine(v => Buffer.byteLength(v, 'utf8') <= 72, 'La contraseña no puede superar 72 bytes UTF-8.');
 export const tokenSchema = z.string().regex(/^[a-f0-9]{64}$/);
+// eslint-disable-next-line no-control-regex -- Reject control characters in user names.
 const name = z.string().trim().min(1).max(80).refine(v => !/[\x00-\x1f\x7f]/.test(v), 'Nombre inválido.');
 export const registerSchema = z.strictObject({ first_name: name, last_name: name, email: emailSchema, password: passwordSchema });
 export const loginSchema = z.strictObject({ email: emailSchema, password: z.string().min(1).max(72).refine(v => Buffer.byteLength(v) <= 72) });

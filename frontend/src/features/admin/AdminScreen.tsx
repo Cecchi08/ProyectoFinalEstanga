@@ -37,6 +37,7 @@ export default function AdminScreen() {
   );
   return (
     <Page title="Administración">
+      <Button title="Estadísticas globales" onPress={() => router.push('/admin/statistics')} />
       <Button
         title="Gestionar todos los conciertos"
         onPress={() => router.push("/admin/concerts")}

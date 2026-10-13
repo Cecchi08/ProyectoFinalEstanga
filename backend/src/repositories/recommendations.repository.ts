@@ -3,6 +3,7 @@ import { MysqlAuthRepository } from './mysql.repository.js';
 import { ManagementRepository, concertSelect } from './management.repository.ts';
 import type { ConcertRow } from '../types/management.types.ts';
 import type { AffinityLinks, ArtistGenreLink, ArtistLink, GenreLink, SignalConcert } from '../types/recommendations.types.ts';
+import type { PreferencesPatch } from '../validators/recommendations.schemas.ts';
 
 // Both history and exclusion use the same definition of a valid owned ticket.
 const validTickets = `FROM tickets t JOIN ticket_statuses ts ON ts.id = t.status_id
@@ -13,14 +14,16 @@ const validTickets = `FROM tickets t JOIN ticket_statuses ts ON ts.id = t.status
 export class RecommendationsRepository {
     private readonly management: ManagementRepository;
     constructor(private readonly connection: PoolConnection) { this.management = new ManagementRepository(connection); }
-    async preferences(userId: string): Promise<{ recommendations_enabled: boolean }> {
+    async preferences(userId: string) {
         const preferences = await new MysqlAuthRepository(this.connection).preferences(userId);
-        return { recommendations_enabled: preferences?.recommendations_enabled ?? true };
+        return { recommendations_enabled: preferences?.recommendations_enabled ?? true, notifications_enabled: preferences?.notifications_enabled ?? true };
     }
-    async setPreference(userId: string, enabled: boolean) {
-        await this.connection.execute(`INSERT INTO user_preferences (user_id, recommendations_enabled) VALUES (?, ?)
-            ON DUPLICATE KEY UPDATE recommendations_enabled = ?`, [userId, enabled, enabled]);
-        return { recommendations_enabled: enabled };
+    async setPreference(userId: string, patch: PreferencesPatch) {
+        await this.connection.execute('SELECT id FROM users WHERE id = ? FOR UPDATE', [userId]);
+        await this.connection.execute('INSERT IGNORE INTO user_preferences (user_id) VALUES (?)', [userId]);
+        const fields = (['recommendations_enabled', 'notifications_enabled'] as const).filter(key => patch[key] !== undefined);
+        await this.connection.execute(`UPDATE user_preferences SET ${fields.map(key => `${key} = ?`).join(',')} WHERE user_id = ?`, [...fields.map(key => Number(patch[key])), userId]);
+        return this.preferences(userId);
     }
     history(userId: string): Promise<SignalConcert[]> {
         return this.management.rows<SignalConcert>(`SELECT c.id, v.city_id, owned.attended FROM concerts c

@@ -193,3 +193,35 @@ test("scanner has separate human-readable results for every backend outcome", ()
   ];
   assert.equal(new Set(codes.map(scanMessage)).size, codes.length);
 });
+
+test("malformed JSON envelopes never escape as TypeError or successful data", async () => {
+  for (const status of [200, 400, 401, 403, 404, 409, 422, 429, 500]) {
+    for (const payload of [null, [], {}, { success: true, data: null }, { error: { details: "broken" } }]) {
+      const client = new HttpClient("", memory().storage, async () => new Response(JSON.stringify(payload), { status }));
+      await assert.rejects(client.request("/concerts"), (error: unknown) =>
+        error instanceof ApiError && error.status === status && !error.message.includes("TypeError"));
+    }
+  }
+});
+
+test("server errors and validation internals are not displayed; business conflicts stay actionable", async () => {
+  for (const status of [422, 500, 502]) {
+    const client = new HttpClient("", memory().storage, async () => response({
+      code: "INTERNAL_ERROR", message: "SQL: secret", details: [{ message: "expected string, received null" }],
+    }, status));
+    await assert.rejects(client.request("/concerts"), (error: unknown) =>
+      error instanceof ApiError && !/SQL|secret|expected/.test(error.message));
+  }
+  const client = new HttpClient("", memory().storage, async () => response({ code: "INSUFFICIENT_STOCK", message: "No hay entradas suficientes." }, 409));
+  await assert.rejects(client.request("/purchases"), { code: "INSUFFICIENT_STOCK", message: "No hay entradas suficientes.", status: 409 });
+  const incomplete = new HttpClient("", memory().storage, async () => response({ code: "INCOMPLETE_CONCERT", message: "Publicar requiere al menos un artista, un género y un tipo de entrada." }, 422));
+  await assert.rejects(incomplete.request("/concerts/1/publish"), { code: "INCOMPLETE_CONCERT", message: "Publicar requiere al menos un artista, un género y un tipo de entrada.", status: 422 });
+});
+
+test("HTML proxy errors and rate limits have readable messages", async () => {
+  for (const status of [429, 502]) {
+    const client = new HttpClient("", memory().storage, async () => new Response("<html>proxy error</html>", { status }));
+    await assert.rejects(client.request("/concerts"), (error: unknown) =>
+      error instanceof ApiError && error.status === status && !error.message.includes("<html>") && /solicitudes|disponible/.test(error.message));
+  }
+});

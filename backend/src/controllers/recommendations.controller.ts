@@ -16,6 +16,6 @@ export class RecommendationsController {
     };
     update = async (req: Request, res: Response) => {
         emptySchema.parse(req.query);
-        res.json({ success: true, data: await this.service.setPreference(userId(req), req.body.recommendations_enabled) });
+        res.json({ success: true, data: await this.service.setPreference(userId(req), req.body) });
     };
 }

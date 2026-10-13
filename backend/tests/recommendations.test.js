@@ -53,7 +53,7 @@ beforeEach(async () => {
 test('preferences: authentication, strict boolean toggle, isolation and notification preference preserved', async () => {
     for (const path of ['/preferences','/recommendations']) await call('get',path,undefined,null).expect(401);
     await call('patch','/preferences',{recommendations_enabled:false},null).expect(401);
-    for (const body of [{},{recommendations_enabled:'false'},{recommendations_enabled:false,user_id:'102'},{recommendations_enabled:true,notifications_enabled:true}]) await call('patch','/preferences',body).expect(422);
+    for (const body of [{},{recommendations_enabled:'false'},{recommendations_enabled:false,user_id:'102'},{recommendations_enabled:true,notifications_enabled:'true'}]) await call('patch','/preferences',body).expect(422);
     await call('get','/recommendations?user_id=102').expect(422);
     await call('get','/preferences?user_id=102').expect(422);
     await call('patch','/preferences?user_id=102',{recommendations_enabled:false}).expect(422);

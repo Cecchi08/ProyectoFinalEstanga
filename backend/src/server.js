@@ -7,11 +7,13 @@ async function main() {
     const pool = createPool(env);
     const database = new MysqlDatabase(pool);
     try {
-        await database.read(async (repo) => { await repo.findUserById('0'); });
+        await pool.query('SELECT 1');
     }
-    catch {
+    catch (error) {
         await pool.end();
-        throw new Error('No se pudo conectar con MySQL o falta importar schema.sql.');
+        const code = error && typeof error === 'object' && 'code' in error ? ` (${String(error.code).slice(0, 40)})` : '';
+        throw new Error(`No se pudo conectar con MySQL${code}. Revise host, puerto, usuario, permisos y disponibilidad de la base.`,
+            { cause: error });
     }
     const mailer = new SmtpMailer(env);
     const server = createApp({ env, database, mailer }).listen(env.PORT, () => console.info(`VENTI API escuchando en puerto ${env.PORT}`));

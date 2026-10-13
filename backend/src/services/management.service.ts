@@ -1,7 +1,8 @@
 import { AppError } from '../utils/app-error.util.js';
 import { assertConcertOwner } from './permissions.service.js';
 import { ManagementRepository } from '../repositories/management.repository.ts';
-import type { Catalog, ConcertRow, Database, Principal, TicketRow } from '../types/management.types.ts';
+import { NotificationsRepository } from '../repositories/notifications.repository.ts';
+import type { Catalog, ConcertRow, Database, Principal, TicketRow, Row } from '../types/management.types.ts';
 import type { CatalogQuery, ConcertInput, ConcertPatch, ConcertQuery, TicketInput, TicketPatch } from '../validators/management.schemas.ts';
 
 const fail = (status: number, code: string, message: string): never => { throw new AppError(status, code, message, undefined); };
@@ -46,9 +47,9 @@ interface CatalogInput {
 
 export class ManagementService {
     constructor(private readonly db: Database) {}
-    private async run<T>(write: boolean, work: (repo: ManagementRepository) => Promise<T>): Promise<T> {
+    private async run<T>(write: boolean, work: (repo: ManagementRepository, notifications: NotificationsRepository) => Promise<T>): Promise<T> {
         try {
-            const execute = (repo: { connection: ConstructorParameters<typeof ManagementRepository>[0] }) => work(new ManagementRepository(repo.connection));
+            const execute = (repo: { connection: ConstructorParameters<typeof ManagementRepository>[0] }) => work(new ManagementRepository(repo.connection), new NotificationsRepository(repo.connection));
             return await (write ? this.db.transaction(execute) : this.db.read(execute));
         } catch (error) {
             const code = typeof error === 'object' && error !== null && 'code' in error ? error.code : undefined;
@@ -129,8 +130,9 @@ export class ManagementService {
         });
     }
     async concertUpdate(id: string, input: ConcertPatch, user: Principal) {
-        return this.run(true, async repo => {
+        return this.run(true, async (repo, notifications) => {
             const concert = await this.owned(repo, id, user); editable(concert);
+            const before = (await repo.concertDetails([concert]))[0];
             dates(input.start_datetime ?? concert.start_datetime, input.end_datetime === undefined ? concert.end_datetime : input.end_datetime);
             const { artist_ids, genre_ids, ...fields } = input;
             await repo.update('concerts', id, fields);
@@ -139,7 +141,17 @@ export class ManagementService {
             const updated = required(await repo.concert(id));
             for (const ticket of await repo.tickets(id)) ticketValid(ticket, updated);
             if (updated.status === 'PUBLISHED') await this.publishable(repo, updated);
-            return (await repo.concertDetails([updated]))[0];
+            const detail = (await repo.concertDetails([updated]))[0];
+            const schedule = concert.start_datetime.getTime() !== updated.start_datetime.getTime() || concert.end_datetime?.getTime() !== updated.end_datetime?.getTime();
+            const relations = (values: Row[]) => values.map(value => String(value.id)).sort().join(',');
+            const relevant = ['name', 'description', 'venue_id'].some(key => concert[key] !== updated[key]) ||
+                relations(before.artists) !== relations(detail.artists) || relations(before.genres) !== relations(detail.genres);
+            if (concert.status === 'PUBLISHED' && (schedule || relevant)) {
+                const when = updated.start_datetime.toISOString().replace('T', ' ').slice(0, 16);
+                await notifications.concert(id, schedule ? 'SCHEDULE_CHANGE' : 'IMPORTANT_INFO', schedule ? 'Cambio de horario' : 'Información del concierto',
+                    `${String(updated.name).slice(0, 180)}: información actualizada. Inicio: ${when} UTC. Lugar: ${String(updated.venue_name).slice(0, 150)}.`);
+            }
+            return detail;
         });
     }
     async concertDelete(id: string, user: Principal): Promise<void> {
@@ -151,7 +163,7 @@ export class ManagementService {
         });
     }
     async concertTransition(id: string, action: 'publish' | 'cancel', user: Principal) {
-        return this.run(true, async repo => {
+        return this.run(true, async (repo, notifications) => {
             const concert = await this.owned(repo, id, user);
             if (action === 'publish') {
                 if (concert.status !== 'DRAFT') fail(409, 'INVALID_STATE', 'Solo se publican borradores.');
@@ -160,6 +172,7 @@ export class ManagementService {
             } else if (concert.status !== 'CANCELLED') {
                 if (!['DRAFT', 'PUBLISHED'].includes(concert.status)) fail(409, 'INVALID_STATE', 'El concierto finalizado no se puede cancelar.');
                 await repo.update('concerts', id, { status_id: await repo.statusId('CANCELLED') });
+                await notifications.concert(id, 'CONCERT_CANCELLED', 'Concierto cancelado', `${String(concert.name)} fue cancelado. Consultá el estado de tus entradas en tu compra.`);
             }
             return (await repo.concertDetails([required(await repo.concert(id))]))[0];
         });

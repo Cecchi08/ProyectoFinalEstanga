@@ -1,4 +1,6 @@
 import { router } from "expo-router";
+import { useEffect } from 'react';
+import { useNotifications } from '../../contexts/NotificationsContext';
 import { View } from "react-native";
 import { usePreferences } from "../../contexts/PreferencesContext";
 import { useResource } from "../../hooks/useResource";
@@ -18,6 +20,7 @@ interface Recommendations {
   recommendations: { concert: Concert; reason: string }[];
 }
 export default function DiscoverScreen() {
+  const { reload: reloadNotifications } = useNotifications();
   const preferences = usePreferences();
   const active =
     preferences.enabled === true && !preferences.loading && !preferences.saving;
@@ -27,6 +30,7 @@ export default function DiscoverScreen() {
   const off =
     preferences.enabled === false ||
     (active && resource.result?.data.enabled === false);
+  useEffect(() => { if (resource.result) void reloadNotifications(); }, [resource.result, reloadNotifications]);
   return (
     <Page
       title="Venti Discover"

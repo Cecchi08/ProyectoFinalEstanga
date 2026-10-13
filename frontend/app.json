@@ -14,10 +14,21 @@
           "cameraPermission": "Permitir a VENTI escanear entradas QR.",
           "recordAudioAndroid": false
         }
-      ]
+      ],
+      "expo-status-bar",
+      "expo-web-browser"
     ],
-    "web": { "bundler": "metro", "output": "single", "name": "VENTI" },
-    "ios": { "supportsTablet": true, "bundleIdentifier": "com.venti.app" },
-    "android": { "package": "com.venti.app" }
+    "web": {
+      "bundler": "metro",
+      "output": "single",
+      "name": "VENTI"
+    },
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "com.venti.app"
+    },
+    "android": {
+      "package": "com.venti.app"
+    }
   }
 }

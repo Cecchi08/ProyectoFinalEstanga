@@ -1,6 +1,7 @@
 import type { PoolConnection, ResultSetHeader, RowDataPacket } from 'mysql2/promise';
 import type { Row, Value, TicketRow, ConcertRow } from '../types/management.types.ts';
 import type { PageQuery } from '../validators/commerce.schemas.ts';
+import { NotificationsRepository } from './notifications.repository.ts';
 
 export interface PurchaseRow extends Row { id: string; user_id: string; status: string; expires_at: Date | null }
 export interface ItemRow extends Row { id: string; ticket_type_id: string; concert_id: string; quantity: number; unit_price: string }
@@ -20,7 +21,8 @@ const ticketSelect = `SELECT t.id, t.purchase_item_id, t.qr_token, ts.code AS st
     ${ticketJoins} JOIN concert_statuses cs ON cs.id = c.status_id JOIN venues v ON v.id = c.venue_id`;
 
 export class CommerceRepository {
-    constructor(private readonly connection: PoolConnection) {}
+    readonly notifications: NotificationsRepository;
+    constructor(private readonly connection: PoolConnection) { this.notifications = new NotificationsRepository(connection); }
     async rows<T extends Row = Row>(sql: string, params: Value[] = []): Promise<T[]> {
         const [rows] = await this.connection.execute<RowDataPacket[]>(sql, params);
         return (rows as T[]).map(row => Object.fromEntries(Object.entries(row).map(([key, value]) =>

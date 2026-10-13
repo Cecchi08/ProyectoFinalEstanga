@@ -5,14 +5,17 @@ import { useAction } from "../components/ui";
 
 interface Preferences {
   recommendations_enabled: boolean;
+  notifications_enabled: boolean;
 }
 interface PreferencesState {
   enabled: boolean | null;
+  notificationsEnabled: boolean | null;
   loading: boolean;
   saving: boolean;
   error: string;
   reload(): Promise<void>;
   setEnabled(enabled: boolean): Promise<void>;
+  setNotificationsEnabled(enabled: boolean): Promise<void>;
 }
 const Context = createContext<PreferencesState | null>(null);
 export function PreferencesProvider({ children }: PropsWithChildren) {
@@ -22,10 +25,15 @@ export function PreferencesProvider({ children }: PropsWithChildren) {
     <Context.Provider
       value={{
         enabled: resource.result?.data.recommendations_enabled ?? null,
+        notificationsEnabled: resource.result?.data.notifications_enabled ?? null,
         loading: resource.loading,
         saving: action.busy,
         error: resource.error || action.error,
         reload: resource.reload,
+        setNotificationsEnabled: (enabled) => action.run(async () => {
+          await api.request<Preferences>("/preferences", { method: "PATCH", body: { notifications_enabled: enabled } });
+          await resource.reload();
+        }),
         setEnabled: (enabled) =>
           action.run(async () => {
             await api.request<Preferences>("/preferences", {
