@@ -392,6 +392,9 @@ export class MarketplaceService {
                 return { expired: true as const };
             }
             if (!['HOLD', 'CONFIRMED'].includes(String(locked.status_code))) fail(409, 'INVALID_STATE', 'La reserva ya está cerrada.');
+            // Once confirmed, the booking belongs to the client: the venue cannot back out (marketplace.admin still can, as moderation).
+            if (locked.status_code === 'CONFIRMED' && reservation.user_id !== user.id && !admin(user))
+                fail(409, 'RESERVATION_CONFIRMED', 'El espacio no puede cancelar una reserva confirmada.');
             if (locked.status_code === 'CONFIRMED' && (locked.event_start_at as Date) <= new Date()) fail(409, 'CANCELLATION_CLOSED', 'El evento ya comenzó.');
             await repo.setReservationStatus(id, user.id, 'CANCELLED', reason);
             const refunded = await repo.refundPayments(id);

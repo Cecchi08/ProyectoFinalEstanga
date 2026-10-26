@@ -6,8 +6,9 @@ import { slugify } from '../repositories/management.repository.ts';
 import { audit } from '../repositories/audit.repository.ts';
 import { assertConcertOwner } from './permissions.service.js';
 import type { Database, Principal, Row } from '../types/management.types.ts';
-import type { OfferingInput, OfferingPatch, OfferingQuery, ProviderInput, ProviderPatch, ProviderQuery, ServiceQuoteList, ServiceQuoteRequest,
-    ServiceQuoteResponse } from '../validators/services.schemas.ts';
+import type { OfferingInput, OfferingPatch, OfferingQuery, ProviderInput, ProviderPatch, ProviderQuery, ServiceAvailabilityQuery, ServiceQuoteList,
+    ServiceQuoteRequest, ServiceQuoteResponse } from '../validators/services.schemas.ts';
+import type { MemberInput, MemberRole } from '../validators/marketplace.schemas.ts';
 
 const fail = (status: number, code: string, message: string): never => { throw new AppError(status, code, message, undefined); };
 const required = <T>(value: T | undefined, message = 'Recurso inexistente.'): T => value ?? fail(404, 'NOT_FOUND', message);
@@ -56,18 +57,30 @@ export class ServicesService {
     categories() { return this.run(false, repo => repo.categories()); }
     providers(query: ProviderQuery) { return this.run(false, repo => repo.providers(query)); }
     offerings(query: OfferingQuery) { return this.run(false, repo => repo.offerings(query)); }
+    // member_role is the viewer's role in the company (null for outsiders), so a client knows whether to offer editing.
     provider(id: string, user?: Principal) {
         return this.run(false, async repo => {
             const { provider, insider } = await this.visibleProvider(repo, id, user);
-            return { ...provider, offerings: await repo.providerOfferings(id, insider) };
+            const member_role = user ? await repo.memberRole(id, user.id) ?? null : null;
+            return { ...provider, member_role, offerings: await repo.providerOfferings(id, insider) };
         });
     }
-    async offering(id: string, user?: Principal) {
+    private async visibleOffering(repo: ServicesRepository, id: string, user?: Principal) {
+        const offering = required(await repo.offering(id), 'Servicio inexistente.');
+        const { insider } = await this.visibleProvider(repo, String(offering.provider_id), user);
+        if (offering.status !== 'PUBLISHED' && !insider) fail(404, 'NOT_FOUND', 'Servicio inexistente.');
+        return { offering, insider };
+    }
+    offering(id: string, user?: Principal) { return this.run(false, async repo => (await this.visibleOffering(repo, id, user)).offering); }
+    // Contracted (ACCEPTED) windows of an offering. Informational: a company may serve several events at once, so it decides
+    // when answering a quote. Outsiders see only the busy windows; members also see which quote holds each one.
+    availability(id: string, query: ServiceAvailabilityQuery, user?: Principal) {
         return this.run(false, async repo => {
-            const offering = required(await repo.offering(id), 'Servicio inexistente.');
-            const { insider } = await this.visibleProvider(repo, String(offering.provider_id), user);
-            if (offering.status !== 'PUBLISHED' && !insider) fail(404, 'NOT_FOUND', 'Servicio inexistente.');
-            return offering;
+            const { insider } = await this.visibleOffering(repo, id, user);
+            const busy = await repo.contracted(id, query.from, query.to);
+            return { offering_id: id, from: query.from, to: query.to,
+                busy: busy.map(slot => insider ? slot : { starts_at: slot.starts_at, ends_at: slot.ends_at }),
+                ...(query.exact ? { available: busy.length === 0 } : {}) };
         });
     }
 
@@ -112,6 +125,59 @@ export class ServicesService {
                     entity: { type: 'SERVICE_PROVIDER', id }, details: { provider_id: id } });
             }
             return repo.provider(id);
+        });
+    }
+
+    // ---- Members: same rules as venue organizations. OWNER/ADMIN manage, only an OWNER (or services.admin) touches OWNER rows,
+    // one OWNER always remains, and only accounts whose profile operates companies (EMPRESA_SERVICIOS) join ----
+    private async ownerActor(repo: ServicesRepository, user: Principal, providerId: string): Promise<void> {
+        if (!admin(user) && await repo.memberRole(providerId, user.id) !== 'OWNER') fail(403, 'FORBIDDEN', 'Solo un OWNER gestiona otros OWNER.');
+    }
+    // Same order as the company edits (service_providers, then organizations), so member changes serialize with them.
+    private async lockCompany(repo: ServicesRepository, id: string): Promise<void> {
+        required(await repo.lockProvider(id), 'Empresa inexistente.');
+        await repo.lockOrganization(id);
+    }
+    members(providerId: string, user: Principal) {
+        return this.run(false, async repo => {
+            required(await repo.provider(providerId), 'Empresa inexistente.');
+            await this.operator(repo, user, providerId);
+            return repo.members(providerId);
+        });
+    }
+    addMember(providerId: string, input: MemberInput, user: Principal) {
+        return this.run(true, async repo => {
+            await this.lockCompany(repo, providerId);
+            await this.operator(repo, user, providerId, true);
+            if (input.member_role === 'OWNER') await this.ownerActor(repo, user, providerId);
+            const candidate = await repo.memberCandidate(input.email);
+            if (!candidate) return fail(422, 'INVALID_MEMBER', 'No hay una cuenta activa registrada con ese email.');
+            if (!candidate.provider) fail(422, 'MEMBER_NOT_SERVICES', 'La cuenta necesita el perfil EMPRESA_SERVICIOS para operar la empresa.');
+            if (await repo.memberRole(providerId, candidate.id)) fail(409, 'ALREADY_MEMBER', 'La cuenta ya pertenece a la empresa.');
+            await repo.addMember(providerId, candidate.id, input.member_role);
+            return repo.members(providerId);
+        });
+    }
+    updateMember(providerId: string, userId: string, role: MemberRole, user: Principal) {
+        return this.run(true, async repo => {
+            await this.lockCompany(repo, providerId);
+            await this.operator(repo, user, providerId, true);
+            const current = await repo.memberRole(providerId, userId) ?? fail(404, 'NOT_FOUND', 'La cuenta no pertenece a la empresa.');
+            if (current === 'OWNER' || role === 'OWNER') await this.ownerActor(repo, user, providerId);
+            if (current === 'OWNER' && role !== 'OWNER' && await repo.owners(providerId) === 1) fail(409, 'LAST_OWNER', 'La empresa necesita al menos un OWNER.');
+            await repo.setMemberRole(providerId, userId, role);
+            return repo.members(providerId);
+        });
+    }
+    removeMember(providerId: string, userId: string, user: Principal) {
+        return this.run(true, async repo => {
+            await this.lockCompany(repo, providerId);
+            // Any member may leave; removing someone else requires OWNER/ADMIN.
+            await this.operator(repo, user, providerId, userId !== user.id);
+            const current = await repo.memberRole(providerId, userId) ?? fail(404, 'NOT_FOUND', 'La cuenta no pertenece a la empresa.');
+            if (current === 'OWNER' && userId !== user.id) await this.ownerActor(repo, user, providerId);
+            if (current === 'OWNER' && await repo.owners(providerId) === 1) fail(409, 'LAST_OWNER', 'La empresa necesita al menos un OWNER.');
+            await repo.removeMember(providerId, userId);
         });
     }
 

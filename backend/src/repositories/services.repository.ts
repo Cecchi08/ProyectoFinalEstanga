@@ -2,6 +2,7 @@ import { randomBytes } from 'node:crypto';
 import type { PoolConnection, ResultSetHeader, RowDataPacket } from 'mysql2/promise';
 import type { Fields, Row, Value } from '../types/management.types.ts';
 import type { OfferingQuery, ProviderQuery, ServiceQuoteList } from '../validators/services.schemas.ts';
+import { PERMISSIONS as P } from '../utils/access.util.js';
 
 const normalize = <T extends Row>(row: T): T => Object.fromEntries(Object.entries(row).map(([key, value]) =>
     [key, value !== null && (key === 'id' || key.endsWith('_id')) ? String(value) : value])) as T;
@@ -106,9 +107,39 @@ export class ServicesRepository {
         const data = await this.rows(`${providerSelect} WHERE ${clause} ORDER BY sp.is_verified DESC, o.name, o.id LIMIT ? OFFSET ?`, [...values, ...limit(query)]);
         return { data: data.map(flagged), total };
     }
+    // Each company the user belongs to, with the user's member_role in it.
     async mine(userId: string) {
-        return (await this.rows(`${providerSelect} JOIN organization_members m ON m.organization_id = o.id AND m.user_id = ?
-            ORDER BY o.name, o.id`, [userId])).map(flagged);
+        return (await this.rows(`SELECT p.*, m.member_role FROM (${providerSelect}) p
+            JOIN organization_members m ON m.organization_id = p.id AND m.user_id = ? ORDER BY p.name, p.id`, [userId])).map(flagged);
+    }
+
+    // ---- Members (organization_members, same table as venue organizations) ----
+    async lockOrganization(id: string): Promise<boolean> {
+        return (await this.rows('SELECT id FROM organizations WHERE id = ? FOR UPDATE', [id])).length > 0;
+    }
+    members(organizationId: string) {
+        return this.rows(`SELECT m.user_id, u.first_name, u.last_name, u.email, m.member_role, m.created_at
+            FROM organization_members m JOIN users u ON u.id = m.user_id WHERE m.organization_id = ?
+            ORDER BY FIELD(m.member_role, 'OWNER', 'ADMIN', 'STAFF'), m.created_at, m.user_id`, [organizationId]);
+    }
+    // An active registered account, and whether one of its profiles lets it operate a company.
+    async memberCandidate(email: string): Promise<{ id: string; provider: boolean } | undefined> {
+        const row = (await this.rows(`SELECT u.id, EXISTS (SELECT 1 FROM user_roles ur JOIN role_permissions rp ON rp.role_id = ur.role_id
+            JOIN permissions p ON p.id = rp.permission_id WHERE ur.user_id = u.id AND p.code IN (?, ?)) AS provider
+            FROM users u WHERE u.email = ? AND u.status = 'ACTIVE' AND u.is_guest = 0`, [P.servicesManage, P.serviceQuotesRespond, email]))[0];
+        return row ? { id: String(row.id), provider: Number(row.provider) === 1 } : undefined;
+    }
+    addMember(organizationId: string, userId: string, role: string) {
+        return this.execute('INSERT INTO organization_members (organization_id, user_id, member_role) VALUES (?, ?, ?)', [organizationId, userId, role]);
+    }
+    setMemberRole(organizationId: string, userId: string, role: string) {
+        return this.execute('UPDATE organization_members SET member_role = ? WHERE organization_id = ? AND user_id = ?', [role, organizationId, userId]);
+    }
+    removeMember(organizationId: string, userId: string) {
+        return this.execute('DELETE FROM organization_members WHERE organization_id = ? AND user_id = ?', [organizationId, userId]);
+    }
+    async owners(organizationId: string): Promise<number> {
+        return Number((await this.rows("SELECT COUNT(*) AS total FROM organization_members WHERE organization_id = ? AND member_role = 'OWNER'", [organizationId]))[0].total);
     }
 
     // ---- Offerings ----
@@ -117,6 +148,11 @@ export class ServicesRepository {
     async offering(id: string, lock = false) {
         if (lock) await this.rows('SELECT id FROM service_offerings WHERE id = ? FOR UPDATE', [id]);
         return (await this.rows(`${offeringSelect} WHERE so.id = ?`, [id])).map(flagged)[0];
+    }
+    // Contracted windows of an offering: ACCEPTED quotes whose service overlaps [from, to).
+    contracted(offeringId: string, from: Date, to: Date) {
+        return this.rows(`SELECT id AS quote_id, event_name, event_start_at AS starts_at, event_end_at AS ends_at FROM service_quotes
+            WHERE offering_id = ? AND status = 'ACCEPTED' AND event_start_at < ? AND event_end_at > ? ORDER BY event_start_at, id`, [offeringId, to, from]);
     }
     async providerOfferings(providerId: string, all: boolean) {
         return (await this.rows(`${offeringSelect} WHERE so.organization_id = ?${all ? '' : " AND so.status = 'PUBLISHED'"} ORDER BY sc.name, so.name, so.id`,

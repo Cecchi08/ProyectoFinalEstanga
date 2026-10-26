@@ -2,7 +2,9 @@ import type { Request, Response } from 'express';
 import { unauthorized } from '../utils/app-error.util.js';
 import { ServicesService } from '../services/services.service.ts';
 import { idSchema } from '../validators/management.schemas.ts';
-import { offeringQuerySchema, providerQuerySchema, serviceCancelSchema, serviceNotesSchema, serviceQuoteListSchema } from '../validators/services.schemas.ts';
+import { offeringQuerySchema, providerQuerySchema, serviceAvailabilitySchema, serviceCancelSchema, serviceNotesSchema, serviceQuoteListSchema }
+    from '../validators/services.schemas.ts';
+import { memberPatchSchema } from '../validators/marketplace.schemas.ts';
 
 const principal = (req: Request) => { if (!req.user) throw unauthorized(); return req.user; };
 const id = (req: Request) => idSchema.parse(req.params.id);
@@ -17,7 +19,16 @@ export class ServicesController {
     offerings = async (req: Request, res: Response) => { const query = offeringQuerySchema.parse(req.query); page(res, await this.service.offerings(query), query); };
     provider = async (req: Request, res: Response) => { ok(res, await this.service.provider(id(req), req.user)); };
     offering = async (req: Request, res: Response) => { ok(res, await this.service.offering(id(req), req.user)); };
+    availability = async (req: Request, res: Response) => { ok(res, await this.service.availability(id(req), serviceAvailabilitySchema.parse(req.query), req.user)); };
     mine = async (req: Request, res: Response) => { ok(res, await this.service.mine(principal(req))); };
+    members = async (req: Request, res: Response) => { ok(res, await this.service.members(id(req), principal(req))); };
+    addMember = async (req: Request, res: Response) => { ok(res, await this.service.addMember(id(req), req.body, principal(req)), 201); };
+    updateMember = async (req: Request, res: Response) => {
+        ok(res, await this.service.updateMember(id(req), idSchema.parse(req.params.userId), memberPatchSchema.parse(req.body).member_role, principal(req)));
+    };
+    removeMember = async (req: Request, res: Response) => {
+        await this.service.removeMember(id(req), idSchema.parse(req.params.userId), principal(req)); res.sendStatus(204);
+    };
     createProvider = async (req: Request, res: Response) => { ok(res, await this.service.createProvider(req.body, principal(req)), 201); };
     updateProvider = async (req: Request, res: Response) => { ok(res, await this.service.updateProvider(id(req), req.body, principal(req))); };
     providerStatus = (status: 'PUBLISHED' | 'ARCHIVED') => async (req: Request, res: Response) => { ok(res, await this.service.providerStatus(id(req), status, principal(req))); };

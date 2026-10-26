@@ -5,6 +5,7 @@ import { PERMISSIONS as P } from '../utils/access.util.js';
 import { ServicesController } from '../controllers/services.controller.ts';
 import { ServicesService } from '../services/services.service.ts';
 import { emptySchema, idSchema } from '../validators/management.schemas.ts';
+import { memberSchema } from '../validators/marketplace.schemas.ts';
 import { offeringPatchSchema, offeringSchema, providerPatchSchema, providerSchema, serviceQuoteRequestSchema, serviceQuoteResponseSchema }
     from '../validators/services.schemas.ts';
 import type { Database } from '../types/management.types.ts';
@@ -29,6 +30,7 @@ export function servicesRoutes(database: Database, authenticate: RequestHandler)
     router.get('/services/providers/:id', optionalAuth, controller.provider);
     router.get('/services/offerings', controller.offerings);
     router.get('/services/offerings/:id', optionalAuth, controller.offering);
+    router.get('/services/offerings/:id/availability', optionalAuth, controller.availability);
 
     router.post('/services/providers', authenticate, manage, validateRequest(providerSchema), controller.createProvider);
     router.patch('/services/providers/:id', authenticate, manage, validateRequest(providerPatchSchema), controller.updateProvider);
@@ -36,6 +38,11 @@ export function servicesRoutes(database: Database, authenticate: RequestHandler)
     router.post('/services/providers/:id/archive', authenticate, manage, empty, controller.providerStatus('ARCHIVED'));
     router.post('/services/providers/:id/verify', authenticate, requirePermission(P.servicesAdmin), empty, controller.verify(true));
     router.post('/services/providers/:id/unverify', authenticate, requirePermission(P.servicesAdmin), empty, controller.verify(false));
+    // Members: any member reads the list; OWNER/ADMIN manage it (rules in the service, as for venue organizations).
+    router.get('/services/providers/:id/members', authenticate, manage, controller.members);
+    router.post('/services/providers/:id/members', authenticate, manage, validateRequest(memberSchema), controller.addMember);
+    router.patch('/services/providers/:id/members/:userId', authenticate, manage, controller.updateMember);
+    router.delete('/services/providers/:id/members/:userId', authenticate, manage, controller.removeMember);
     router.post('/services/providers/:id/offerings', authenticate, manage, validateRequest(offeringSchema), controller.createOffering);
     router.patch('/services/offerings/:id', authenticate, manage, validateRequest(offeringPatchSchema), controller.updateOffering);
     router.post('/services/offerings/:id/publish', authenticate, manage, empty, controller.offeringStatus('PUBLISHED'));

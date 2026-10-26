@@ -1,7 +1,7 @@
 import { z } from 'zod';
 import { cityIdSchema, idSchema, nameSchema } from './management.schemas.ts';
 import { pageSchema } from './commerce.schemas.ts';
-import { organizationSchema } from './marketplace.schemas.ts';
+import { MARKETPLACE_UTC_OFFSET, organizationSchema } from './marketplace.schemas.ts';
 
 const text = (max: number) => z.string().trim().max(max).nullable().optional();
 const money = z.number().min(0).max(9999999999.99).refine(value => Number(value.toFixed(2)) === value, 'Máximo dos decimales.');
@@ -48,6 +48,14 @@ export const offeringQuerySchema = pageSchema.extend({
     q: nameSchema(150).optional(), city_id: idSchema.optional(), category: code.optional(), provider_id: idSchema.optional(),
     max_price: z.coerce.number().min(0).max(9999999999.99).optional(),
 }).strict();
+// Like venue availability: a calendar day in Argentina, or an exact window (then `available` is returned); at most 31 days.
+export const serviceAvailabilitySchema = z.strictObject({ date: z.iso.date().optional(), from: when.optional(), to: when.optional() })
+    .refine(q => q.date ? !q.from && !q.to : q.from && q.to, 'Enviar date, o from y to.')
+    .transform(q => {
+        const from = q.date ? new Date(`${q.date}T00:00:00${MARKETPLACE_UTC_OFFSET}`) : q.from as Date;
+        return { from, to: q.date ? new Date(from.getTime() + 86400000) : q.to as Date, exact: !q.date };
+    })
+    .refine(q => q.from < q.to && q.to.getTime() - q.from.getTime() <= 31 * 86400000, 'Rango inválido (máximo 31 días).');
 export const serviceQuoteListSchema = pageSchema.extend({
     as: z.enum(['requester', 'provider']).default('requester'), status: z.string().regex(/^[A-Z]{1,20}$/).optional(), concert_id: idSchema.optional(),
 }).strict();
@@ -61,3 +69,4 @@ export type ServiceQuoteResponse = z.output<typeof serviceQuoteResponseSchema>;
 export type ProviderQuery = z.output<typeof providerQuerySchema>;
 export type OfferingQuery = z.output<typeof offeringQuerySchema>;
 export type ServiceQuoteList = z.output<typeof serviceQuoteListSchema>;
+export type ServiceAvailabilityQuery = z.output<typeof serviceAvailabilitySchema>;
