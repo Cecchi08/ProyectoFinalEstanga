@@ -77,6 +77,7 @@ export default function Shell() {
     { path: "/recommendations", label: "Venti Discover" },
     { path: "/tickets", label: "Entradas" },
     { path: "/marketplace", label: "Espacios" },
+    { path: "/services", label: "Servicios" },
     { path: "/notifications", label: "Notificaciones" },
     { path: "/profile", label: "Mi cuenta" },
     ...(auth.can("artist.profile.manage", "artists.admin")

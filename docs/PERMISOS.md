@@ -19,7 +19,7 @@ El catálogo de permisos del código está en `backend/src/utils/access.util.js`
 | ARTISTA | Perfil de artista o banda; busca espacios, pide presupuestos y reserva salas. | Autoservicio o un admin |
 | ORGANIZADOR | Publica conciertos, vende entradas, asigna staff, ve sus estadísticas y reserva espacios. | Un admin lo asigna |
 | VENUE | Gestiona establecimientos y espacios de su organización, responde presupuestos y reservas. | Un admin lo asigna |
-| EMPRESA_SERVICIOS | Servicios para eventos. **Sin tablas todavía**: solo tiene permisos reservados. | Un admin lo asigna |
+| EMPRESA_SERVICIOS | Empresa de servicios para eventos (sonido, iluminación, seguridad…): catálogo, integrantes y respuesta de cotizaciones. No pide cotizaciones. | Un admin lo asigna |
 | ADMIN | Todo. Es el único con `users.manage`, `catalogs.manage` y los permisos globales. | Un admin lo asigna |
 | GUEST | Invitado sin registro completo. **No se asigna ni se quita a mano.** | Flujo de invitado |
 
@@ -51,8 +51,10 @@ Los marcados con **(nuevo)** se crearon en esta etapa.
 | `marketplace.admin` | ADMIN | Cualquier organización, espacio, presupuesto o reserva |
 | `artist.profile.manage` | ARTISTA, ADMIN | Crear y gestionar perfiles de artista propios |
 | `artists.admin` (nuevo) | ADMIN | Gestionar cualquier perfil de artista |
-| `services.manage` (nuevo) | EMPRESA_SERVICIOS, ADMIN | Reservado: catálogo de servicios, sin tablas todavía |
-| `services.quotes.respond` (nuevo) | EMPRESA_SERVICIOS, ADMIN | Reservado: presupuestos de servicios, sin tablas todavía |
+| `services.manage` (nuevo) | EMPRESA_SERVICIOS, ADMIN | Empresa propia, su catálogo y sus integrantes, siempre con membresía |
+| `services.quotes.respond` (nuevo) | EMPRESA_SERVICIOS, ADMIN | Responder y rechazar cotizaciones de servicios de su empresa |
+| `services.quotes.request` (nuevo) | ORGANIZADOR, VENUE, ADMIN | Pedir, aceptar y cancelar cotizaciones de servicios |
+| `services.admin` (nuevo) | ADMIN | Cualquier empresa de servicios; verificar y quitar la verificación |
 
 ## Endpoints
 
@@ -108,7 +110,24 @@ La columna **Además** indica la regla de propiedad o membresía que se valida e
 | `GET /marketplace/quotes`, `/marketplace/quotes/:id` | `quotes.request`, `quotes.respond` o `marketplace.admin` | El propio, o el de su organización; la vista `as=provider` exige `quotes.respond` |
 | `POST /marketplace/quotes/:id/respond`, `/reject` | `marketplace.quotes.respond` o `marketplace.admin` | Miembro de la organización del espacio |
 | `POST /marketplace/reservations`, `POST /marketplace/reservations/:id/payments` | `marketplace.reservations.create` o `marketplace.admin` | Paga solo quien reservó; el pago es siempre simulado |
-| `GET /marketplace/reservations`, `/marketplace/reservations/:id`, `POST …/:id/cancel` | `reservations.create`, `reservations.manage` o `marketplace.admin` | La propia, o la de su organización; la vista `as=provider` exige `reservations.manage` |
+| `GET /marketplace/reservations`, `/marketplace/reservations/:id`, `POST …/:id/cancel` | `reservations.create`, `reservations.manage` o `marketplace.admin` | La propia, o la de su organización; la vista `as=provider` exige `reservations.manage`. Una reserva CONFIRMED solo la cancela quien reservó (el espacio recibe `409 RESERVATION_CONFIRMED`); `marketplace.admin` conserva la baja |
+| `POST /marketplace/reservations/:id/accept`, `/reject` (`reason`) | `marketplace.reservations.manage` o `marketplace.admin` | Miembro de la organización del espacio; solo reservas directas en HOLD; aceptar exige el pago simulado aprobado |
+
+### Empresas de servicios
+La empresa es una organización (`organizations` + `organization_members`) con perfil en `service_providers`. Venti no cobra los servicios: aceptar una cotización la deja contratada y el pago se arregla entre las partes.
+
+| Endpoint | Acceso | Además |
+|---|---|---|
+| `GET /services/categories`, `/services/providers`, `/services/offerings` | público | Solo empresas publicadas de organizaciones activas y servicios publicados |
+| `GET /services/providers/:id`, `/services/offerings/:id` | público, con token opcional | Los miembros y `services.admin` ven también borradores y archivados; la empresa trae el `member_role` de quien consulta |
+| `GET /services/offerings/:id/availability` (`date`, o `from` y `to`; máximo 31 días) | público, con token opcional | Franjas contratadas (cotizaciones ACCEPTED). Es informativa: no bloquea pedidos. Los miembros ven además qué cotización ocupa cada franja |
+| `GET /services/providers/mine`, `POST /services/providers` | `services.manage` o `services.admin` | Quien crea la empresa queda como OWNER; nace en DRAFT |
+| `PATCH /services/providers/:id`, `POST …/:id/publish`, `/archive`, `POST …/:id/offerings`, `PATCH /services/offerings/:id`, `POST …/offerings/:id/publish`, `/archive` | `services.manage` o `services.admin` | OWNER/ADMIN de la empresa |
+| `GET/POST /services/providers/:id/members`, `PATCH/DELETE …/members/:userId` | `services.manage` o `services.admin` | Las mismas reglas que en espacios: ver, cualquier miembro; gestionan OWNER/ADMIN; solo un OWNER toca a otro OWNER; siempre queda uno; solo se suman cuentas con EMPRESA_SERVICIOS |
+| `POST /services/providers/:id/verify`, `/unverify` | `services.admin` | Queda en `admin_audit_log` |
+| `POST /services/quotes`, `POST /services/quotes/:id/accept`, `/cancel` | `services.quotes.request` o `services.admin` | Aceptar y cancelar: solo quien la pidió; no se pide a la empresa propia; el concierto o la reserva vinculados tienen que ser propios |
+| `GET /services/quotes`, `/services/quotes/:id` | `services.quotes.request`, `services.quotes.respond` o `services.admin` | La vista `as=requester` exige `quotes.request` y `as=provider` exige `quotes.respond` |
+| `POST /services/quotes/:id/respond`, `/reject` | `services.quotes.respond` o `services.admin` | Miembro de la empresa |
 
 ### Perfiles de artista
 | Endpoint | Acceso | Además |

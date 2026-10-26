@@ -87,6 +87,7 @@ export default function MarketplaceScreen() {
         {can("marketplace.establishments.manage", "marketplace.admin") && (
           <Button title="Gestionar establecimientos" secondary onPress={() => router.push("/marketplace/manage")} />
         )}
+        <Button title="Servicios para eventos" secondary onPress={() => router.push("/services")} />
       </View>
       <Card>
         <Field label="Buscar espacios" value={draft.q ?? ""} onChangeText={(v) => set("q", v)} onSubmitEditing={apply} />

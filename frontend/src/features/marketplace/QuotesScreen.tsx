@@ -10,19 +10,23 @@ import { ActionFeedback, Button, Card, Copy, Field, Page, Pager, ResourceState, 
 import { at, isDate, range } from "./time";
 
 // Shared by quotes and reservations: requester view by default, provider view for organization members.
-// `as=provider` is authorized by a different permission on each list, so the caller passes it.
-export function useListView(statuses: string[], providerPermissions: Permission[]) {
+// `as=provider` is authorized by a different permission on each list, so the caller passes it. When the requester view
+// also needs a permission (service quotes), an account without it only gets the provider view.
+export function useListView(statuses: string[], providerPermissions: Permission[],
+  { requesterPermissions, providerLabel = "Recibidos en mis espacios" }: { requesterPermissions?: Permission[]; providerLabel?: string } = {}) {
   const { can } = useAuth();
   const provider = can(...providerPermissions);
-  const [as, setAs] = useState<"requester" | "provider">("requester");
+  const requester = !requesterPermissions || can(...requesterPermissions);
+  const [choice, setAs] = useState<"requester" | "provider">("requester");
+  const as = requester ? choice : "provider";
   const [status, setStatus] = useState("");
   const [page, setPage] = useState(1);
   const controls = (
     <>
-      {provider && (
+      {provider && requester && (
         <View style={styles.row}>
           {(["requester", "provider"] as const).map((value) => (
-            <Button key={value} title={value === "requester" ? "Pedidos míos" : "Recibidos en mis espacios"} secondary={as !== value}
+            <Button key={value} title={value === "requester" ? "Pedidos míos" : providerLabel} secondary={as !== value}
               onPress={() => { setAs(value); setPage(1); }} />
           ))}
         </View>

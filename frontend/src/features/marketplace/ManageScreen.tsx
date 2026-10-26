@@ -59,15 +59,19 @@ export default function ManageScreen() {
   );
 }
 
-function MembersPanel({ organization }: { organization: Organization }) {
+// Also used by service companies: same organization_members rules, another endpoint and another required profile.
+// `admin` is the platform override (marketplace.admin / services.admin) for someone who is not a member.
+export function MembersPanel({ organization, path = `/marketplace/organizations/${organization.id}/members`, profile = "VENUE", admin = false }: {
+  organization: Pick<Organization, "id" | "name"> & { member_role?: Organization["member_role"] | null };
+  path?: string; profile?: string; admin?: boolean;
+}) {
   const { user } = useAuth();
-  const members = useResource<Member[]>(`/marketplace/organizations/${organization.id}/members`);
+  const members = useResource<Member[]>(path);
   const [email, setEmail] = useState("");
   const [role, setRole] = useState<Member["member_role"]>("STAFF");
   const action = useAction();
-  const path = `/marketplace/organizations/${organization.id}/members`;
   const run = (work: () => Promise<unknown>, message: string) => action.run(async () => { await work(); await members.reload(); action.setMessage(message); });
-  const manage = ["OWNER", "ADMIN"].includes(organization.member_role);
+  const manage = admin || ["OWNER", "ADMIN"].includes(organization.member_role ?? "");
   return (
     <Card>
       <Copy>Miembros de {organization.name}</Copy>
@@ -91,7 +95,7 @@ function MembersPanel({ organization }: { organization: Organization }) {
       ))}
       {manage && (
         <>
-          <Field label="Email del miembro (cuenta ORGANIZER)" keyboardType="email-address" value={email} onChangeText={setEmail} />
+          <Field label={`Email del miembro (cuenta con perfil ${profile})`} keyboardType="email-address" value={email} onChangeText={setEmail} />
           <View style={styles.row}>
             {(Object.keys(roleNames) as Member["member_role"][]).map((value) => (
               <Button key={value} title={`${role === value ? "✓ " : ""}${roleNames[value]}`} secondary={role !== value} onPress={() => setRole(value)} />

@@ -451,7 +451,17 @@ export interface ServiceProvider extends Named {
   is_verified: boolean;
   verified_at: string | null;
   published_offerings: number;
+  // The viewer's role in the company (GET /services/providers/mine and /:id); null for outsiders.
+  member_role?: "OWNER" | "ADMIN" | "STAFF" | null;
   offerings?: ServiceOffering[];
+}
+// GET /services/offerings/:id/availability: contracted (ACCEPTED) windows. Members also get quote_id and event_name.
+export interface ServiceAvailability {
+  offering_id: string;
+  from: string;
+  to: string;
+  busy: { starts_at: string; ends_at: string; quote_id?: string; event_name?: string }[];
+  available?: boolean;
 }
 export type ServiceQuoteStatus = "REQUESTED" | "SENT" | "ACCEPTED" | "REJECTED" | "EXPIRED" | "CANCELLED";
 export interface ServiceQuote {
