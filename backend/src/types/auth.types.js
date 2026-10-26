@@ -1,4 +1,8 @@
-export const ROLES = ['USER', 'ORGANIZER', 'STAFF', 'ADMIN'];
+// Global profiles; a user may hold several. What each one allows comes from role_permissions.
+export const ROLES = ['ADMIN', 'COMPRADOR', 'ARTISTA', 'ORGANIZADOR', 'VENUE', 'EMPRESA_SERVICIOS', 'GUEST'];
+export const DEFAULT_ROLE = 'COMPRADOR';
+// Profiles a registered person activates alone. ORGANIZADOR, VENUE and EMPRESA_SERVICIOS involve a business and are granted by an ADMIN.
+export const SELF_SERVICE_ROLES = ['COMPRADOR', 'ARTISTA'];
 export function publicUser(user) {
     const { password_hash: _password, ...safe } = user;
     return safe;

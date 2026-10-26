@@ -41,7 +41,7 @@ export default function TicketsScreen() {
           <Copy>
             {ticket.ticket_type_name} · #{ticket.id} · {ticket.status}
           </Copy>
-          {ticket.status === "ACTIVE" &&
+          {ticket.status === "VALID" &&
           ticket.concert_status === "PUBLISHED" ? (
             <View
               accessibilityLabel={`QR de entrada ${ticket.id}`}

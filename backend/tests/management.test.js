@@ -1,12 +1,13 @@
 import assert from 'node:assert/strict';
 import { after, before, beforeEach, test } from 'node:test';
 import request from 'supertest';
-import { TestDatabase } from './helpers.js';
+import { TestDatabase, resetData } from './helpers.js';
 import { ManagementRepository } from '../src/repositories/management.repository.ts';
 
 const db = new TestDatabase();
 let ctx;
-const roles = { admin: ['ADMIN'], owner: ['ORGANIZER'], other: ['ORGANIZER'], user: ['USER'], staff: ['STAFF'] };
+// Staff is a per-concert assignment; outside a concert it is a plain COMPRADOR.
+const roles = { admin: ['ADMIN'], owner: ['ORGANIZADOR'], other: ['ORGANIZADOR'], user: ['COMPRADOR'], staff: ['COMPRADOR'] };
 const ids = { admin: '101', owner: '102', other: '103', user: '104', staff: '105' };
 const future = days => new Date(Date.now() + days * 86400000).toISOString().replace(/\.\d{3}Z$/, 'Z');
 const bearer = role => `Bearer ${ctx.tokens.sign(ids[role], roles[role])}`;
@@ -15,8 +16,9 @@ const call = (method, url, role, body) => {
     if (role) req.set('Authorization', bearer(role));
     return body === undefined ? req : req.send(body);
 };
-const input = (extra = {}) => ({ name: 'Festival VENTI', venue_id: '1', concert_type_id: '1', start_datetime: future(30),
-    end_datetime: future(31), artist_ids: ['1'], genre_ids: ['1'],
+// Seeded catalogs: city 1 = Mar del Plata, city 2 = Batan (province 1, Buenos Aires); genre 1 = Rock, 2 = Pop.
+const input = (extra = {}) => ({ name: 'Festival VENTI', artist_name: 'Banda Uno', venue_name: 'Estadio', address_line: 'Calle 1', city_id: '1',
+    start_datetime: future(30), end_datetime: future(31), genre_ids: ['1'],
     ticket_types: [{ name: 'General', price: 1500.25, stock_total: 100, sale_start: future(1), sale_end: future(29), max_per_purchase: 4 }], ...extra });
 const create = async (extra = {}, role = 'owner') => (await call('post', '/concerts', role, input(extra)).expect(201)).body.data;
 const publish = async id => (await call('post', `/concerts/${id}/publish`, 'owner').expect(200)).body.data;
@@ -24,37 +26,36 @@ const publish = async id => (await call('post', `/concerts/${id}/publish`, 'owne
 before(async () => { await db.open(); });
 after(async () => { await db.close(); });
 beforeEach(async () => {
-    for (const table of ['tickets', 'purchase_items', 'purchases', 'concerts', 'artists', 'genres', 'venues', 'cities', 'provinces', 'users']) await db.rows(`DELETE FROM ${table}`);
+    await resetData(db);
     ctx = db.context();
     for (const [role, userId] of Object.entries(ids)) {
         await db.rows('INSERT INTO users (id, first_name, last_name, email, email_verified_at) VALUES (?, ?, ?, ?, NOW())', [userId, role, 'Test', `${role}@test.example`]);
         await db.rows('INSERT INTO user_roles (user_id, role_id) SELECT ?, id FROM roles WHERE code = ?', [userId, roles[role][0]]);
     }
-    for (const role of ['owner', 'other']) await db.rows('INSERT INTO organizer_profiles (user_id, display_name) VALUES (?, ?)', [ids[role], role]);
-    await db.rows("INSERT INTO provinces (id, name) VALUES (1, 'Buenos Aires'), (2, 'Córdoba')");
-    await db.rows("INSERT INTO cities (id, province_id, name) VALUES (1, 1, 'La Plata'), (2, 2, 'Córdoba')");
-    await db.rows("INSERT INTO venues (id, city_id, name, address, capacity) VALUES (1, 1, 'Estadio', 'Calle 1', 1000), (2, 2, 'Teatro', 'Calle 2', 500)");
-    await db.rows("INSERT INTO genres (id, name) VALUES (1, 'Rock'), (2, 'Jazz')");
-    await db.rows("INSERT INTO artists (id, name) VALUES (1, 'Banda Uno'), (2, 'Banda Dos')");
+    // A marketplace space in Batan, to check the location snapshot a concert takes from venue_id.
+    await db.rows("INSERT INTO organizations (id, name, slug) VALUES (1, 'Org', 'org')");
+    await db.rows(`INSERT INTO establishments (id, organization_id, city_id, name, slug, address_line, status, published_at)
+        VALUES (1, 1, 2, 'Club', 'club', 'Ruta 88 km 5', 'PUBLISHED', NOW())`);
+    await db.rows("INSERT INTO venues (id, establishment_id, venue_type_id, name, slug, status, published_at) VALUES (1, 1, 1, 'Sala A', 'sala-a', 'PUBLISHED', NOW())");
 });
 
 test('Organizer crea borrador propio con relaciones, fechas, entradas y precios exactos', async () => {
     const concert = await create();
     assert.equal(concert.organizer_id, ids.owner);
     assert.equal(concert.status, 'DRAFT');
-    assert.equal(concert.artists[0].id, '1');
-    assert.equal(concert.artists[0].billing_order, 1);
+    assert.deepEqual(concert.artists, [{ name: 'Banda Uno' }]);
+    assert.ok(concert.slug.startsWith('festival-venti-'));
     assert.equal(concert.genres[0].id, '1');
     assert.equal(concert.ticket_types[0].price, '1500.25');
     assert.equal(concert.city_id, '1');
     assert.equal(concert.province_id, '1');
 });
 
-test('crear exige autenticación y rol vigente; USER/STAFF reciben 403', async () => {
+test('crear exige autenticación y permiso vigente; COMPRADOR recibe 403', async () => {
     await call('post', '/concerts', undefined, input()).expect(401);
     for (const role of ['user', 'staff']) await call('post', '/concerts', role, input()).expect(403);
     await db.rows('DELETE FROM user_roles WHERE user_id = ?', [ids.owner]);
-    await db.rows("INSERT INTO user_roles (user_id, role_id) SELECT ?, id FROM roles WHERE code = 'USER'", [ids.owner]);
+    await db.rows("INSERT INTO user_roles (user_id, role_id) SELECT ?, id FROM roles WHERE code = 'COMPRADOR'", [ids.owner]);
     await call('post', '/concerts', 'owner', input()).expect(403);
 });
 
@@ -63,7 +64,8 @@ test('ownership nunca se acepta del Organizer; Admin puede elegir organizador v�
     const concert = await create({ organizer_id: ids.other }, 'admin');
     assert.equal(concert.organizer_id, ids.other);
     await call('post', '/concerts', 'admin', input({ organizer_id: ids.user })).expect(422);
-    await call('post', '/concerts', 'admin', input()).expect(422);
+    // Any active account whose profiles grant concerts.manage (ORGANIZADOR, ADMIN) can own concerts.
+    assert.equal((await create({}, 'admin')).organizer_id, ids.admin);
 });
 
 test('Organizer edita propio, no ajeno; Admin edita cualquiera; USER y STAFF no editan', async () => {
@@ -91,12 +93,12 @@ test('lectura pública oculta borradores y cancelados, incluso sus entradas', as
     await call('get', `/concerts/${concert.id}`).expect(404);
 });
 
-test('listado combina todos los filtros y pagina sin duplicar conciertos con varios artistas', async () => {
-    const matching = await create({ artist_ids: ['1', '2'], genre_ids: ['1', '2'] }); await publish(matching.id);
-    const second = await create({ name: 'Otro show', venue_id: '2', concert_type_id: '2', artist_ids: ['2'], genre_ids: ['2'] }); await publish(second.id);
+test('listado combina todos los filtros y pagina sin duplicar conciertos con varios géneros', async () => {
+    const matching = await create({ genre_ids: ['1', '2'] }); await publish(matching.id);
+    const second = await create({ name: 'Otro show', venue_id: '1', artist_name: 'Banda Dos', genre_ids: ['2'] }); await publish(second.id);
     await create();
-    const query = new URLSearchParams({ q: 'VENTI', name: 'Festival', artist_id: '1', genre_id: '1', venue_id: '1', city_id: '1',
-        type: 'CONCERT', concert_type_id: '1', status: 'PUBLISHED', date_from: future(20), date_to: future(40), page: '1', limit: '1' });
+    const query = new URLSearchParams({ q: 'VENTI', name: 'Festival', artist: 'Uno', genre_id: '1', city_id: '1',
+        status: 'PUBLISHED', date_from: future(20), date_to: future(40), page: '1', limit: '1' });
     const response = await call('get', `/concerts?${query}`).expect(200);
     assert.deepEqual(response.body.data.map(c => c.id), [matching.id]);
     assert.deepEqual(response.body.pagination, { page: 1, limit: 1, total: 1, total_pages: 1 });
@@ -106,7 +108,8 @@ test('listado combina todos los filtros y pagina sin duplicar conciertos con var
     assert.notEqual(page1.body.data[0].id, page2.body.data[0].id);
     const empty = await call('get', '/concerts?page=99').expect(200);
     assert.deepEqual(empty.body.data, []);
-    for (const filter of ['artist_id=999', 'genre_id=999', 'city_id=999', 'venue_id=999', 'type=LIVE_SHOW', 'q=inexistente']) {
+    assert.deepEqual((await call('get', '/concerts?venue_id=1').expect(200)).body.data.map(c => c.id), [second.id]);
+    for (const filter of ['artist=Nadie', 'genre_id=999', 'city_id=999', 'venue_id=999', 'q=inexistente']) {
         assert.equal((await call('get', `/concerts?${filter}`).expect(200)).body.pagination.total, 0);
     }
 });
@@ -124,27 +127,35 @@ test('status/mine no amplían visibilidad; Organizer ve propios y públicos, Adm
 
 test('relaciones se reemplazan y una referencia inválida revierte todos los cambios', async () => {
     const concert = await create();
-    const changed = await call('patch', `/concerts/${concert.id}`, 'owner', { artist_ids: ['2', '1'], genre_ids: ['2'] }).expect(200);
-    assert.deepEqual(changed.body.data.artists.map(a => a.id), ['2', '1']);
-    assert.deepEqual(changed.body.data.genres.map(g => g.id), ['2']);
-    await call('patch', `/concerts/${concert.id}`, 'owner', { name: 'Rollback', artist_ids: ['1'], genre_ids: ['9999'] }).expect(422);
+    const changed = await call('patch', `/concerts/${concert.id}`, 'owner', { artist_name: 'Banda Dos', genre_ids: ['2', '1'] }).expect(200);
+    assert.deepEqual(changed.body.data.artists, [{ name: 'Banda Dos' }]);
+    assert.deepEqual(changed.body.data.genres.map(g => g.id), ['2', '1']);
+    await call('patch', `/concerts/${concert.id}`, 'owner', { name: 'Rollback', artist_name: 'No', genre_ids: ['9999'] }).expect(422);
     const current = (await call('get', `/concerts/${concert.id}`, 'owner').expect(200)).body.data;
     assert.equal(current.name, concert.name);
-    assert.deepEqual(current.artists.map(a => a.id), ['2', '1']);
-    assert.deepEqual(current.genres.map(g => g.id), ['2']);
+    assert.equal(current.artist_name, 'Banda Dos');
+    assert.deepEqual(current.genres.map(g => g.id), ['2', '1']);
+});
+
+test('venue_id del marketplace copia lugar y ciudad; un lugar explícito tiene prioridad', async () => {
+    const concert = await create({ venue_id: '1', venue_name: undefined, address_line: undefined, city_id: undefined });
+    assert.deepEqual([concert.venue_id, concert.venue_name, concert.address_line, concert.city_id, concert.city_name],
+        ['1', 'Club - Sala A', 'Ruta 88 km 5', '2', 'Batan']);
+    const named = await create({ venue_id: '1', venue_name: 'Escenario principal' });
+    assert.deepEqual([named.venue_name, named.city_id], ['Escenario principal', '1']);
 });
 
 test('creación multitabla revierte concierto y relaciones ante duplicados o referencias inválidas', async () => {
     await call('post', '/concerts', 'owner', input({ genre_ids: ['999'] })).expect(422);
     await call('post', '/concerts', 'owner', input({ venue_id: '999' })).expect(422);
-    await call('post', '/concerts', 'owner', input({ concert_type_id: '999' })).expect(422);
+    await call('post', '/concerts', 'owner', input({ artist_ids: ['1'] })).expect(422);
     const ticket = { name: 'General', price: 1, stock_total: 5 };
     await call('post', '/concerts', 'owner', input({ ticket_types: [ticket, { ...ticket, name: 'GENERAL' }] })).expect(409);
-    for (const table of ['concerts', 'concert_artists', 'concert_genres', 'ticket_types']) assert.equal(Number((await db.rows(`SELECT COUNT(*) AS total FROM ${table}`))[0].total), 0);
+    for (const table of ['concerts', 'concert_genres', 'ticket_types']) assert.equal(Number((await db.rows(`SELECT COUNT(*) AS total FROM ${table}`))[0].total), 0);
 });
 
 test('publicar valida requisitos y persiste published_at; publicar dos veces da 409', async () => {
-    for (const extra of [{ artist_ids: [] }, { genre_ids: [] }, { ticket_types: [] }]) {
+    for (const extra of [{ venue_name: null }, { city_id: null }, { genre_ids: [] }, { ticket_types: [] }]) {
         const draft = await create(extra);
         await call('post', `/concerts/${draft.id}/publish`, 'owner').expect(422);
         assert.equal((await call('get', `/concerts/${draft.id}`, 'owner')).body.data.status, 'DRAFT');
@@ -158,13 +169,13 @@ test('publicar valida requisitos y persiste published_at; publicar dos veces da 
 test('publicación permite precio y stock cero; rechaza fecha pasada existente en BD', async () => {
     const free = await create({ ticket_types: [{ name: 'Gratis', price: 0, stock_total: 0 }] }); await publish(free.id);
     const old = await create();
-    await db.rows('UPDATE concerts SET start_datetime = ?, end_datetime = NULL WHERE id = ?', [new Date(Date.now() - 86400000), old.id]);
+    await db.rows('UPDATE concerts SET starts_at = ?, ends_at = NULL WHERE id = ?', [new Date(Date.now() - 86400000), old.id]);
     await call('post', `/concerts/${old.id}/publish`, 'owner').expect(422);
 });
 
 test('publicado mantiene requisitos y ventanas de venta al editar o borrar entradas', async () => {
     const concert = await create(); await publish(concert.id);
-    await call('patch', `/concerts/${concert.id}`, 'owner', { artist_ids: [] }).expect(422);
+    await call('patch', `/concerts/${concert.id}`, 'owner', { venue_name: null }).expect(422);
     await call('patch', `/concerts/${concert.id}`, 'owner', { genre_ids: [] }).expect(422);
     await call('patch', `/concerts/${concert.id}`, 'owner', { start_datetime: future(20) }).expect(422);
     await call('delete', `/ticket-types/${concert.ticket_types[0].id}`, 'owner').expect(422);
@@ -174,6 +185,8 @@ test('publicado mantiene requisitos y ventanas de venta al editar o borrar entra
 });
 
 test('cancelar conserva concierto y relaciones; cancelación idempotente y estado terminal', async () => {
+    // chk_concerts_published: a draft cannot become CANCELLED without a publication date; drafts are deleted instead.
+    await call('post', `/concerts/${(await create()).id}/cancel`, 'owner').expect(409);
     const concert = await create(); await publish(concert.id);
     await call('post', `/concerts/${concert.id}/cancel`, 'other').expect(403);
     for (let i = 0; i < 2; i++) assert.equal((await call('post', `/concerts/${concert.id}/cancel`, 'owner').expect(200)).body.data.status, 'CANCELLED');
@@ -185,7 +198,7 @@ test('cancelar conserva concierto y relaciones; cancelación idempotente y estad
     assert.equal((await call('get', `/concerts/${concert.id}`, 'admin')).body.data.artists.length, 1);
 });
 
-test('borrado solo de borradores sin historial; protege publicados y favoritos', async () => {
+test('borrado solo de borradores sin historial; protege publicados y staff asignado', async () => {
     const draft = await create();
     await call('delete', `/concerts/${draft.id}`, 'other').expect(403);
     await call('delete', `/concerts/${draft.id}`, 'owner').expect(204);
@@ -194,16 +207,15 @@ test('borrado solo de borradores sin historial; protege publicados y favoritos',
     const published = await create(); await publish(published.id);
     await call('delete', `/concerts/${published.id}`, 'owner').expect(409);
     const saved = await create();
-    await db.rows('INSERT INTO favorites (user_id, concert_id) VALUES (?, ?)', [ids.user, saved.id]);
+    await db.rows('INSERT INTO concert_staff (concert_id, user_id) VALUES (?, ?)', [saved.id, ids.staff]);
     await call('delete', `/concerts/${saved.id}`, 'admin').expect(409);
 });
 
 for (const [catalog, body, update] of [
-    ['provinces', { name: 'Mendoza' }, { name: 'Salta' }],
-    ['cities', { name: 'Berisso', province_id: '1' }, { name: 'Ensenada' }],
-    ['venues', { name: 'Club', city_id: '1', address: 'Calle 10', capacity: 50 }, { name: 'Club Nuevo', capacity: null }],
-    ['genres', { name: 'Pop' }, { name: 'Soul' }],
-    ['artists', { name: 'Solista', genre_ids: ['1', '2'] }, { name: 'Solista Nuevo', genre_ids: ['2'] }],
+    ['provinces', { code: 'AR-ZZ', name: 'Provincia Test' }, { name: 'Provincia Editada' }],
+    ['districts', { name: 'Partido Test', province_id: '1' }, { name: 'Partido Editado' }],
+    ['cities', { name: 'Berisso', province_id: '1', district_id: '1' }, { name: 'Ensenada' }],
+    ['genres', { name: 'Funk' }, { name: 'Soul' }],
 ]) test(`CRUD ${catalog}: lectura pública y escrituras exclusivas de Admin`, async () => {
     await call('get', `/${catalog}`).expect(200);
     await call('post', `/${catalog}`, undefined, body).expect(401);
@@ -216,33 +228,50 @@ for (const [catalog, body, update] of [
     }
     const edited = (await call('patch', `/${catalog}/${created.id}`, 'admin', update).expect(200)).body.data;
     assert.equal(edited.name, update.name);
-    if (catalog === 'artists') assert.deepEqual(edited.genres.map(g => g.id), ['2']);
     await call('delete', `/${catalog}/${created.id}`, 'admin').expect(204);
     await call('get', `/${catalog}/${created.id}`).expect(404);
 });
 
 test('catálogos respetan unicidad, jerarquía, filtros y relaciones históricas', async () => {
-    await create();
-    for (const catalog of ['provinces', 'cities', 'venues', 'artists', 'genres']) await call('delete', `/${catalog}/1`, 'admin').expect(409);
+    await create({ genre_ids: ['1'] });
+    for (const catalog of ['provinces', 'cities', 'genres']) await call('delete', `/${catalog}/1`, 'admin').expect(409);
     await call('post', '/genres', 'admin', { name: 'rock' }).expect(409);
-    await call('post', '/cities', 'admin', { name: 'La Plata', province_id: '1' }).expect(409);
-    await call('post', '/cities', 'admin', { name: 'Nueva', province_id: '999' }).expect(422);
-    await call('post', '/venues', 'admin', { name: 'Nueva', city_id: '999', address: 'A' }).expect(422);
-    const cities = (await call('get', '/cities?province_id=2').expect(200)).body.data;
-    const venues = (await call('get', '/venues?city_id=1').expect(200)).body.data;
-    assert.deepEqual(cities.map(c => c.id), ['2']); assert.deepEqual(venues.map(v => v.id), ['1']);
-    assert.equal((await call('get', '/concert-types').expect(200)).body.data.length, 3);
+    const genre = (await call('post', '/genres', 'admin', { name: 'Chamamé' }).expect(201)).body.data;
+    assert.match(genre.slug, /^chamame-[a-f0-9]{6}$/);
+    await call('post', '/cities', 'admin', { name: 'Mar del Plata', province_id: '1', district_id: '1' }).expect(409);
+    await call('post', '/cities', 'admin', { name: 'Nueva', province_id: '999', district_id: '1' }).expect(422);
+    // The composite FK keeps a city's district inside its province.
+    await call('post', '/cities', 'admin', { name: 'Nueva', province_id: '2', district_id: '1' }).expect(422);
+    assert.equal((await call('get', '/cities?district_id=1').expect(200)).body.pagination.total, 4);
+    assert.equal((await call('get', '/cities?province_id=2').expect(200)).body.pagination.total, 0);
+    assert.deepEqual((await call('get', '/venues').expect(200)).body.data.map(v => v.id), ['1']);
 });
 
-test('artist_genres se actualiza atómicamente, sin duplicados ni borrado silencioso del género', async () => {
-    await call('patch', '/artists/1', 'admin', { genre_ids: ['1'] }).expect(200);
-    await call('patch', '/artists/1', 'admin', { name: 'No guardar', genre_ids: ['2', '999'] }).expect(422);
-    const artist = (await call('get', '/artists/1').expect(200)).body.data;
-    assert.equal(artist.name, 'Banda Uno'); assert.deepEqual(artist.genres.map(g => g.id), ['1']);
-    await call('delete', '/genres/1', 'admin').expect(409);
-    await call('patch', '/artists/1', 'admin', { genre_ids: ['1', '1'] }).expect(422);
-    const list = await call('get', '/artists?q=Banda&limit=2').expect(200);
-    assert.equal(list.body.pagination.total, 2); assert.equal(list.body.data.find(a => a.id === '1').genres.length, 1);
+test('endpoints sin tabla en el esquema responden 410 con la alternativa', async () => {
+    for (const [method, path, role] of [['get', '/concert-types'],
+        ['post', '/venues', 'admin'], ['patch', '/venues/1', 'admin'], ['delete', '/venues/1', 'admin']]) {
+        const response = await call(method, path, role, method === 'get' ? undefined : {});
+        assert.equal(response.status, 410, `${method} ${path}`);
+        assert.equal(response.body.error.code, 'GONE');
+    }
+});
+
+test('staff: el dueño asigna por email, es idempotente y da acceso solo a ese concierto', async () => {
+    const concert = await create(); const path = `/concerts/${concert.id}/staff`;
+    for (const role of ['other', 'user']) await call('post', path, role, { email: 'staff@test.example' }).expect(403);
+    await call('post', path, 'owner', { email: 'nadie@test.example' }).expect(422);
+    await call('post', path, 'owner', { email: 'no-es-email' }).expect(422);
+    for (let i = 0; i < 2; i++) {
+        const list = (await call('post', path, 'owner', { email: ' STAFF@test.example ' }).expect(201)).body.data;
+        assert.deepEqual(list.map(s => s.user_id), [ids.staff]);
+    }
+    assert.equal((await call('get', path, 'admin').expect(200)).body.data[0].email, 'staff@test.example');
+    await call('get', path, 'other').expect(403);
+    assert.deepEqual((await call('get', '/staff/assignments', 'staff').expect(200)).body.data.map(c => c.id), [concert.id]);
+    await call('delete', `${path}/${ids.staff}`, 'other').expect(403);
+    await call('delete', `${path}/${ids.staff}`, 'owner').expect(204);
+    await call('delete', `${path}/${ids.staff}`, 'owner').expect(404);
+    assert.deepEqual((await call('get', '/staff/assignments', 'staff').expect(200)).body.data, []);
 });
 
 test('tipos de entrada: Organizer solo propios, Admin cualquiera, lectura según concierto', async () => {
@@ -278,13 +307,13 @@ test('entradas validan precio, stock, máximo, unicidad y ventana completa en PA
 
 test('FK de compras impide borrar concierto/entrada e historial impide reducir stock', async () => {
     const concert = await create(); const ticket = concert.ticket_types[0];
-    await db.rows("INSERT INTO purchases (id, user_id, status_id) SELECT 1, ?, id FROM purchase_statuses WHERE code = 'CONFIRMED'", [ids.user]);
-    await db.rows('INSERT INTO purchase_items (purchase_id, ticket_type_id, quantity, unit_price) VALUES (1, ?, 1, ?)', [ticket.id, ticket.price]);
+    await db.rows("INSERT INTO orders (id, public_code, user_id, status, confirmed_at) VALUES (1, 'O-TEST', ?, 'CONFIRMED', NOW())", [ids.user]);
+    await db.rows('INSERT INTO order_items (order_id, ticket_type_id, concert_id, quantity, unit_price, line_total) VALUES (1, ?, ?, 1, ?, ?)', [ticket.id, concert.id, ticket.price, ticket.price]);
     await call('delete', `/concerts/${concert.id}`, 'admin').expect(409);
     await call('delete', `/ticket-types/${ticket.id}`, 'admin').expect(409);
     await call('patch', `/ticket-types/${ticket.id}`, 'owner', { stock_total: 99 }).expect(409);
     await call('patch', `/ticket-types/${ticket.id}`, 'owner', { stock_total: 101 }).expect(200);
-    assert.equal(Number((await db.rows('SELECT COUNT(*) AS total FROM purchase_items'))[0].total), 1);
+    assert.equal(Number((await db.rows('SELECT COUNT(*) AS total FROM order_items'))[0].total), 1);
 });
 
 test('escrituras concurrentes no eliminan todas las entradas de un publicado', async () => {
@@ -311,21 +340,21 @@ test('listado usa cantidad constante de consultas para relaciones (sin N+1)', as
     t.mock.method(ManagementRepository.prototype, 'rows', function (...args) { count++; return original.apply(this, args); });
     await call('get', '/concerts?limit=1').expect(200); const one = count; count = 0;
     await call('get', '/concerts?limit=100').expect(200);
-    assert.equal(count, one); assert.equal(count, 5);
+    assert.equal(count, one); assert.equal(count, 4);
 });
 
 test('IDs BIGINT seguros y rechazo de campos/IDs/fechas/filtros malformados', async () => {
-    for (const extra of [{ artist_ids: ['1', '1'] }, { start_datetime: future(-1) }, { end_datetime: future(1) },
+    for (const extra of [{ artist_ids: ['1'] }, { concert_type_id: '1' }, { start_datetime: future(-1) }, { end_datetime: future(1) },
         { start_datetime: '2026-99-99' }, { status_id: 2 }, { published_at: future(1) }, { province_id: 1 }, { venue_id: '18446744073709551616' }]) {
         await call('post', '/concerts', 'owner', input(extra)).expect(422);
     }
-    for (const query of ['limit=0', 'limit=101', 'page=-1', 'unknown=1', 'status=INVALID', 'artist_id=abc', 'q=a&q=b', `date_from=${future(40)}&date_to=${future(20)}`]) await call('get', `/concerts?${query}`).expect(422);
+    for (const query of ['limit=0', 'limit=101', 'page=-1', 'unknown=1', 'status=INVALID', 'artist_id=1', 'type=CONCERT', 'q=a&q=b', `date_from=${future(40)}&date_to=${future(20)}`]) await call('get', `/concerts?${query}`).expect(422);
     for (const path of ['/concerts/abc', '/concerts/0', '/venues/18446744073709551616']) await call('get', path).expect(422);
     await call('get', '/concerts/99999', 'admin').expect(404);
     const concert = await create();
     await call('patch', `/concerts/${concert.id}`, 'owner', {}).expect(422);
     const hugeId = '9007199254740993';
-    await db.rows('UPDATE concerts SET id = ? WHERE id = ?', [hugeId, (await create({ artist_ids: [], genre_ids: [], ticket_types: [] })).id]);
+    await db.rows('UPDATE concerts SET id = ? WHERE id = ?', [hugeId, (await create({ genre_ids: [], ticket_types: [] })).id]);
     assert.equal((await call('get', `/concerts/${hugeId}`, 'owner').expect(200)).body.data.id, hugeId);
     const injection = await call('get', `/concerts?q=${encodeURIComponent("' OR 1=1 --")}`).expect(200);
     assert.equal(injection.body.pagination.total, 0);

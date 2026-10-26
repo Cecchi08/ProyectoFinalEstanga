@@ -1,13 +1,14 @@
 import assert from 'node:assert/strict';
 import { before, beforeEach, after, test } from 'node:test';
 import request from 'supertest';
-import { TestDatabase } from './helpers.js';
+import { TestDatabase, resetData } from './helpers.js';
 import { NotificationsRepository } from '../src/repositories/notifications.repository.ts';
 import { CommerceService } from '../src/services/commerce.service.ts';
 
 const db = new TestDatabase(); let ctx;
 const users = { user: '101', other: '102', organizer: '103', outsider: '104', admin: '105', staff: '106' };
-const roles = { user: 'USER', other: 'USER', organizer: 'ORGANIZER', outsider: 'ORGANIZER', admin: 'ADMIN', staff: 'STAFF' };
+// 'staff' is a COMPRADOR assigned to concert 1 through concert_staff.
+const roles = { user: 'COMPRADOR', other: 'COMPRADOR', organizer: 'ORGANIZADOR', outsider: 'ORGANIZADOR', admin: 'ADMIN', staff: 'COMPRADOR' };
 const call = (method, path, role = 'user', body) => {
     const req = request(ctx.app)[method](path);
     if (role) req.set('Authorization', `Bearer ${ctx.tokens.sign(users[role], [roles[role]])}`);
@@ -23,27 +24,21 @@ const stats = async (role = 'organizer', suffix = '') => (await call('get', `/${
 before(async () => { await db.open(); });
 after(async () => { await db.close(); });
 beforeEach(async () => {
-    for (const table of ['notifications','tickets','purchase_items','purchases','concerts','artists','genres','venues','cities','provinces','users']) await db.rows(`DELETE FROM ${table}`);
+    await resetData(db);
     ctx = db.context();
     for (const [role, id] of Object.entries(users)) {
         await db.rows('INSERT INTO users(id,first_name,last_name,email,email_verified_at) VALUES (?,?,?,?,NOW())', [id, role, 'Test', `${role}@insights.example`]);
         await db.rows('INSERT INTO user_roles(user_id,role_id) SELECT ?,id FROM roles WHERE code=?', [id, roles[role]]);
     }
-    await db.rows("INSERT INTO organizer_profiles(user_id,display_name) VALUES (103,'Propio'),(104,'Ajeno')");
-    await db.rows("INSERT INTO provinces(id,name) VALUES (1,'Provincia')");
-    await db.rows("INSERT INTO cities(id,province_id,name) VALUES (1,1,'Ciudad')");
-    await db.rows("INSERT INTO venues(id,city_id,name,address,capacity) VALUES (1,1,'Sala','Calle',500)");
-    await db.rows("INSERT INTO artists(id,name) VALUES (1,'Artista')");
-    await db.rows("INSERT INTO genres(id,name) VALUES (1,'Rock')");
+    // Seeded catalogs: city 1 = Mar del Plata, genre 1 = Rock.
     for (const [id, owner] of [['1','103'],['2','104'],['3','103']]) {
-        await db.rows(`INSERT INTO concerts(id,organizer_id,venue_id,concert_type_id,status_id,name,start_datetime)
-            SELECT ?,?,1,1,id,?,DATE_ADD(NOW(), INTERVAL 30 DAY) FROM concert_statuses WHERE code='PUBLISHED'`, [id, owner, `Show ${id}`]);
-        await db.rows('INSERT INTO concert_artists(concert_id,artist_id) VALUES (?,1)', [id]);
+        await db.rows(`INSERT INTO concerts(id,organizer_user_id,title,slug,artist_name,venue_name,city_id,starts_at,status,published_at)
+            VALUES (?,?,?,?,'Artista','Sala',1,DATE_ADD(NOW(), INTERVAL 30 DAY),'PUBLISHED',NOW())`, [id, owner, `Show ${id}`, `show-${id}`]);
         await db.rows('INSERT INTO concert_genres(concert_id,genre_id) VALUES (?,1)', [id]);
-        await db.rows('INSERT INTO ticket_types(id,concert_id,name,price,stock_total) VALUES (?,?,?,10.25,20)', [id,id,`General ${id}`]);
+        await db.rows('INSERT INTO ticket_types(id,concert_id,name,price,quantity_total) VALUES (?,?,?,10.25,20)', [id,id,`General ${id}`]);
     }
-    await db.rows('INSERT INTO ticket_types(id,concert_id,name,price,stock_total) VALUES (4,1,\'VIP\',30.50,10)');
-    await db.rows('INSERT INTO staff_assignments(concert_id,user_id,assigned_by_user_id) VALUES (1,106,103)');
+    await db.rows('INSERT INTO ticket_types(id,concert_id,name,price,quantity_total) VALUES (4,1,\'VIP\',30.50,10)');
+    await db.rows('INSERT INTO concert_staff(concert_id,user_id) VALUES (1,106)');
 });
 
 test('notifications authenticate, isolate own list and reject client ownership filters', async () => {
@@ -70,9 +65,11 @@ test('individual read is idempotent; read-all affects all own pages only', async
     assert.equal((await inbox()).data.unread_count,0); assert.equal((await inbox('other')).data.unread_count,1);
     assert.equal((await inbox('user','?limit=1&page=2')).pagination.total,3);
 });
-test('all six catalog types can be listed and read', async () => {
-    await db.rows("INSERT INTO notifications(user_id,type_id,title,message) SELECT 101,id,name,name FROM notification_types");
-    const result = await inbox(); assert.equal(result.data.items.length,6);
+const types = ['PURCHASE_CONFIRMED','CONCERT_REMINDER','CONCERT_UPDATED','CONCERT_CANCELLED','RECOMMENDATION','POST_EVENT','QUOTE_UPDATE','RESERVATION_UPDATE','SYSTEM'];
+test('every notification type of the schema ENUM can be listed and read', async () => {
+    for (const type of types) await db.rows('INSERT INTO notifications(user_id,type,title,body) VALUES (101,?,?,?)', [type, type, type]);
+    const result = await inbox(); assert.equal(result.data.items.length,types.length);
+    assert.deepEqual(result.data.items.map(item => item.type).sort(), [...types].sort());
     assert.ok(result.data.items.some(item => item.type === 'CONCERT_REMINDER'));
     await call('patch','/notifications/read-all').expect(200);
 });
@@ -96,14 +93,13 @@ test('confirmation generates once under concurrent retries; failed reservation e
 test('notification insert failure rolls back confirmation and issued tickets', async t => {
     const p = await purchase(2,'1','user',false);
     t.mock.method(NotificationsRepository.prototype,'purchase',async () => { throw new Error('notification failure'); });
-    await assert.rejects(new CommerceService(db.db).transition(p.id,'confirm',{id:'101',roles:['USER']}),/notification failure/);
-    assert.equal((await call('get',`/purchases/${p.id}`)).body.data.status,'RESERVED');
+    await assert.rejects(new CommerceService(db.db).transition(p.id,'confirm',{id:'101',roles:['COMPRADOR'],permissions:[]}),/notification failure/);
+    assert.equal((await call('get',`/purchases/${p.id}`)).body.data.status,'PENDING');
     assert.equal((await db.rows('SELECT id FROM tickets')).length,0);
 });
-test('OFF suppresses Discover and favorite notices; critical purchase and cancellation remain', async () => {
+test('OFF suppresses Discover notices; critical purchase and cancellation remain', async () => {
     await call('patch','/preferences','user',{notifications_enabled:false}).expect(200);
     await call('get','/recommendations').expect(200);
-    await call('post','/favorites/1').expect(200);
     await call('post','/concerts/1/cancel','organizer').expect(200);
     assert.equal((await inbox()).data.items.length,0);
     await purchase(1,'3');
@@ -120,7 +116,6 @@ test('Discover generates one recommendation per user/concert across concurrent r
     assert.equal((await inbox('other')).data.items.length,0);
 });
 test('Discover, preference updates and concert cancellation can run concurrently', async () => {
-    await call('post','/favorites/1').expect(200);
     const responses = await Promise.all([
         ...Array.from({length:5},() => call('get','/recommendations')),
         call('patch','/preferences','user',{notifications_enabled:false}),
@@ -130,25 +125,26 @@ test('Discover, preference updates and concert cancellation can run concurrently
     const count = (await inbox()).data.items.filter(item => item.type === 'RECOMMENDATION' && item.concert_id === '1').length;
     assert.ok(count <= 1);
 });
-test('cancellation reaches buyers and favorites exactly once without duplicate audiences', async () => {
-    await purchase(); await purchase(1); await call('post','/favorites/1').expect(200);
-    await call('post','/favorites/1','other').expect(200);
+test('cancellation reaches each buyer exactly once without duplicate audiences', async () => {
+    await purchase(); await purchase(1); await purchase(1,'4','other');
     const responses = await Promise.all([call('post','/concerts/1/cancel','organizer'),call('post','/concerts/1/cancel','organizer')]);
     for (const result of responses) assert.equal(result.status,200);
     assert.equal((await inbox()).data.items.filter(n => n.type === 'CONCERT_CANCELLED').length,1);
-    assert.equal((await inbox('other')).data.items.length,1);
+    assert.equal((await inbox('other')).data.items.filter(n => n.type === 'CONCERT_CANCELLED').length,1);
     assert.equal((await inbox('staff')).data.items.length,0);
 });
 test('relevant changes emit once; identical PATCH emits nothing; later distinct changes emit again', async () => {
     await purchase();
     const start = new Date(Date.now()+35*86400000).toISOString();
     for (let index=0;index<2;index++) await call('patch','/concerts/1','organizer',{start_datetime:start}).expect(200);
-    assert.equal((await inbox()).data.items.filter(n => n.type === 'SCHEDULE_CHANGE').length,1);
+    // Both kinds of change map to the schema's CONCERT_UPDATED type; the title tells them apart.
+    const updates = async title => (await inbox()).data.items.filter(n => n.type === 'CONCERT_UPDATED' && n.title === title).length;
+    assert.equal(await updates('Cambio de horario'),1);
     await call('patch','/concerts/1','organizer',{description:'Nuevas instrucciones'}).expect(200);
-    assert.equal((await inbox()).data.items.filter(n => n.type === 'IMPORTANT_INFO').length,1);
+    assert.equal(await updates('Información del concierto'),1);
     await call('patch','/concerts/1','outsider',{description:'Ajeno'}).expect(403);
 });
-test('statistics require database roles, deny USER/STAFF and ignore no client owner', async () => {
+test('statistics require database roles, deny COMPRADOR (including staff) and ignore no client owner', async () => {
     for (const path of ['/organizer/statistics','/organizer/concerts/1/statistics','/admin/statistics']) {
         await call('get',path,null).expect(401);
         for (const role of ['user','staff']) await call('get',path,role).expect(403);
@@ -176,7 +172,7 @@ test('own/global aggregates avoid join multiplication and use historical item pr
 test('cancelled, expired, reserved and refunded purchases never count as sales', async () => {
     await purchase(2);
     const cancelled = await purchase(1,'1','user',false); await call('post',`/purchases/${cancelled.id}/cancel`).expect(200);
-    const expired = await purchase(1,'1','user',false); await db.rows('UPDATE purchases SET expires_at=DATE_SUB(NOW(),INTERVAL 1 SECOND) WHERE id=?',[expired.id]);
+    const expired = await purchase(1,'1','user',false); await db.rows('UPDATE orders SET expires_at=DATE_SUB(NOW(),INTERVAL 1 SECOND) WHERE id=?',[expired.id]);
     await purchase(1,'1','user',false);
     const refund = await purchase(1); await call('post',`/purchases/${refund.id}/cancel`).expect(200);
     const result = await stats();
@@ -185,8 +181,8 @@ test('cancelled, expired, reserved and refunded purchases never count as sales',
 });
 test('inclusive UTC date filters, daily groups, empty aggregates and invalid ranges', async () => {
     const first = await purchase(1), second = await purchase(2);
-    await db.rows("UPDATE purchases SET created_at='2025-01-01 23:59:59' WHERE id=?",[first.id]);
-    await db.rows("UPDATE purchases SET created_at='2025-01-02 00:00:00' WHERE id=?",[second.id]);
+    await db.rows("UPDATE orders SET created_at='2025-01-01 23:59:59' WHERE id=?",[first.id]);
+    await db.rows("UPDATE orders SET created_at='2025-01-02 00:00:00' WHERE id=?",[second.id]);
     const result = await stats('organizer','?from=2025-01-01&to=2025-01-01');
     assert.equal(result.tickets_sold,1); assert.equal(result.sales_by_day[0].date,'2025-01-01');
     assert.equal((await stats('organizer','?to=2024-01-01')).revenue,'0.00');

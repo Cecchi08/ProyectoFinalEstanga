@@ -84,11 +84,11 @@ export function PurchaseDetail() {
           ))}
           <Copy>Total: {money(purchase.total)}</Copy>
           {purchase.expires_at &&
-            ["RESERVED", "PENDING"].includes(purchase.status) && (
+            purchase.status === "PENDING" && (
               <Copy>Vence: {dateLabel(purchase.expires_at)}</Copy>
             )}
           <ActionFeedback action={action} />
-          {["RESERVED", "PENDING"].includes(purchase.status) && (
+          {purchase.status === "PENDING" && (
             <Button
               title="Confirmar compra"
               disabled={action.busy}
@@ -101,7 +101,7 @@ export function PurchaseDetail() {
               onPress={() => router.push("/tickets")}
             />
           )}
-          {["RESERVED", "PENDING", "CONFIRMED"].includes(purchase.status) && (
+          {["PENDING", "CONFIRMED"].includes(purchase.status) && (
             <Button
               title={cancel ? "Sí, cancelar la compra" : "Cancelar compra"}
               danger

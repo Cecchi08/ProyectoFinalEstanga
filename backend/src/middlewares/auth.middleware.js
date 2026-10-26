@@ -1,4 +1,5 @@
 import { AppError, unauthorized } from '../utils/app-error.util.js';
+import { can } from '../utils/access.util.js';
 export function authenticate(tokens, auth) {
     return async (req, _res, next) => {
         const match = /^Bearer ([^\s]+)$/i.exec(req.headers.authorization ?? '');
@@ -9,11 +10,13 @@ export function authenticate(tokens, auth) {
         next();
     };
 }
-export function authorize(...roles) {
+// Any of the given permission codes. The principal is rebuilt from the database on every request,
+// so revoking a role or a grant takes effect immediately.
+export function requirePermission(...codes) {
     return (req, _res, next) => {
         if (!req.user)
             throw unauthorized();
-        if (!roles.some(role => req.user?.roles.includes(role)))
+        if (!can(req.user, ...codes))
             throw new AppError(403, 'FORBIDDEN', 'Permisos insuficientes.');
         next();
     };

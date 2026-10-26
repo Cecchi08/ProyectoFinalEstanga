@@ -14,10 +14,10 @@ export class RecommendationsService {
         const result = await this.database.read(async db => {
             const repo = new RecommendationsRepository(db.connection);
             if (!(await repo.preferences(userId)).recommendations_enabled) return { enabled: false, recommendations: [] };
-            const history = await repo.history(userId), favorites = await repo.favorites(userId), candidates = await repo.candidates(userId);
-            const ids = [...new Set([...history, ...favorites, ...candidates].map(concert => concert.id))];
+            const history = await repo.history(userId), candidates = await repo.candidates(userId);
+            const ids = [...new Set([...history, ...candidates].map(concert => concert.id))];
             const links = await repo.links(ids);
-            const ranked = rankConcerts(candidates, buildProfile(history, favorites, links), links, limit);
+            const ranked = rankConcerts(candidates, buildProfile(history, links), links, limit);
             const details = await repo.details(ranked.map(item => item.concert));
             return { enabled: true, recommendations: ranked.map((item, index) => ({ concert: details[index], reason: item.reason })) };
         });

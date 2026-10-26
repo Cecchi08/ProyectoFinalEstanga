@@ -4,7 +4,7 @@ import request from 'supertest';
 import express from 'express';
 import bcrypt from 'bcrypt';
 import jwt from 'jsonwebtoken';
-import { authenticate, authorize, authorizeConcertOwner, authorizeStaffAssignment } from '../src/middlewares/auth.middleware.js';
+import { authenticate, requirePermission, authorizeConcertOwner, authorizeStaffAssignment } from '../src/middlewares/auth.middleware.js';
 import { errorHandler } from '../src/middlewares/error.middleware.js';
 import { PermissionsService } from '../src/services/permissions.service.js';
 import { hashToken } from '../src/utils/token.util.js';
@@ -19,7 +19,7 @@ async function session() { await verifiedUser(ctx.auth, ctx.mailer); return (awa
 test('register: normaliza email, bcrypt, rol USER, preferencias y token hasheado', async () => {
     const response = await request(ctx.app).post('/auth/register').send({ ...registration, email: ' ANA@EXAMPLE.COM ' }).expect(201);
     assert.equal(response.body.data.user.email, registration.email);
-    assert.deepEqual(response.body.data.roles, ['USER']);
+    assert.deepEqual(response.body.data.roles, ['COMPRADOR']);
     assert.equal(response.body.data.user.password_hash, undefined);
     const user = await database.db.read(r => r.findUserByEmail(registration.email));
     assert.ok(user?.password_hash);
@@ -59,8 +59,8 @@ test('login correcto genera JWT mínimo y refresh persistido únicamente como ha
     const claims = jwt.decode(data.accessToken);
     assert.deepEqual(Object.keys(claims).sort(), ['aud', 'exp', 'iat', 'iss', 'roles', 'sub']);
     assert.equal(claims.sub, data.user.id);
-    assert.deepEqual(claims.roles, ['USER']);
-    assert.equal((await database.rows('SELECT token_hash FROM refresh_tokens'))[0]?.token_hash, hashToken(data.refreshToken));
+    assert.deepEqual(claims.roles, ['COMPRADOR']);
+    assert.equal((await database.rows('SELECT token_hash FROM auth_refresh_tokens'))[0]?.token_hash, hashToken(data.refreshToken));
     assert.equal(data.user.password_hash, undefined);
 });
 test('login incorrecto y usuario inexistente tienen la misma respuesta', async () => {
@@ -72,7 +72,7 @@ test('login incorrecto y usuario inexistente tienen la misma respuesta', async (
 test('login exige email verificado', async () => { await ctx.auth.register(registration); await login().expect(403); });
 test('usuario inactivo no inicia sesión ni usa access/refresh anteriores', async () => {
     const data = await session();
-    await database.pool.execute('UPDATE users SET is_active = FALSE');
+    await database.pool.execute("UPDATE users SET status = 'BLOCKED'");
     await login().expect(401);
     await request(ctx.app).get('/auth/me').auth(data.accessToken, { type: 'bearer' }).expect(401);
     await request(ctx.app).post('/auth/refresh').send({ refreshToken: data.refreshToken }).expect(401);
@@ -83,7 +83,7 @@ test('/auth/me sin token o token inválido devuelve 401', async () => {
 });
 test('JWT expirado, algoritmo distinto y audiencia incorrecta son rechazados', async () => {
     const user = await verifiedUser(ctx.auth, ctx.mailer);
-    const base = { roles: ['USER'], sub: user.id };
+    const base = { roles: ['COMPRADOR'], sub: user.id };
     for (const options of [{ expiresIn: -1, algorithm: 'HS256' }, { expiresIn: 60, algorithm: 'HS384' }, { expiresIn: 60, audience: 'other' }]) {
         const token = jwt.sign(base, database.env.JWT_ACCESS_SECRET, { issuer: database.env.JWT_ISSUER, audience: database.env.JWT_AUDIENCE, ...options });
         await request(ctx.app).get('/auth/me').auth(token, { type: 'bearer' }).expect(401);
@@ -91,30 +91,37 @@ test('JWT expirado, algoritmo distinto y audiencia incorrecta son rechazados', a
 });
 test('/auth/me retorna usuario, todos los roles y preferencias sin secretos', async () => {
     const data = await session();
-    await database.pool.execute("INSERT INTO user_roles (user_id, role_id) SELECT ?, id FROM roles WHERE code IN ('ORGANIZER', 'STAFF')", [data.user.id]);
+    await database.pool.execute("INSERT INTO user_roles (user_id, role_id) SELECT ?, id FROM roles WHERE code IN ('ORGANIZADOR', 'ADMIN')", [data.user.id]);
     const response = await request(ctx.app).get('/auth/me').auth(data.accessToken, { type: 'bearer' }).expect(200);
-    assert.deepEqual(response.body.data.roles, ['USER', 'ORGANIZER', 'STAFF']);
+    assert.deepEqual(response.body.data.roles, ['ADMIN', 'COMPRADOR', 'ORGANIZADOR']);
+    // Permissions are the union of the profiles' grants, as the API checks them.
+    for (const code of ['users.manage', 'concerts.manage', 'tickets.purchase']) assert.ok(response.body.data.permissions.includes(code), code);
+    assert.equal(new Set(response.body.data.permissions).size, response.body.data.permissions.length);
     assert.equal(response.body.data.user.password_hash, undefined);
     assert.equal(response.body.data.refreshToken, undefined);
     assert.equal(response.body.data.preferences.notifications_enabled, true);
 });
 test('login y refresh incluyen todos los roles', async () => {
     const data = await session();
-    await database.pool.execute("INSERT INTO user_roles (user_id, role_id) SELECT ?, id FROM roles WHERE code = 'STAFF'", [data.user.id]);
-    assert.deepEqual((await login().expect(200)).body.data.roles, ['USER', 'STAFF']);
+    await database.pool.execute("INSERT INTO user_roles (user_id, role_id) SELECT ?, id FROM roles WHERE code = 'ORGANIZADOR'", [data.user.id]);
+    assert.deepEqual((await login().expect(200)).body.data.roles, ['COMPRADOR', 'ORGANIZADOR']);
     const refreshed = await request(ctx.app).post('/auth/refresh').send({ refreshToken: data.refreshToken }).expect(200);
-    assert.deepEqual(ctx.tokens.verify(refreshed.body.data.accessToken).roles, ['USER', 'STAFF']);
+    assert.deepEqual(ctx.tokens.verify(refreshed.body.data.accessToken).roles, ['COMPRADOR', 'ORGANIZADOR']);
 });
-test('authorize permite cualquier rol requerido y consulta roles actuales', async () => {
+test('requirePermission acepta cualquiera de los permisos y los lee de la base en cada pedido', async () => {
     const data = await session();
     const app = express();
-    app.get('/protected', authenticate(ctx.tokens, ctx.auth), authorize('STAFF', 'ADMIN'), (_req, res) => res.json({ ok: true }));
+    app.get('/protected', authenticate(ctx.tokens, ctx.auth), requirePermission('concerts.manage', 'users.manage'), (_req, res) => res.json({ ok: true }));
     app.use(errorHandler());
     await request(app).get('/protected').expect(401);
     await request(app).get('/protected').auth(data.accessToken, { type: 'bearer' }).set('X-Role', 'ADMIN').expect(403);
-    await database.pool.execute("INSERT INTO user_roles (user_id, role_id) SELECT ?, id FROM roles WHERE code = 'STAFF'", [data.user.id]);
+    await database.pool.execute("INSERT INTO user_roles (user_id, role_id) SELECT ?, id FROM roles WHERE code = 'ORGANIZADOR'", [data.user.id]);
     await request(app).get('/protected').auth(data.accessToken, { type: 'bearer' }).expect(200);
-    await database.pool.execute("DELETE ur FROM user_roles ur JOIN roles r ON r.id = ur.role_id WHERE r.code = 'STAFF'");
+    // Revoking the grant (not the role) also takes effect on the next request.
+    await database.pool.execute("DELETE rp FROM role_permissions rp JOIN roles r ON r.id = rp.role_id JOIN permissions p ON p.id = rp.permission_id WHERE r.code = 'ORGANIZADOR' AND p.code = 'concerts.manage'");
+    await request(app).get('/protected').auth(data.accessToken, { type: 'bearer' }).expect(403);
+    await database.pool.execute("INSERT INTO role_permissions (role_id, permission_id) SELECT r.id, p.id FROM roles r JOIN permissions p ON p.code = 'concerts.manage' WHERE r.code = 'ORGANIZADOR'");
+    await database.pool.execute("DELETE ur FROM user_roles ur JOIN roles r ON r.id = ur.role_id WHERE r.code = 'ORGANIZADOR'");
     await request(app).get('/protected').auth(data.accessToken, { type: 'bearer' }).expect(403);
 });
 test('refresh rota, revoca el anterior y permite usar el nuevo', async () => {
@@ -128,13 +135,13 @@ test('dos refresh concurrentes no pueden reutilizar el mismo token', async () =>
     const data = await session();
     const results = await Promise.all([1, 2].map(() => request(ctx.app).post('/auth/refresh').send({ refreshToken: data.refreshToken })));
     assert.deepEqual(results.map(r => r.status).sort(), [200, 401]);
-    assert.equal((await database.rows('SELECT id FROM refresh_tokens WHERE revoked_at IS NULL')).length, 1);
+    assert.equal((await database.rows('SELECT id FROM auth_refresh_tokens WHERE revoked_at IS NULL')).length, 1);
 });
 test('refresh expirado, revocado, inexistente o malformado se rechaza', async () => {
     const data = await session();
-    await database.pool.execute('UPDATE refresh_tokens SET expires_at = UTC_TIMESTAMP() - INTERVAL 1 SECOND');
+    await database.pool.execute('UPDATE auth_refresh_tokens SET expires_at = UTC_TIMESTAMP() - INTERVAL 1 SECOND');
     await request(ctx.app).post('/auth/refresh').send({ refreshToken: data.refreshToken }).expect(401);
-    await database.pool.execute('UPDATE refresh_tokens SET expires_at = UTC_TIMESTAMP() + INTERVAL 1 DAY, revoked_at = UTC_TIMESTAMP()');
+    await database.pool.execute('UPDATE auth_refresh_tokens SET expires_at = UTC_TIMESTAMP() + INTERVAL 1 DAY, revoked_at = UTC_TIMESTAMP()');
     await request(ctx.app).post('/auth/refresh').send({ refreshToken: data.refreshToken }).expect(401);
     await request(ctx.app).post('/auth/refresh').send({ refreshToken: '0'.repeat(64) }).expect(401);
     await request(ctx.app).post('/auth/refresh').send({ refreshToken: 'bad' }).expect(422);
@@ -201,7 +208,7 @@ test('reset concurrente con refresh no deja sesiones previas activas', async () 
     ]);
     assert.equal(reset.status, 200);
     assert.ok([200, 401].includes(refresh.status));
-    assert.equal((await database.rows('SELECT id FROM refresh_tokens WHERE revoked_at IS NULL')).length, 0);
+    assert.equal((await database.rows('SELECT id FROM auth_refresh_tokens WHERE revoked_at IS NULL')).length, 0);
 });
 test('MySQL usa UTC en cada conexión', async () => {
     await database.db.read(async () => undefined);
@@ -219,11 +226,7 @@ test('IDs BIGINT mayores al rango seguro se conservan como strings', async () =>
 test('guards owner y staff validan existencia, propiedad, asignación y ADMIN', async () => {
     const data = await session();
     const id = data.user.id;
-    await database.pool.execute("INSERT INTO organizer_profiles (user_id, display_name) VALUES (?, 'Organizer')", [id]);
-    await database.pool.execute("INSERT INTO provinces (id,name) VALUES (1,'Test') ON DUPLICATE KEY UPDATE name=name");
-    await database.pool.execute("INSERT INTO cities (id,province_id,name) VALUES (1,1,'Test') ON DUPLICATE KEY UPDATE name=name");
-    await database.pool.execute("INSERT INTO venues (id,city_id,name,address) VALUES (1,1,'Test','Test') ON DUPLICATE KEY UPDATE name=name");
-    await database.pool.execute("INSERT INTO concerts (id,organizer_id,venue_id,concert_type_id,status_id,name,start_datetime) VALUES (1,?,1,1,1,'Fixture',UTC_TIMESTAMP())", [id]);
+    await database.pool.execute("INSERT INTO concerts (id,organizer_user_id,title,slug,artist_name,starts_at) VALUES (1,?,'Fixture','fixture','Artista',UTC_TIMESTAMP())", [id]);
     const permissions = new PermissionsService(database.db);
     const app = express();
     app.use(authenticate(ctx.tokens, ctx.auth));
@@ -234,12 +237,13 @@ test('guards owner y staff validan existencia, propiedad, asignación y ADMIN', 
     await get('/owner/1').expect(403);
     await get('/owner/2').expect(404);
     await get('/owner/invalid').expect(422);
-    await database.pool.execute("INSERT INTO user_roles (user_id,role_id) SELECT ?,id FROM roles WHERE code IN ('ORGANIZER','STAFF')", [id]);
+    await database.pool.execute("INSERT INTO user_roles (user_id,role_id) SELECT ?,id FROM roles WHERE code = 'ORGANIZADOR'", [id]);
     await get('/owner/1').expect(200);
     await get('/staff/1').expect(403);
-    await database.pool.execute('INSERT INTO staff_assignments (concert_id,user_id,assigned_by_user_id) VALUES (1,?,?)', [id, id]);
+    // Staff is a per-concert assignment, not a global role.
+    await database.pool.execute('INSERT INTO concert_staff (concert_id,user_id) VALUES (1,?)', [id]);
     await get('/staff/1').expect(200);
-    await database.pool.execute('DELETE FROM staff_assignments');
+    await database.pool.execute('DELETE FROM concert_staff');
     await database.pool.execute("INSERT INTO user_roles (user_id,role_id) SELECT ?,id FROM roles WHERE code = 'ADMIN'", [id]);
     await get('/staff/1').expect(200);
     await database.pool.execute('DELETE FROM concerts');

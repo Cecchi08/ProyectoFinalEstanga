@@ -1,24 +1,26 @@
+import { randomBytes } from 'node:crypto';
 import type { PoolConnection, ResultSetHeader, RowDataPacket } from 'mysql2/promise';
 import type { Row, Value, TicketRow, ConcertRow } from '../types/management.types.ts';
 import type { PageQuery } from '../validators/commerce.schemas.ts';
 import { NotificationsRepository } from './notifications.repository.ts';
+import { ticketTypeSelect } from './management.repository.ts';
 
 export interface PurchaseRow extends Row { id: string; user_id: string; status: string; expires_at: Date | null }
 export interface ItemRow extends Row { id: string; ticket_type_id: string; concert_id: string; quantity: number; unit_price: string }
 export interface ScanRow extends Row { id: string; purchase_id: string; concert_id: string; status: string; used_at: Date | null }
-const effectiveStatus = `CASE WHEN ps.code IN ('PENDING', 'RESERVED') AND (p.expires_at IS NULL OR p.expires_at <= NOW())
-    THEN 'EXPIRED' ELSE ps.code END`;
-const purchaseSelect = `SELECT p.id, p.user_id, ${effectiveStatus} AS status, p.expires_at, p.created_at,
-    (SELECT COALESCE(SUM(pi.quantity * pi.unit_price), 0) FROM purchase_items pi WHERE pi.purchase_id = p.id) AS total
-    FROM purchases p JOIN purchase_statuses ps ON ps.id = p.status_id`;
-const ticketJoins = `FROM tickets t JOIN ticket_statuses ts ON ts.id = t.status_id
-    JOIN purchase_items pi ON pi.id = t.purchase_item_id JOIN purchases p ON p.id = pi.purchase_id
-    JOIN ticket_types tt ON tt.id = pi.ticket_type_id JOIN concerts c ON c.id = tt.concert_id`;
-const ticketSelect = `SELECT t.id, t.purchase_item_id, t.qr_token, ts.code AS status, t.used_at, t.created_at,
-    p.id AS purchase_id, tt.id AS ticket_type_id, tt.name AS ticket_type_name,
-    c.id AS concert_id, c.name AS concert_name, cs.code AS concert_status, c.start_datetime, c.end_datetime,
-    v.id AS venue_id, v.name AS venue_name, v.address AS venue_address
-    ${ticketJoins} JOIN concert_statuses cs ON cs.id = c.status_id JOIN venues v ON v.id = c.venue_id`;
+export type ScanResult = 'ACCEPTED' | 'ALREADY_USED' | 'CANCELLED' | 'WRONG_CONCERT' | 'NOT_FOUND';
+// The API keeps the "purchase" vocabulary; the schema stores orders.
+const effectiveStatus = `CASE WHEN o.status = 'PENDING' AND (o.expires_at IS NULL OR o.expires_at <= NOW())
+    THEN 'EXPIRED' ELSE o.status END`;
+const purchaseSelect = `SELECT o.id, o.public_code, o.user_id, ${effectiveStatus} AS status, o.expires_at, o.confirmed_at, o.cancelled_at,
+    o.created_at, o.total_amount AS total, o.currency FROM orders o`;
+const ticketJoins = `FROM tickets t JOIN order_items oi ON oi.id = t.order_item_id JOIN orders o ON o.id = oi.order_id
+    JOIN ticket_types tt ON tt.id = t.ticket_type_id JOIN concerts c ON c.id = t.concert_id`;
+const ticketSelect = `SELECT t.id, t.order_item_id AS purchase_item_id, t.qr_token, t.status, t.used_at, t.created_at,
+    o.id AS purchase_id, tt.id AS ticket_type_id, tt.name AS ticket_type_name,
+    c.id AS concert_id, c.title AS concert_name, c.status AS concert_status, c.starts_at AS start_datetime, c.ends_at AS end_datetime,
+    c.venue_id, c.venue_name, c.address_line AS venue_address
+    ${ticketJoins}`;
 
 export class CommerceRepository {
     readonly notifications: NotificationsRepository;
@@ -33,89 +35,99 @@ export class CommerceRepository {
     }
     async now(): Promise<Date> { return (await this.rows('SELECT NOW() AS now'))[0].now as Date; }
     async type(id: string, lock = false): Promise<TicketRow | undefined> {
-        return (await this.rows<TicketRow>(`SELECT * FROM ticket_types WHERE id = ?${lock ? ' FOR UPDATE' : ''}`, [id]))[0];
+        return (await this.rows<TicketRow>(`${ticketTypeSelect} WHERE id = ?${lock ? ' FOR UPDATE' : ''}`, [id]))[0];
     }
     async concert(id: string): Promise<ConcertRow | undefined> {
         // Lock only the concert, not shared catalog rows; same parent-first order as Stage 3.
-        if (!(await this.rows('SELECT id FROM concerts WHERE id = ? FOR UPDATE', [id]))[0]) return undefined;
-        return (await this.rows<ConcertRow>(`SELECT c.*, cs.code AS status FROM concerts c
-            JOIN concert_statuses cs ON cs.id = c.status_id WHERE c.id = ? FOR SHARE`, [id]))[0];
+        return (await this.rows<ConcertRow>(`SELECT id, organizer_user_id AS organizer_id, title AS name, status,
+            starts_at AS start_datetime, ends_at AS end_datetime FROM concerts WHERE id = ? FOR UPDATE`, [id]))[0];
     }
     async committed(typeId: string): Promise<number> {
         // First consistent table read occurs AFTER concert/type locks (also safe under REPEATABLE READ).
-        const row = (await this.rows(`SELECT COALESCE(SUM(pi.quantity), 0) AS quantity FROM purchase_items pi
-            JOIN purchases p ON p.id = pi.purchase_id JOIN purchase_statuses ps ON ps.id = p.status_id
-            WHERE pi.ticket_type_id = ? AND (ps.code = 'CONFIRMED' OR
-                (ps.code IN ('PENDING', 'RESERVED') AND p.expires_at > NOW()))`, [typeId]))[0];
+        const row = (await this.rows(`SELECT COALESCE(SUM(oi.quantity), 0) AS quantity FROM order_items oi
+            JOIN orders o ON o.id = oi.order_id
+            WHERE oi.ticket_type_id = ? AND (o.status = 'CONFIRMED' OR (o.status = 'PENDING' AND o.expires_at > NOW()))`, [typeId]))[0];
         return Number(row.quantity);
     }
     async reserve(userId: string, expires: Date): Promise<string> {
-        await this.execute(`INSERT INTO purchases (user_id, status_id, expires_at)
-            SELECT ?, id, ? FROM purchase_statuses WHERE code = 'RESERVED'`, [userId, expires]);
+        await this.execute(`INSERT INTO orders (public_code, user_id, buyer_email, buyer_name, status, expires_at)
+            SELECT ?, id, email, NULLIF(TRIM(CONCAT_WS(' ', first_name, last_name)), ''), 'PENDING', ? FROM users WHERE id = ?`,
+        [`O-${randomBytes(6).toString('hex').toUpperCase()}`, expires, userId]);
         return String((await this.rows('SELECT CAST(LAST_INSERT_ID() AS CHAR) AS id'))[0].id);
     }
     async addItem(purchaseId: string, type: TicketRow, quantity: number): Promise<void> {
-        await this.execute('INSERT INTO purchase_items (purchase_id, ticket_type_id, quantity, unit_price) VALUES (?, ?, ?, ?)',
-            [purchaseId, type.id, quantity, type.price]);
+        await this.execute(`INSERT INTO order_items (order_id, ticket_type_id, concert_id, quantity, unit_price, line_total)
+            VALUES (?, ?, ?, ?, ?, ? * ?)`, [purchaseId, type.id, type.concert_id, quantity, type.price, quantity, type.price]);
+    }
+    async total(purchaseId: string): Promise<void> {
+        await this.execute(`UPDATE orders o SET o.total_amount = (SELECT COALESCE(SUM(oi.line_total), 0) FROM order_items oi WHERE oi.order_id = o.id)
+            WHERE o.id = ?`, [purchaseId]);
     }
     async purchase(id: string, ownerId?: string): Promise<PurchaseRow | undefined> {
-        return (await this.rows<PurchaseRow>(`${purchaseSelect} WHERE p.id = ?${ownerId ? ' AND p.user_id = ?' : ''}`, ownerId ? [id, ownerId] : [id]))[0];
+        return (await this.rows<PurchaseRow>(`${purchaseSelect} WHERE o.id = ?${ownerId ? ' AND o.user_id = ?' : ''}`, ownerId ? [id, ownerId] : [id]))[0];
     }
     async lockPurchase(id: string): Promise<PurchaseRow | undefined> {
-        if (!(await this.rows('SELECT id FROM purchases WHERE id = ? FOR UPDATE', [id]))[0]) return undefined;
-        return (await this.rows<PurchaseRow>(`SELECT p.id, p.user_id, ps.code AS status, p.expires_at FROM purchases p
-            JOIN purchase_statuses ps ON ps.id = p.status_id WHERE p.id = ? FOR SHARE`, [id]))[0];
+        return (await this.rows<PurchaseRow>('SELECT id, user_id, status, expires_at FROM orders WHERE id = ? FOR UPDATE', [id]))[0];
     }
     async items(id: string): Promise<ItemRow[]> {
-        return this.rows<ItemRow>(`SELECT pi.id, pi.ticket_type_id, pi.quantity, pi.unit_price, tt.concert_id,
-            tt.name AS ticket_type_name FROM purchase_items pi JOIN ticket_types tt ON tt.id = pi.ticket_type_id
-            WHERE pi.purchase_id = ? ORDER BY pi.ticket_type_id`, [id]);
+        return this.rows<ItemRow>(`SELECT oi.id, oi.ticket_type_id, oi.quantity, oi.unit_price, oi.line_total, oi.concert_id,
+            tt.name AS ticket_type_name FROM order_items oi JOIN ticket_types tt ON tt.id = oi.ticket_type_id
+            WHERE oi.order_id = ? ORDER BY oi.ticket_type_id`, [id]);
     }
     async purchases(userId: string, query: PageQuery) {
-        const total = Number((await this.rows('SELECT COUNT(*) AS total FROM purchases WHERE user_id = ?', [userId]))[0].total);
-        const data = await this.rows(`${purchaseSelect} WHERE p.user_id = ? ORDER BY p.id DESC LIMIT ? OFFSET ?`,
+        const total = Number((await this.rows('SELECT COUNT(*) AS total FROM orders WHERE user_id = ?', [userId]))[0].total);
+        const data = await this.rows(`${purchaseSelect} WHERE o.user_id = ? ORDER BY o.id DESC LIMIT ? OFFSET ?`,
             [userId, String(query.limit), String((query.page - 1) * query.limit)]);
         return { data, total };
     }
-    async setPurchaseStatus(id: string, status: string): Promise<void> {
-        await this.execute('UPDATE purchases SET status_id = (SELECT id FROM purchase_statuses WHERE code = ?) WHERE id = ?', [status, id]);
+    async setPurchaseStatus(id: string, status: 'EXPIRED' | 'CANCELLED'): Promise<void> {
+        // chk_orders_cancelled requires cancelled_at for CANCELLED.
+        await this.execute(`UPDATE orders SET status = ?, cancelled_at = IF(? = 'CANCELLED', COALESCE(cancelled_at, NOW()), cancelled_at)
+            WHERE id = ?`, [status, status, id]);
     }
     async confirm(id: string): Promise<number> {
-        return this.execute(`UPDATE purchases SET status_id = (SELECT id FROM purchase_statuses WHERE code = 'CONFIRMED')
-            WHERE id = ? AND status_id IN (SELECT id FROM purchase_statuses WHERE code IN ('PENDING', 'RESERVED'))
-            AND expires_at > NOW()`, [id]);
+        return this.execute(`UPDATE orders SET status = 'CONFIRMED', confirmed_at = NOW()
+            WHERE id = ? AND status = 'PENDING' AND expires_at > NOW()`, [id]);
     }
-    async addTicket(itemId: string, token: string): Promise<void> {
-        await this.execute(`INSERT INTO tickets (purchase_item_id, qr_token, status_id)
-            SELECT ?, ?, id FROM ticket_statuses WHERE code = 'ACTIVE'`, [itemId, token]);
+    // Keeps ticket_types.quantity_sold in step with confirmed orders; the caller holds the ticket type locks.
+    async sold(item: ItemRow, sign: 1 | -1): Promise<void> {
+        await this.execute('UPDATE ticket_types SET quantity_sold = quantity_sold + ? WHERE id = ?', [sign * item.quantity, item.ticket_type_id]);
+    }
+    async addTicket(item: ItemRow, ownerId: string, token: string): Promise<void> {
+        await this.execute(`INSERT INTO tickets (order_item_id, concert_id, ticket_type_id, owner_user_id, qr_token, status)
+            VALUES (?, ?, ?, ?, ?, 'VALID')`, [item.id, item.concert_id, item.ticket_type_id, ownerId, token]);
     }
     async purchaseTickets(id: string): Promise<Row[]> {
-        return this.rows(`SELECT id, used_at FROM tickets WHERE purchase_item_id IN
-            (SELECT id FROM purchase_items WHERE purchase_id = ?) ORDER BY id FOR UPDATE`, [id]);
+        return this.rows(`SELECT id, used_at FROM tickets WHERE order_item_id IN
+            (SELECT id FROM order_items WHERE order_id = ?) ORDER BY id FOR UPDATE`, [id]);
     }
-    async invalidateTickets(id: string, status: string): Promise<void> {
-        await this.execute(`UPDATE tickets t JOIN purchase_items pi ON pi.id = t.purchase_item_id
-            SET t.status_id = (SELECT id FROM ticket_statuses WHERE code = ?) WHERE pi.purchase_id = ?`, [status, id]);
+    async invalidateTickets(id: string): Promise<void> {
+        await this.execute(`UPDATE tickets t JOIN order_items oi ON oi.id = t.order_item_id
+            SET t.status = 'CANCELLED' WHERE oi.order_id = ?`, [id]);
     }
     async tickets(userId: string, query: PageQuery) {
-        const total = Number((await this.rows(`SELECT COUNT(*) AS total ${ticketJoins} WHERE p.user_id = ?`, [userId]))[0].total);
-        const data = await this.rows(`${ticketSelect} WHERE p.user_id = ? ORDER BY t.id DESC LIMIT ? OFFSET ?`,
+        const total = Number((await this.rows(`SELECT COUNT(*) AS total ${ticketJoins} WHERE o.user_id = ?`, [userId]))[0].total);
+        const data = await this.rows(`${ticketSelect} WHERE o.user_id = ? ORDER BY t.id DESC LIMIT ? OFFSET ?`,
             [userId, String(query.limit), String((query.page - 1) * query.limit)]);
         return { data, total };
     }
     async ticket(id: string, ownerId?: string): Promise<Row | undefined> {
-        return (await this.rows(`${ticketSelect} WHERE t.id = ?${ownerId ? ' AND p.user_id = ?' : ''}`, ownerId ? [id, ownerId] : [id]))[0];
+        return (await this.rows(`${ticketSelect} WHERE t.id = ?${ownerId ? ' AND o.user_id = ?' : ''}`, ownerId ? [id, ownerId] : [id]))[0];
     }
     async scan(token: string): Promise<ScanRow | undefined> {
-        return (await this.rows<ScanRow>(`SELECT t.id, p.id AS purchase_id, c.id AS concert_id, ts.code AS status, t.used_at
-            ${ticketJoins} WHERE t.qr_token = ?`, [token]))[0];
+        return (await this.rows<ScanRow>(`SELECT t.id, oi.order_id AS purchase_id, t.concert_id, t.status, t.used_at
+            FROM tickets t JOIN order_items oi ON oi.id = t.order_item_id WHERE t.qr_token = ?`, [token]))[0];
     }
     async assigned(concertId: string, userId: string): Promise<boolean> {
-        return (await this.rows('SELECT user_id FROM staff_assignments WHERE concert_id = ? AND user_id = ? FOR SHARE', [concertId, userId])).length > 0;
+        return (await this.rows('SELECT user_id FROM concert_staff WHERE concert_id = ? AND user_id = ? FOR SHARE', [concertId, userId])).length > 0;
     }
     async useTicket(id: string, userId: string): Promise<number> {
-        return this.execute(`UPDATE tickets SET status_id = (SELECT id FROM ticket_statuses WHERE code = 'USED'),
-            used_at = NOW(), used_by_user_id = ? WHERE id = ?
-            AND status_id = (SELECT id FROM ticket_statuses WHERE code = 'ACTIVE') AND used_at IS NULL`, [userId, id]);
+        return this.execute(`UPDATE tickets SET status = 'USED', used_at = NOW(), validated_by_user_id = ?
+            WHERE id = ? AND status = 'VALID' AND used_at IS NULL`, [userId, id]);
+    }
+    // Audit trail of every scan, including rejected ones; never stores more than the scanned token.
+    async logScan(concertId: string, ticketId: string | null, token: string, result: ScanResult, userId: string): Promise<void> {
+        await this.execute(`INSERT INTO ticket_validations (ticket_id, concert_id, scanned_token, result, validated_by_user_id)
+            SELECT ?, id, ?, ?, ? FROM concerts WHERE id = ?`, [ticketId, token.slice(0, 255), result, userId, concertId]);
     }
 }

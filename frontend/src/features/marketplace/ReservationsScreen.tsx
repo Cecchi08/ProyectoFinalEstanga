@@ -1,0 +1,120 @@
+import { useState } from "react";
+import { View } from "react-native";
+import { router, useLocalSearchParams } from "expo-router";
+import { useAuth } from "../../contexts/AuthContext";
+import { useResource } from "../../hooks/useResource";
+import { api } from "../../services/api";
+import type { PaymentResult, Reservation } from "../../types/api";
+import { ActionFeedback, Button, Card, Copy, Field, Notice, Page, Pager, ResourceState, dateLabel, money, styles, useAction } from "../../components/ui";
+import { useListView } from "./QuotesScreen";
+import { range } from "./time";
+
+const phases: Record<string, string> = { SETUP: "Armado", EVENT: "Evento", TEARDOWN: "Desarme" };
+export default function ReservationsScreen() {
+  const view = useListView(["HOLD", "CONFIRMED", "COMPLETED", "CANCELLED", "EXPIRED"]);
+  const resource = useResource<Reservation[]>(`/marketplace/reservations${view.params}`);
+  return (
+    <Page title="Reservas de espacios" subtitle="Reservas temporales, confirmadas y su historial.">
+      <Button title="Buscar espacios" secondary onPress={() => router.push("/marketplace")} />
+      {view.controls}
+      <ResourceState {...resource} empty={resource.result?.data.length === 0} retry={() => void resource.reload()} />
+      {resource.result?.data.map((reservation) => (
+        <Card key={reservation.id}>
+          <Copy>{reservation.event_name} · {reservation.status}</Copy>
+          <Copy muted>{reservation.venue_name} · {reservation.establishment_name}</Copy>
+          <Copy muted>{range(reservation.event_start_at, reservation.event_end_at)} · {money(reservation.total_amount)} · {reservation.public_code}</Copy>
+          <Button title={`Ver reserva ${reservation.public_code}`} onPress={() => router.push(`/marketplace/reservations/${reservation.id}`)} />
+        </Card>
+      ))}
+      <Pager pagination={resource.result?.pagination} onPage={view.setPage} />
+    </Page>
+  );
+}
+
+export function ReservationScreen() {
+  const { id } = useLocalSearchParams<{ id: string }>();
+  const { user } = useAuth();
+  const resource = useResource<Reservation>(`/marketplace/reservations/${id}`);
+  const reservation = resource.result?.data;
+  const action = useAction();
+  const [notice, setNotice] = useState("");
+  const [reason, setReason] = useState("");
+  const [confirm, setConfirm] = useState(false);
+  const mine = reservation?.user_id === user?.id;
+  // Payments are always simulated: the request carries only the desired outcome, never card data.
+  const pay = (outcome: "APPROVED" | "REJECTED") => action.run(async () => {
+    const { data } = await api.request<PaymentResult>(`/marketplace/reservations/${id}/payments`, { method: "POST", body: { outcome } });
+    setNotice(`${data.notice} Referencia ${data.payment.simulated_reference} · ${data.payment.status}.`);
+    await resource.reload();
+  });
+  const cancel = () => action.run(async () => {
+    await api.request(`/marketplace/reservations/${id}/cancel`, { method: "POST", body: { reason: reason.trim() || null } });
+    setConfirm(false);
+    await resource.reload();
+    action.setMessage("Reserva cancelada.");
+  });
+  return (
+    <Page title={reservation ? `Reserva ${reservation.public_code}` : "Reserva"}>
+      <ResourceState {...resource} retry={() => void resource.reload()} />
+      <Notice message={notice} />
+      <ActionFeedback action={action} />
+      {reservation && (
+        <>
+          <Card>
+            <Copy>{reservation.event_name} · {reservation.status}</Copy>
+            <Copy muted>{reservation.venue_name} · {reservation.establishment_name}</Copy>
+            <Copy muted>{reservation.occupancy_mode === "ESTABLISHMENT" ? "Establecimiento completo" : "Solo el espacio"} · Total {money(reservation.total_amount)}</Copy>
+            {reservation.status === "HOLD" && reservation.hold_expires_at && (
+              <Copy muted>Reserva temporal: vence {dateLabel(reservation.hold_expires_at)} si no se paga.</Copy>
+            )}
+            {reservation.notes && <Copy muted>Notas: {reservation.notes}</Copy>}
+            {reservation.cancellation_reason && <Copy muted>Motivo de cancelación: {reservation.cancellation_reason}</Copy>}
+            {reservation.occupancies?.map((o) => <Copy key={o.phase} muted>{phases[o.phase] ?? o.phase}: {range(o.starts_at, o.ends_at)}</Copy>)}
+            {reservation.quote_id && (
+              <Button title="Ver presupuesto de origen" secondary onPress={() => router.push(`/marketplace/quotes/${reservation.quote_id}`)} />
+            )}
+          </Card>
+          {mine && reservation.status === "HOLD" && (
+            <Card>
+              <Copy>Pago simulado</Copy>
+              <Copy muted>
+                Venti no procesa pagos reales: no se cobra dinero ni se piden datos de tarjeta. Elegí el resultado para probar el flujo.
+              </Copy>
+              <View style={styles.row}>
+                <Button title="Simular pago aprobado" disabled={action.busy} onPress={() => void pay("APPROVED")} />
+                <Button title="Simular pago rechazado" secondary disabled={action.busy} onPress={() => void pay("REJECTED")} />
+              </View>
+            </Card>
+          )}
+          {(reservation.payments?.length ?? 0) > 0 && (
+            <Card>
+              <Copy>Pagos (simulados)</Copy>
+              {reservation.payments?.map((payment) => (
+                <Copy key={payment.id} muted>
+                  {payment.simulated_reference} · {payment.status} · {money(payment.amount)} · {payment.is_simulated ? "simulado" : ""}
+                  {payment.processed_at ? ` · ${dateLabel(payment.processed_at)}` : ""}
+                </Copy>
+              ))}
+            </Card>
+          )}
+          {reservation.history && reservation.history.length > 0 && (
+            <Card>
+              <Copy>Historial</Copy>
+              {reservation.history.map((h) => (
+                <Copy key={`${h.changed_at}-${h.to_status}`} muted>{dateLabel(h.changed_at)} · {h.from_status ?? "—"} → {h.to_status}</Copy>
+              ))}
+            </Card>
+          )}
+          {["HOLD", "CONFIRMED"].includes(reservation.status) && (
+            <Card>
+              <Field label="Motivo de cancelación (opcional)" value={reason} onChangeText={setReason} />
+              <Button title={confirm ? "Confirmar cancelación de la reserva" : "Cancelar reserva"} secondary danger disabled={action.busy}
+                onPress={() => (confirm ? void cancel() : setConfirm(true))} />
+              {reservation.status === "CONFIRMED" && <Copy muted>El pago simulado aprobado se marca como reembolsado.</Copy>}
+            </Card>
+          )}
+        </>
+      )}
+    </Page>
+  );
+}

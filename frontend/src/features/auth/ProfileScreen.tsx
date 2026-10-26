@@ -49,7 +49,7 @@ export default function ProfileScreen() {
             />
             <Copy muted>
               {preferences.enabled
-                ? "ON · Usamos tus entradas y favoritos para sugerirte conciertos."
+                ? "ON · Usamos tus entradas para sugerirte conciertos."
                 : "OFF · No se solicitan recomendaciones personalizadas."}
             </Copy>
           </>

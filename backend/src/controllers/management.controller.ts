@@ -1,7 +1,7 @@
 import type { Request, Response } from 'express';
 import { unauthorized } from '../utils/app-error.util.js';
 import { ManagementService } from '../services/management.service.ts';
-import { catalogQuerySchema, cityQuerySchema, concertQuerySchema, idSchema, venueQuerySchema } from '../validators/management.schemas.ts';
+import { catalogQuerySchema, cityQuerySchema, concertQuerySchema, districtQuerySchema, idSchema } from '../validators/management.schemas.ts';
 import type { Catalog } from '../types/management.types.ts';
 
 const principal = (req: Request) => { if (!req.user) throw unauthorized(); return req.user; };
@@ -13,7 +13,7 @@ const page = (res: Response, result: { data: unknown; total: number }, query: { 
 export class ManagementController {
     constructor(private readonly service: ManagementService) {}
     catalogList = (kind: Catalog) => async (req: Request, res: Response) => {
-        const schema = kind === 'cities' ? cityQuerySchema : kind === 'venues' ? venueQuerySchema : catalogQuerySchema;
+        const schema = kind === 'cities' ? cityQuerySchema : kind === 'districts' ? districtQuerySchema : catalogQuerySchema;
         const query = schema.parse(req.query);
         page(res, await this.service.catalogList(kind, query), { page: query.page, limit: query.limit });
     };
@@ -21,7 +21,6 @@ export class ManagementController {
     catalogCreate = (kind: Catalog) => async (req: Request, res: Response) => { ok(res, await this.service.catalogSave(kind, req.body, principal(req)), 201); };
     catalogUpdate = (kind: Catalog) => async (req: Request, res: Response) => { ok(res, await this.service.catalogSave(kind, req.body, principal(req), id(req))); };
     catalogDelete = (kind: Catalog) => async (req: Request, res: Response) => { await this.service.catalogDelete(kind, id(req), principal(req)); res.sendStatus(204); };
-    concertTypes = async (_req: Request, res: Response) => { ok(res, await this.service.concertTypes()); };
     concertList = async (req: Request, res: Response) => {
         const query = concertQuerySchema.parse(req.query);
         page(res, await this.service.concertList(query, req.user), { page: query.page, limit: query.limit });
@@ -31,6 +30,9 @@ export class ManagementController {
     concertUpdate = async (req: Request, res: Response) => { ok(res, await this.service.concertUpdate(id(req), req.body, principal(req))); };
     concertDelete = async (req: Request, res: Response) => { await this.service.concertDelete(id(req), principal(req)); res.sendStatus(204); };
     transition = (action: 'publish' | 'cancel') => async (req: Request, res: Response) => { ok(res, await this.service.concertTransition(id(req), action, principal(req))); };
+    staffList = async (req: Request, res: Response) => { ok(res, await this.service.staffList(id(req), principal(req))); };
+    staffAssign = async (req: Request, res: Response) => { ok(res, await this.service.staffAssign(id(req), req.body, principal(req)), 201); };
+    staffRemove = async (req: Request, res: Response) => { await this.service.staffRemove(id(req), id(req, 'userId'), principal(req)); res.sendStatus(204); };
     ticketList = async (req: Request, res: Response) => { ok(res, await this.service.ticketList(id(req, 'concertId'), req.user)); };
     ticketCreate = async (req: Request, res: Response) => { ok(res, await this.service.ticketCreate(id(req, 'concertId'), req.body, principal(req)), 201); };
     ticketUpdate = async (req: Request, res: Response) => { ok(res, await this.service.ticketUpdate(id(req), req.body, principal(req))); };

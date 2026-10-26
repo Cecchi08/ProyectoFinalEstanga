@@ -18,15 +18,18 @@ import {
   useAction,
 } from "../../components/ui";
 import { Select } from "../../components/ui/Select";
+// Artists and concert venues are no longer catalogs: concerts store artist_name and
+// spaces belong to marketplace establishments.
 const names: Record<Catalog, string> = {
-  artists: "Artistas",
   genres: "Géneros",
-  venues: "Venues",
-  cities: "Ciudades",
   provinces: "Provincias",
+  districts: "Distritos",
+  cities: "Ciudades",
 };
+const detail = (item: CatalogItem) =>
+  [`#${item.id}`, item.code, item.postal_code ? `CP ${item.postal_code}` : ""].filter(Boolean).join(" · ");
 export default function AdminScreen() {
-  const [kind, setKind] = useState<Catalog>("artists");
+  const [kind, setKind] = useState<Catalog>("genres");
   const [page, setPage] = useState(1);
   const [search, setSearch] = useState("");
   const [selected, setSelected] = useState<CatalogItem | null | undefined>(
@@ -88,10 +91,7 @@ export default function AdminScreen() {
       {resource.result?.data.map((item) => (
         <Card key={item.id}>
           <Copy>{item.name}</Copy>
-          <Copy muted>
-            #{item.id}
-            {item.address ? ` · ${item.address}` : ""}
-          </Copy>
+          <Copy muted>{detail(item)}</Copy>
           <Button
             title={`Editar ${item.name}`}
             secondary
@@ -113,20 +113,16 @@ function CatalogEditor({
   done(): Promise<void>;
 }) {
   const [form, setForm] = useState<Record<string, string>>({});
-  const [genres, setGenres] = useState<string[]>([]);
   const [confirm, setConfirm] = useState(false);
   const action = useAction();
   useEffect(() => {
     setForm({
       name: item?.name ?? "",
-      description: item?.description ?? "",
-      image_url: item?.image_url ?? "",
-      address: item?.address ?? "",
-      city_id: item?.city_id ?? "",
+      code: item?.code ?? "",
       province_id: item?.province_id ?? "",
-      capacity: String(item?.capacity ?? ""),
+      district_id: item?.district_id ?? "",
+      postal_code: item?.postal_code ?? "",
     });
-    setGenres(item?.genres?.map((g) => g.id) ?? []);
   }, [item]);
   const set = (key: string, value: string) =>
     setForm({ ...form, [key]: value });
@@ -138,52 +134,38 @@ function CatalogEditor({
         value={form.name ?? ""}
         onChangeText={(v) => set("name", v)}
       />
-      {kind === "artists" && (
-        <>
-          <Field
-            label="Descripción"
-            value={form.description ?? ""}
-            onChangeText={(v) => set("description", v)}
-          />
-          <Field
-            label="URL de imagen"
-            value={form.image_url ?? ""}
-            onChangeText={(v) => set("image_url", v)}
-          />
-          <Select
-            label="Géneros"
-            path="/genres"
-            multiple
-            values={genres}
-            onChange={setGenres}
-          />
-        </>
+      {kind === "provinces" && (
+        <Field
+          label="Código"
+          placeholder="AR-B"
+          value={form.code ?? ""}
+          onChangeText={(v) => set("code", v.toUpperCase())}
+        />
       )}
-      {kind === "cities" && (
+      {(kind === "districts" || kind === "cities") && (
         <Select
           label="Provincia"
           path="/provinces"
           values={form.province_id ? [form.province_id] : []}
-          onChange={(v) => set("province_id", v[0] ?? "")}
+          onChange={(v) => setForm({ ...form, province_id: v[0] ?? "", district_id: "" })}
         />
-      )}{" "}
-      {kind === "venues" && (
+      )}
+      {kind === "cities" && (
         <>
-          <Select
-            label="Ciudad"
-            path="/cities"
-            values={form.city_id ? [form.city_id] : []}
-            onChange={(v) => set("city_id", v[0] ?? "")}
-          />
+          {form.province_id ? (
+            <Select
+              label="Distrito"
+              path={`/districts?province_id=${encodeURIComponent(form.province_id)}`}
+              values={form.district_id ? [form.district_id] : []}
+              onChange={(v) => set("district_id", v[0] ?? "")}
+            />
+          ) : (
+            <Copy muted>Elegí la provincia para ver sus distritos.</Copy>
+          )}
           <Field
-            label="Dirección"
-            value={form.address ?? ""}
-            onChangeText={(v) => set("address", v)}
-          />
-          <Field
-            label="Capacidad (opcional)"
-            value={form.capacity ?? ""}
-            onChangeText={(v) => set("capacity", v)}
+            label="Código postal (opcional)"
+            value={form.postal_code ?? ""}
+            onChangeText={(v) => set("postal_code", v)}
           />
         </>
       )}
@@ -195,19 +177,13 @@ function CatalogEditor({
           void action.run(async () => {
             const body = {
               name: form.name,
-              ...(kind === "artists"
+              ...(kind === "provinces" ? { code: form.code } : {}),
+              ...(kind === "districts" ? { province_id: form.province_id } : {}),
+              ...(kind === "cities"
                 ? {
-                    description: form.description || null,
-                    image_url: form.image_url || null,
-                    genre_ids: genres,
-                  }
-                : {}),
-              ...(kind === "cities" ? { province_id: form.province_id } : {}),
-              ...(kind === "venues"
-                ? {
-                    city_id: form.city_id,
-                    address: form.address,
-                    capacity: form.capacity ? Number(form.capacity) : null,
+                    province_id: form.province_id,
+                    district_id: form.district_id,
+                    postal_code: form.postal_code || null,
                   }
                 : {}),
             };

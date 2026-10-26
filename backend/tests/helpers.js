@@ -7,6 +7,7 @@ import { loadEnv } from '../src/config/env.config.js';
 import { createPool, MysqlDatabase } from '../src/config/db.config.js';
 import { AuthService } from '../src/services/auth.service.js';
 import { AccessTokens } from '../src/utils/jwt.util.js';
+import { SCHEMA_FILE, schemaStatements } from '../scripts/schema-statements.js';
 export const password = 'Strong-password-123';
 export const registration = { first_name: 'Ana', last_name: 'Pérez', email: 'ana@example.com', password };
 export function testEnv() {
@@ -31,17 +32,27 @@ export class FakeProvider {
     profile = { provider: 'google', subject: 'google-user-1', email: 'oauth@example.com', emailVerified: true, firstName: 'OAuth', lastName: 'User' };
     async identity(provider) { return { ...this.profile, provider }; }
 }
+export { SCHEMA_FILE, schemaStatements };
+// Business tables in child-to-parent order; catalogs from the schema seed (roles, geography, genres...) stay.
+const BUSINESS_TABLES = ['ticket_validations', 'tickets', 'order_items', 'notifications', 'recommendations', 'orders', 'concert_staff',
+    'ticket_types', 'concert_genres', 'concerts', 'payments', 'reservations', 'quote_items', 'quotes', 'venue_blocks', 'venues',
+    'establishments', 'organization_members', 'organizations', 'artist_profiles', 'admin_audit_log', 'users'];
+export async function resetData(database) {
+    // FK cascades do not fire triggers, so deleting reservations also removes their occupancies.
+    for (const table of BUSINESS_TABLES) await database.rows(`DELETE FROM ${table}`);
+}
 export class TestDatabase {
     env = testEnv();
     name = `venti_test_${randomBytes(8).toString('hex')}`;
     pool;
     db;
     async open() {
-        const connection = await mysql.createConnection({ host: this.env.DB_HOST, port: this.env.DB_PORT, user: this.env.DB_USER, password: this.env.DB_PASSWORD, multipleStatements: true });
+        const connection = await mysql.createConnection({ host: this.env.DB_HOST, port: this.env.DB_PORT, user: this.env.DB_USER, password: this.env.DB_PASSWORD });
         try {
-            const original = await readFile('../database/schema.sql', 'utf8');
-            const schema = original.replace('CREATE DATABASE IF NOT EXISTS venti', `CREATE DATABASE \`${this.name}\``).replace('USE venti;', `USE \`${this.name}\`;`);
-            await connection.query(schema);
+            const original = await readFile(SCHEMA_FILE, 'utf8');
+            const schema = original.replace('CREATE DATABASE IF NOT EXISTS venti ', `CREATE DATABASE \`${this.name}\` `).replace('USE venti;', `USE \`${this.name}\`;`);
+            if (schema === original) throw new Error('El esquema no tiene CREATE DATABASE/USE venti.');
+            for (const statement of schemaStatements(schema)) await connection.query(statement);
         }
         finally {
             await connection.end();

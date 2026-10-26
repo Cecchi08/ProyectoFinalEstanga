@@ -3,30 +3,31 @@ import { View } from "react-native";
 import { useResource } from "../../hooks/useResource";
 import { query } from "../../services/http";
 import type { Named } from "../../types/api";
-import { Button, Copy, Field, Pager, ResourceState, styles } from "./index";
+import { Button, Field, Pager, ResourceState, styles } from "./index";
 export function Select({
   label,
   path,
   values,
   onChange,
   multiple = false,
+  searchable = true,
+  itemLabel = (item) => item.name ?? item.code ?? item.id,
 }: {
   label: string;
   path: string;
   values: string[];
   onChange(values: string[]): void;
   multiple?: boolean;
+  // Endpoints without a q filter (strict query schemas) must not receive one.
+  searchable?: boolean;
+  itemLabel?(item: Named & Record<string, unknown>): string;
 }) {
   const [open, setOpen] = useState(false);
   const [search, setSearch] = useState("");
   const [page, setPage] = useState(1);
-  const resource = useResource<Named[]>(
-    open
-      ? path +
-          (path === "/concert-types"
-            ? ""
-            : query({ q: search.trim(), page, limit: 10 }))
-      : null,
+  const params = query({ ...(searchable ? { q: search.trim() } : {}), page, limit: 10 });
+  const resource = useResource<(Named & Record<string, unknown>)[]>(
+    open ? path + (path.includes("?") ? params.replace(/^\?/, "&") : params) : null,
   );
   return (
     <View style={{ gap: 10 }}>
@@ -37,7 +38,7 @@ export function Select({
       />
       {open && (
         <>
-          {path !== "/concert-types" && (
+          {searchable && (
             <Field
               label={`Buscar ${label.toLowerCase()}`}
               value={search}
@@ -57,7 +58,7 @@ export function Select({
             {resource.result?.data.map((item) => (
               <Button
                 key={item.id}
-                title={`${values.includes(item.id) ? "✓ " : ""}${item.name ?? item.code}`}
+                title={`${values.includes(item.id) ? "✓ " : ""}${itemLabel(item)}`}
                 secondary={!values.includes(item.id)}
                 onPress={() => {
                   onChange(
@@ -73,11 +74,6 @@ export function Select({
             ))}
           </View>
           <Pager pagination={resource.result?.pagination} onPage={setPage} />
-          {multiple && (
-            <Copy muted>
-              El orden de selección define el orden de los artistas.
-            </Copy>
-          )}
         </>
       )}
     </View>

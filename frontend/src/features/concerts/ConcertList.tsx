@@ -17,6 +17,7 @@ import { Select } from "../../components/ui/Select";
 import { useResource } from "../../hooks/useResource";
 import { query } from "../../services/http";
 import type { Concert } from "../../types/api";
+import { place } from "./ConcertDetail";
 export function ConcertCard({
   concert,
   manage = false,
@@ -41,10 +42,8 @@ export function ConcertCard({
           {dateLabel(concert.start_datetime)} · {concert.status}
         </Copy>
         <Copy>{concert.name}</Copy>
-        <Copy muted>{concert.artists.map((a) => a.name).join(" · ")}</Copy>
-        <Copy muted>
-          {concert.venue_name} · {concert.city_name}
-        </Copy>
+        <Copy muted>{concert.artist_name}</Copy>
+        <Copy muted>{place(concert)}</Copy>
         {reason && <Copy>{reason}</Copy>}
         <Button
           title={manage ? `Gestionar ${concert.name}` : `Ver ${concert.name}`}
@@ -104,7 +103,7 @@ export default function ConcertList({
       )}
       <Card>
         <Field
-          label="Buscar conciertos o artistas"
+          label="Buscar conciertos"
           value={draft.q ?? ""}
           onChangeText={(value) => set("q", value)}
           onSubmitEditing={() => {
@@ -142,12 +141,15 @@ export default function ConcertList({
               value={draft.name ?? ""}
               onChangeText={(v) => set("name", v)}
             />
+            <Field
+              label="Artista"
+              value={draft.artist ?? ""}
+              onChangeText={(v) => set("artist", v)}
+            />
             {[
-              ["artist_id", "Artistas", "/artists"],
               ["genre_id", "Géneros", "/genres"],
-              ["venue_id", "Venue", "/venues"],
+              ["venue_id", "Espacio", "/venues"],
               ["city_id", "Ciudad", "/cities"],
-              ["concert_type_id", "Tipo", "/concert-types"],
             ].map(([key, label, path]) => (
               <Select
                 key={key}

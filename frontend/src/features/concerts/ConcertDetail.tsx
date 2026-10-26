@@ -17,16 +17,14 @@ import {
   styles,
   useAction,
 } from "../../components/ui";
-import { setFavorite } from "../favorites/favorites";
+// The location is optional while the concert is a draft.
+export const place = (concert: Pick<Concert, "venue_name" | "city_name" | "province_name">) =>
+  [concert.venue_name, [concert.city_name, concert.province_name].filter(Boolean).join(", ")].filter(Boolean).join(" · ") || "Lugar a confirmar";
 export default function ConcertDetail() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const resource = useResource<Concert>(`/concerts/${id}`);
-  const favorites = useResource<Concert[]>(
-    `/favorites?concert_id=${encodeURIComponent(id)}`,
-  );
   const action = useAction();
   const [quantities, setQuantities] = useState<Record<string, string>>({});
-  const favorite = Boolean(favorites.result?.data.length);
   const concert = resource.result?.data;
   const reserve = () =>
     action.run(async () => {
@@ -61,32 +59,15 @@ export default function ConcertDetail() {
           )}
           <Card>
             <Copy>{dateLabel(concert.start_datetime)}</Copy>
-            <Copy>
-              {concert.venue_name} · {concert.city_name},{" "}
-              {concert.province_name}
-            </Copy>
+            <Copy>{place(concert)}</Copy>
+            {concert.address_line && <Copy muted>{concert.address_line}</Copy>}
             <Copy>{concert.description}</Copy>
             <Copy muted>
-              Artistas: {concert.artists.map((a) => a.name).join(", ")}
+              Artista: {concert.artist_name}
             </Copy>
             <Copy muted>
               Géneros: {concert.genres.map((g) => g.name).join(", ")}
             </Copy>
-            <ResourceState
-              {...favorites}
-              retry={() => void favorites.reload()}
-            />
-            <Button
-              title={favorite ? "Quitar de favoritos" : "Guardar favorito"}
-              secondary
-              disabled={action.busy || favorites.loading || !favorites.result}
-              onPress={() =>
-                void action.run(async () => {
-                  await setFavorite(concert.id, !favorite);
-                  await favorites.reload();
-                })
-              }
-            />
           </Card>
           <Copy>Elegí tus entradas</Copy>
           {concert.ticket_types.map((type) => (

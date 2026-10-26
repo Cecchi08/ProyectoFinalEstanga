@@ -112,7 +112,8 @@ export class AuthService {
         return this.db.read(async (repo) => {
             const user = await repo.findUserById(id);
             this.active(user);
-            return { user: publicUser(user), roles: await repo.roles(id), preferences: await repo.preferences(id) };
+            const { roles, permissions } = await repo.access(id);
+            return { user: publicUser(user), roles, permissions, preferences: await repo.preferences(id) };
         });
     }
     async principal(id) {
@@ -120,7 +121,7 @@ export class AuthService {
             const user = await repo.findUserById(id);
             this.active(user);
             this.verified(user);
-            return { id: user.id, roles: await repo.roles(id) };
+            return { id: user.id, ...await repo.access(id) };
         });
     }
     async requestEmail(email, kind) {

@@ -10,7 +10,8 @@ import { SafeAreaView } from "react-native-safe-area-context";
 import { useAuth } from "../../contexts/AuthContext";
 import { PreferencesProvider } from "../../contexts/PreferencesContext";
 import { NotificationsProvider, NotificationBadge } from "../../contexts/NotificationsContext";
-import { hasRoles, type Role } from "../../types/api";
+import { useResource } from "../../hooks/useResource";
+import { hasRoles, type Concert, type Role } from "../../types/api";
 import { colors, Copy, Page, ResourceState } from "../ui";
 export function Guard({ roles }: { roles: Role[] }) {
   const auth = useAuth();
@@ -26,6 +27,10 @@ export default function Shell() {
   const auth = useAuth();
   const { width } = useWindowDimensions();
   const path = usePathname();
+  // Staff is a per-concert assignment: show the tab only to admins or users with at least one assignment.
+  const admin = auth.roles.includes("ADMIN");
+  const assignments = useResource<Concert[]>(auth.user && !admin ? "/staff/assignments?limit=1" : null);
+  const staff = admin || Boolean(assignments.result?.pagination?.total);
   if (auth.loading)
     return (
       <Page title="VENTI">
@@ -38,13 +43,13 @@ export default function Shell() {
     { path: "/discover", label: "Descubrir" },
     { path: "/recommendations", label: "Venti Discover" },
     { path: "/tickets", label: "Entradas" },
-    { path: "/favorites", label: "Favoritos" },
+    { path: "/marketplace", label: "Espacios" },
     { path: "/notifications", label: "Notificaciones" },
     { path: "/profile", label: "Mi cuenta" },
     ...(hasRoles(auth.roles, ["ORGANIZER", "ADMIN"])
       ? [{ path: "/organizer", label: "Organizer" }]
       : []),
-    ...(hasRoles(auth.roles, ["STAFF", "ADMIN"])
+    ...(staff
       ? [{ path: "/staff", label: "Staff" }]
       : []),
     ...(auth.roles.includes("ADMIN")

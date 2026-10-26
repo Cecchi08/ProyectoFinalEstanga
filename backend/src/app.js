@@ -17,6 +17,9 @@ import { participationRoutes } from './routes/participation.routes.ts';
 import { recommendationsRoutes } from './routes/recommendations.routes.ts';
 import { notificationsRoutes } from './routes/notifications.routes.ts';
 import { statisticsRoutes } from './routes/statistics.routes.ts';
+import { marketplaceRoutes } from './routes/marketplace.routes.ts';
+import { adminRoutes } from './routes/admin.routes.ts';
+import { artistsRoutes } from './routes/artists.routes.ts';
 export function createApp({ env, database, mailer, oauthClient }) {
     const app = express();
     app.disable('x-powered-by');
@@ -40,6 +43,9 @@ export function createApp({ env, database, mailer, oauthClient }) {
     app.use(recommendationsRoutes(database, authenticate(tokens, auth)));
     app.use(notificationsRoutes(database, authenticate(tokens, auth)));
     app.use(statisticsRoutes(database, authenticate(tokens, auth)));
+    app.use(marketplaceRoutes(database, authenticate(tokens, auth)));
+    app.use(adminRoutes(database, authenticate(tokens, auth)));
+    app.use(artistsRoutes(database, authenticate(tokens, auth)));
     app.use(notFound);
     app.use(errorHandler());
     return app;

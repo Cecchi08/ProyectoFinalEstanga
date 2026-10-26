@@ -1,6 +1,7 @@
 import { AppError } from '../utils/app-error.util.js';
+import { PERMISSIONS as P, can } from '../utils/access.util.js';
 export function assertConcertOwner(principal, ownerId) {
-    if (principal.roles.includes('ADMIN') || (principal.roles.includes('ORGANIZER') && String(ownerId) === principal.id))
+    if (can(principal, P.concertsManageAll) || (can(principal, P.concertsManage) && String(ownerId) === principal.id))
         return;
     throw new AppError(403, 'FORBIDDEN', 'No tenés permisos sobre este concierto.');
 }
@@ -14,13 +15,17 @@ export class PermissionsService {
             const ownerId = await repo.concertOwner(concertId);
             if (!ownerId)
                 throw new AppError(404, 'CONCERT_NOT_FOUND', 'Concierto inexistente.');
-            if (principal.roles.includes('ADMIN'))
+            if (can(principal, P.concertsManageAll))
+                return;
+            // Global QR validation (ADMIN) also reaches the staff tools of any concert.
+            if (scope === 'staff' && can(principal, P.ticketsValidate))
                 return;
             if (scope === 'owner')
                 return assertConcertOwner(principal, ownerId);
-            if (scope === 'attendees' && principal.roles.includes('ORGANIZER') && String(ownerId) === principal.id)
+            if (scope === 'attendees' && can(principal, P.concertsManage) && String(ownerId) === principal.id)
                 return assertConcertOwner(principal, ownerId);
-            if ((scope === 'staff' || scope === 'attendees') && principal.roles.includes('STAFF') && await repo.staffAssigned(concertId, principal.id))
+            // Staff is not a global role: the per-concert assignment in concert_staff grants access.
+            if ((scope === 'staff' || scope === 'attendees') && await repo.staffAssigned(concertId, principal.id))
                 return;
             throw new AppError(403, 'FORBIDDEN', 'No tenés permisos sobre este concierto.');
         });

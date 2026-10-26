@@ -28,7 +28,7 @@ const session: Session = {
     email: "ana@example.com",
     email_verified_at: null,
   },
-  roles: ["USER", "STAFF"],
+  roles: ["CUSTOMER", "ORGANIZER"],
   accessToken: "old",
   refreshToken: "refresh",
   expiresIn: 900,
@@ -175,10 +175,10 @@ test("204, network errors and query encoding", async () => {
   );
 });
 test("multi-role access uses membership, admin and ordinary user stay distinct", () => {
-  assert.equal(hasRoles(["USER", "STAFF"], ["STAFF", "ADMIN"]), true);
-  assert.equal(hasRoles(["USER", "ORGANIZER"], ["ORGANIZER", "ADMIN"]), true);
-  assert.equal(hasRoles(["USER"], ["ADMIN"]), false);
-  assert.equal(hasRoles([], ["USER"]), false);
+  assert.equal(hasRoles(["CUSTOMER", "GUEST"], ["GUEST", "ADMIN"]), true);
+  assert.equal(hasRoles(["CUSTOMER", "ORGANIZER"], ["ORGANIZER", "ADMIN"]), true);
+  assert.equal(hasRoles(["CUSTOMER"], ["ADMIN"]), false);
+  assert.equal(hasRoles([], ["CUSTOMER"]), false);
 });
 test("scanner has separate human-readable results for every backend outcome", () => {
   const codes = [
@@ -214,8 +214,8 @@ test("server errors and validation internals are not displayed; business conflic
   }
   const client = new HttpClient("", memory().storage, async () => response({ code: "INSUFFICIENT_STOCK", message: "No hay entradas suficientes." }, 409));
   await assert.rejects(client.request("/purchases"), { code: "INSUFFICIENT_STOCK", message: "No hay entradas suficientes.", status: 409 });
-  const incomplete = new HttpClient("", memory().storage, async () => response({ code: "INCOMPLETE_CONCERT", message: "Publicar requiere al menos un artista, un género y un tipo de entrada." }, 422));
-  await assert.rejects(incomplete.request("/concerts/1/publish"), { code: "INCOMPLETE_CONCERT", message: "Publicar requiere al menos un artista, un género y un tipo de entrada.", status: 422 });
+  const incomplete = new HttpClient("", memory().storage, async () => response({ code: "INCOMPLETE_CONCERT", message: "Publicar requiere al menos un género y un tipo de entrada." }, 422));
+  await assert.rejects(incomplete.request("/concerts/1/publish"), { code: "INCOMPLETE_CONCERT", message: "Publicar requiere al menos un género y un tipo de entrada.", status: 422 });
 });
 
 test("HTML proxy errors and rate limits have readable messages", async () => {

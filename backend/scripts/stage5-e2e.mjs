@@ -14,13 +14,14 @@ let context, apiServer, webServer, browser;
 const accounts = {};
 before(async () => {
   await db.open(); db.env.AUTH_RATE_LIMIT_MAX = 10000; db.env.AUTH_RATE_LIMIT_WINDOW_MS = 1000; context = db.context();
-  for (const [name, roles] of Object.entries({admin:['ADMIN'], organizer:['USER','ORGANIZER'], staff:['USER','STAFF']})) {
+  // Registration grants COMPRADOR. Staff is not a role: the staff account is a COMPRADOR assigned in concert_staff.
+  // The organizer also runs spaces (VENUE) for the marketplace flow.
+  for (const [name, roles] of Object.entries({admin:['ADMIN'], organizer:['ORGANIZADOR','VENUE'], staff:[]})) {
     const account = await context.auth.register({...registration,email:`${name}@e2e.example`,first_name:name});
     await context.auth.verifyEmail(context.mailer.last('verification').token);
-    for (const role of roles.filter(value => value !== 'USER')) await db.rows('INSERT INTO user_roles(user_id,role_id) SELECT ?,id FROM roles WHERE code=?',[account.user.id,role]);
+    for (const role of roles) await db.rows('INSERT INTO user_roles(user_id,role_id) SELECT ?,id FROM roles WHERE code=?',[account.user.id,role]);
     accounts[name] = account.user.id;
   }
-  await db.rows('INSERT INTO organizer_profiles(user_id,display_name) VALUES (?,?)',[accounts.organizer,'VENTI E2E']);
   // Production client uses localhost:3000. Bind only loopback.
   apiServer = await new Promise(resolve => {const server = context.app.listen(3000,'127.0.0.1',() => resolve(server));});
   const web = express(); web.use(express.static('../frontend/dist')); web.get('/{*path}',(_req,res) => res.sendFile('index.html',{root:'../frontend/dist'}));
@@ -31,7 +32,12 @@ before(async () => {
 after(async () => {await browser?.close(); await Promise.all([apiServer,webServer].filter(Boolean).map(server => new Promise(resolve => server.close(resolve)))); await db.close();});
 async function login(page,name) {await page.goto('http://localhost:8081/login'); await page.getByLabel('Email',{exact:true}).fill(`${name}@e2e.example`); await page.getByLabel('Contraseña',{exact:true}).fill(password); await page.getByRole('button',{name:'Ingresar',exact:true}).click(); await expect(page.getByRole('heading',{name:'Encontrá tu próximo show'})).toBeVisible();}
 async function logout(page) {await page.getByRole('tab',{name:'Mi cuenta',exact:true}).click(); await page.getByRole('button',{name:'Cerrar sesión',exact:true}).click(); await expect(page.getByRole('button',{name:'Ingresar',exact:true})).toBeVisible();}
-async function choose(page,label,option) {await page.getByRole('button',{name:label,exact:true}).click(); await page.getByRole('button',{name:option,exact:true}).click();}
+// Seeded catalogs (24 provinces, 15 genres) exceed one Select page: search before choosing.
+async function choose(page,label,option) {
+  await page.getByRole('button',{name:label,exact:true}).click();
+  await page.getByLabel(`Buscar ${label.toLowerCase()}`,{exact:true}).fill(option);
+  await page.getByRole('button',{name:option,exact:true}).click();
+}
 for (const viewport of [{width:1440,height:1000},{width:768,height:1024},{width:390,height:844}]) test(`full application flow at ${viewport.width}px`, {timeout:180000}, async () => {
   const suffix = String(viewport.width); const browserContext = await browser.newContext({viewport}); const page = await browserContext.newPage(); const errors = []; page.on('pageerror',error => errors.push(error.message));
   page.on('requestfailed', request => console.error('Request failed:', new URL(request.url()).pathname, request.failure()?.errorText));
@@ -44,39 +50,33 @@ for (const viewport of [{width:1440,height:1000},{width:768,height:1024},{width:
     await page.getByRole('button',{name:'Continuar',exact:true}).click(); await expect(page.getByText('Cuenta creada.',{exact:false})).toBeVisible();
     const verification = context.mailer.last('verification').token;
     await page.goto(`http://localhost:8081/verify-email#token=${verification}`); await expect(page.getByLabel('Token del enlace de email')).toHaveValue(verification); await page.getByRole('button',{name:'Continuar',exact:true}).click(); await expect(page.getByRole('alert')).toBeVisible();
-    // All five admin catalogs created through UI.
+    // The four admin catalogs created through UI (artists and venues are no longer catalogs).
     await login(page,'admin'); await page.getByRole('tab',{name:'Admin',exact:true}).click();
     async function catalog(tab,name,prepare) {await page.getByRole('button',{name:tab,exact:true}).click(); await page.getByRole('button',{name:`Crear en ${tab}`,exact:true}).click(); await page.getByLabel('Nombre',{exact:true}).fill(name); if (prepare) await prepare(); await page.getByRole('button',{name:'Guardar catálogo',exact:true}).click(); await expect(page.getByRole('button',{name:`Editar ${name}`,exact:true})).toBeVisible();}
-    await catalog('Provincias',`Provincia ${suffix}`); await catalog('Ciudades',`Ciudad ${suffix}`,() => choose(page,'Provincia',`Provincia ${suffix}`));
-    await catalog('Venues',`Sala ${suffix}`,async () => {await choose(page,'Ciudad',`Ciudad ${suffix}`); await page.getByLabel('Dirección',{exact:true}).fill('Calle Música 123');});
-    await catalog('Géneros',`Rock ${suffix}`); await catalog('Artistas',`Banda ${suffix}`); await logout(page);
+    await catalog('Provincias',`Provincia ${suffix}`,() => page.getByLabel('Código',{exact:true}).fill(`E2E-${suffix}`));
+    await catalog('Distritos',`Distrito ${suffix}`,() => choose(page,'Provincia',`Provincia ${suffix}`));
+    await catalog('Ciudades',`Ciudad ${suffix}`,async () => {await choose(page,'Provincia',`Provincia ${suffix}`); await choose(page,'Distrito',`Distrito ${suffix}`);});
+    await catalog('Géneros',`Rock ${suffix}`); await logout(page);
     // Organizer's multi-role menu and CRUD/publication.
     await login(page,'organizer'); await page.getByRole('tab',{name:'Organizer',exact:true}).click(); await page.getByRole('button',{name:'Crear concierto',exact:true}).click();
     await page.getByLabel('Nombre del concierto',{exact:true}).fill(`VENTI Live ${suffix}`); await page.getByLabel('Inicio (ISO con zona horaria)',{exact:true}).fill(new Date(Date.now()+30*86400000).toISOString());
-    await choose(page,'Venue',`Sala ${suffix}`); await page.getByRole('button',{name:'Tipo de concierto',exact:true}).click(); await page.getByRole('button',{name:'Concierto',exact:true}).click();
-    await choose(page,'Artistas',`Banda ${suffix}`); await choose(page,'Géneros',`Rock ${suffix}`); await page.getByRole('button',{name:'Guardar concierto',exact:true}).click();
+    // Free-text place in the city created above; marketplace spaces and reservations are optional.
+    await page.getByLabel('Artista',{exact:true}).fill(`Banda ${suffix}`); await page.getByLabel('Lugar',{exact:true}).fill(`Sala ${suffix}`);
+    await page.getByLabel('Dirección (opcional)',{exact:true}).fill('Calle Música 123'); await choose(page,'Ciudad',`Ciudad ${suffix}`);
+    await choose(page,'Géneros',`Rock ${suffix}`); await page.getByRole('button',{name:'Guardar concierto',exact:true}).click();
     await expect(page.getByRole('button',{name:'Agregar tipo de entrada',exact:true})).toBeVisible();
     const concertId = new URL(page.url()).pathname.split('/').pop();
     await page.getByRole('button',{name:'Agregar tipo de entrada',exact:true}).click(); await page.getByLabel('Nombre de entrada',{exact:true}).fill('General'); await page.getByLabel('Precio',{exact:true}).fill('1200'); await page.getByLabel('Cupo total',{exact:true}).fill('20'); await page.getByRole('button',{name:'Guardar tipo de entrada',exact:true}).click(); await expect(page.getByRole('button',{name:'Editar General',exact:true})).toBeVisible();
     await page.getByRole('button',{name:'Publicar concierto',exact:true}).click(); await expect(page.getByText(`#${concertId} · PUBLISHED`,{exact:true})).toBeVisible();
-    await db.rows('INSERT INTO staff_assignments(concert_id,user_id,assigned_by_user_id) VALUES (?,?,?)',[concertId,accounts.staff,accounts.organizer]);
+    // Staff is assigned per concert from the editor (POST /concerts/:id/staff); it grants no global role.
+    await page.getByLabel('Email del staff',{exact:true}).fill('staff@e2e.example'); await page.getByRole('button',{name:'Asignar staff',exact:true}).click();
+    await expect(page.getByRole('button',{name:'Quitar staff staff@e2e.example',exact:true})).toBeVisible();
     await logout(page);
-    // User discovery, filters, persisted session, favorites, reservation and confirmation.
+    // User discovery, filters, persisted session, reservation and confirmation (the schema has no favorites).
     await login(page,`user${suffix}`); await page.reload(); await expect(page.getByRole('heading',{name:'Encontrá tu próximo show'})).toBeVisible();
-    await page.getByLabel('Buscar conciertos o artistas').fill(`VENTI Live ${suffix}`); await page.getByRole('button',{name:'Buscar',exact:true}).click(); await page.getByRole('button',{name:`Ver VENTI Live ${suffix}`,exact:true}).click();
-    await page.getByRole('button',{name:'Guardar favorito',exact:true}).click(); await expect(page.getByRole('button',{name:'Quitar de favoritos',exact:true})).toBeVisible();
-    const storedFavorite = await db.rows('SELECT f.user_id FROM favorites f JOIN users u ON u.id=f.user_id WHERE u.email=? AND f.concert_id=?', [`user${suffix}@e2e.example`, concertId]);
-    assert.equal(storedFavorite.length, 1);
-    const secondDevice = await browser.newContext({viewport});
-    try {
-      const otherPage = await secondDevice.newPage(); await login(otherPage,`user${suffix}`);
-      await otherPage.getByRole('tab',{name:'Favoritos',exact:true}).click();
-      await expect(otherPage.getByRole('button',{name:`Ver VENTI Live ${suffix}`,exact:true})).toBeVisible();
-      await otherPage.getByRole('button',{name:`Quitar favorito VENTI Live ${suffix}`,exact:true}).click();
-      await expect(otherPage.getByText('No hay resultados para mostrar.',{exact:true})).toBeVisible();
-    } finally { await secondDevice.close(); }
-    await page.reload(); await expect(page.getByRole('button',{name:'Guardar favorito',exact:true})).toBeEnabled();
-    await page.getByRole('button',{name:'Guardar favorito',exact:true}).click(); await expect(page.getByRole('button',{name:'Quitar de favoritos',exact:true})).toBeVisible();
+    await page.getByLabel('Buscar conciertos').fill(`VENTI Live ${suffix}`); await page.getByRole('button',{name:'Buscar',exact:true}).click(); await page.getByRole('button',{name:`Ver VENTI Live ${suffix}`,exact:true}).click();
+    await expect(page.getByText(`Artista: Banda ${suffix}`,{exact:true})).toBeVisible();
+    await expect(page.getByText(`Sala ${suffix} · Ciudad ${suffix}, Provincia ${suffix}`,{exact:true})).toBeVisible();
     // Discover honors persisted preferences and does not even request recommendations while OFF.
     let recommendationRequests = 0;
     page.on('request', req => {const url = new URL(req.url()); if (url.origin === 'http://localhost:3000' && url.pathname === '/recommendations') recommendationRequests++;});
@@ -90,13 +90,14 @@ for (const viewport of [{width:1440,height:1000},{width:768,height:1024},{width:
     assert.equal(recommendationRequests,0);
     await page.getByRole('button',{name:'Ir a preferencias',exact:true}).click();
     await page.getByRole('switch',{name:'Recomendaciones personalizadas',exact:true}).click();
-    await expect(page.getByText('ON · Usamos tus entradas y favoritos para sugerirte conciertos.',{exact:true})).toBeVisible();
+    await expect(page.getByText('ON · Usamos tus entradas para sugerirte conciertos.',{exact:true})).toBeVisible();
     const discoverResponse = page.waitForResponse(res => {const url = new URL(res.url()); return url.origin === 'http://localhost:3000' && url.pathname === '/recommendations' && res.status() === 200;});
     await page.getByRole('tab',{name:'Venti Discover',exact:true}).click();
     const discovery = (await (await discoverResponse).json()).data;
     assert.equal(discovery.enabled,true); assert.ok(discovery.recommendations.some(item => item.concert.id === concertId));
     assert.ok(discovery.recommendations.every(item => !('score' in item)));
-    await expect(page.getByText(/Porque guardaste este concierto en favoritos/)).toBeVisible();
+    // A new account has no history: Discover falls back to upcoming published concerts.
+    await expect(page.getByText('Un próximo concierto publicado para descubrir.',{exact:true}).first()).toBeVisible();
     await page.screenshot({path:`../frontend/test-results/discover-${suffix}.png`,fullPage:true});
     await page.getByRole('button',{name:`Ver VENTI Live ${suffix}`,exact:true}).click();
     await page.getByLabel('Cantidad General').fill('1'); await page.getByRole('button',{name:'Reservar entradas',exact:true}).click(); await page.getByRole('button',{name:'Confirmar compra',exact:true}).click(); await page.getByRole('button',{name:'Ver mis entradas QR',exact:true}).click();
@@ -112,7 +113,7 @@ for (const viewport of [{width:1440,height:1000},{width:768,height:1024},{width:
     await page.getByRole('button',{name:'Marcar todas como leídas',exact:true}).click();
     await expect(page.getByText('0 sin leer',{exact:true})).toBeVisible();
     await page.getByRole('switch',{name:'Notificaciones opcionales',exact:true}).click();
-    await expect(page.getByText('OFF · No se generan recomendaciones ni avisos de favoritos.',{exact:true})).toBeVisible();
+    await expect(page.getByText('OFF · No se generan avisos de Venti Discover.',{exact:true})).toBeVisible();
     await page.reload(); await expect(page.getByRole('switch',{name:'Notificaciones opcionales',exact:true})).not.toBeChecked();
     await page.screenshot({path:`../frontend/test-results/notifications-${suffix}.png`,fullPage:true});
     assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth),true);
@@ -187,12 +188,13 @@ for (const viewport of [{width:1440,height:1000},{width:768,height:1024},{width:
 test('catalog update/delete, pagination, draft delete, empty and retry states', {timeout:120000}, async () => {
   const browserContext = await browser.newContext({viewport:{width:768,height:1024}}); const page = await browserContext.newPage();
   try {
-    for (let index=0;index<22;index++) await db.rows('INSERT INTO provinces(name) VALUES (?)',[`Test provincia ${String(index).padStart(2,'0')}`]);
+    for (let index=0;index<22;index++) await db.rows('INSERT INTO provinces(code,name) VALUES (?,?)',[`TP-${String(index).padStart(2,'0')}`,`Test provincia ${String(index).padStart(2,'0')}`]);
+    // 24 seeded provinces + 3 created by the flows + 22 here = 49 rows, 20 per page.
     await login(page,'admin'); await page.getByRole('tab',{name:'Admin',exact:true}).click(); await page.getByRole('button',{name:'Provincias',exact:true}).click();
-    await page.getByRole('button',{name:'Siguiente',exact:true}).click(); await expect(page.getByText('2 / 2',{exact:true})).toBeVisible(); await page.getByRole('button',{name:'Anterior',exact:true}).click();
+    await page.getByRole('button',{name:'Siguiente',exact:true}).click(); await expect(page.getByText('2 / 3',{exact:true})).toBeVisible(); await page.getByRole('button',{name:'Anterior',exact:true}).click();
     await page.getByLabel('Buscar provincias').fill('Test provincia 00'); await page.getByRole('button',{name:'Editar Test provincia 00',exact:true}).click(); await page.getByLabel('Nombre',{exact:true}).fill('Test provincia 00 editada'); await page.getByRole('button',{name:'Guardar catálogo',exact:true}).click(); await page.getByRole('button',{name:'Editar Test provincia 00 editada',exact:true}).click(); await page.getByRole('button',{name:'Eliminar registro',exact:true}).click(); await page.getByRole('button',{name:'Confirmar eliminación',exact:true}).click(); await expect(page.getByText('No hay resultados para mostrar.',{exact:true})).toBeVisible();
     await logout(page); await login(page,'organizer'); await page.goto('http://localhost:8081/organizer/new');
-    await page.getByLabel('Nombre del concierto',{exact:true}).fill('Borrador para eliminar'); await page.getByLabel('Inicio (ISO con zona horaria)',{exact:true}).fill(new Date(Date.now()+30*86400000).toISOString()); await choose(page,'Venue','Sala 1440'); await choose(page,'Tipo de concierto','Concierto'); await page.getByRole('button',{name:'Guardar concierto',exact:true}).click(); await page.getByRole('button',{name:'Eliminar borrador',exact:true}).click(); await page.getByRole('button',{name:'Confirmar eliminación',exact:true}).click(); await expect(page.getByRole('heading',{name:'Mis conciertos'})).toBeVisible();
+    await page.getByLabel('Nombre del concierto',{exact:true}).fill('Borrador para eliminar'); await page.getByLabel('Inicio (ISO con zona horaria)',{exact:true}).fill(new Date(Date.now()+30*86400000).toISOString()); await page.getByLabel('Artista',{exact:true}).fill('Banda borrador'); await page.getByRole('button',{name:'Guardar concierto',exact:true}).click(); await page.getByRole('button',{name:'Eliminar borrador',exact:true}).click(); await page.getByRole('button',{name:'Confirmar eliminación',exact:true}).click(); await expect(page.getByRole('heading',{name:'Mis conciertos'})).toBeVisible();
     let fail = true;
     await page.route('**/concerts?**', async route => { if (fail) {fail=false;await route.abort();} else await route.continue(); });
     await page.getByRole('tab',{name:'Descubrir',exact:true}).click(); await page.getByRole('button',{name:'Reintentar',exact:true}).click(); await expect(page.getByText('No hay resultados para mostrar.',{exact:true})).toBeVisible();
@@ -257,6 +259,55 @@ test('stage 8: malformed responses remain recoverable and desktop navigation scr
       await page.getByRole('button',{name:'Reintentar',exact:true}).click();
       await expect(page.getByText('No hay resultados para mostrar.',{exact:true})).toBeVisible();
     }
+    assert.deepEqual(errors,[]);
+  } finally { await browserContext.close(); }
+});
+
+test('marketplace: gestión del establecimiento, búsqueda, disponibilidad, reserva y pago simulado', {timeout:180000}, async () => {
+  const browserContext = await browser.newContext({viewport:{width:1440,height:1000}}); const page = await browserContext.newPage();
+  const errors = []; page.on('pageerror', error => errors.push(error.message));
+  // Ten days ahead, as a calendar date in Argentina (the marketplace's time zone).
+  const date = new Date(Date.now()+10*86400000).toLocaleDateString('en-CA',{timeZone:'America/Argentina/Buenos_Aires'});
+  try {
+    await login(page,'organizer'); await page.getByRole('tab',{name:'Espacios',exact:true}).click();
+    await page.getByRole('button',{name:'Gestionar establecimientos',exact:true}).click();
+    await page.getByLabel('Nombre de la organización',{exact:true}).fill('Salas E2E'); await page.getByRole('button',{name:'Crear organización',exact:true}).click();
+    await expect(page.getByRole('button',{name:'Salas E2E (Dueño)',exact:true})).toBeVisible();
+    await page.getByRole('button',{name:'Nuevo establecimiento',exact:true}).click();
+    await page.getByRole('button',{name:'Salas E2E',exact:true}).click(); await page.getByRole('button',{name:'Mar del Plata',exact:true}).click();
+    await page.getByLabel('Nombre del establecimiento',{exact:true}).fill('Complejo E2E'); await page.getByLabel('Dirección',{exact:true}).fill('Av. Test 100');
+    await page.getByRole('button',{name:'Guardar establecimiento',exact:true}).click(); await expect(page.getByText('Complejo E2E · DRAFT',{exact:true})).toBeVisible();
+    await page.getByRole('button',{name:'Espacios de Complejo E2E',exact:true}).click(); await page.getByRole('button',{name:'Nuevo espacio en Complejo E2E',exact:true}).click();
+    await page.getByRole('button',{name:'Sala de ensayo',exact:true}).click(); await page.getByLabel('Nombre del espacio',{exact:true}).fill('Sala E2E');
+    await page.getByLabel('Precio por hora',{exact:true}).fill('1500'); await page.getByRole('button',{name:'Backline',exact:true}).click();
+    await page.getByRole('button',{name:'Guardar espacio',exact:true}).click();
+    await page.getByRole('button',{name:'Publicar espacio Sala E2E',exact:true}).click(); await expect(page.getByRole('button',{name:'Archivar espacio Sala E2E',exact:true})).toBeVisible();
+    await page.getByRole('button',{name:'Publicar Complejo E2E',exact:true}).click(); await expect(page.getByText('Complejo E2E · PUBLISHED',{exact:true})).toBeVisible();
+    await logout(page);
+    // An artist finds the space, checks the slot, books it (HOLD) and approves the simulated payment.
+    // Booking needs marketplace.reservations.create: the buyer account activates the ARTISTA profile.
+    await db.rows("INSERT IGNORE INTO user_roles(user_id,role_id) SELECT u.id,r.id FROM users u JOIN roles r ON r.code='ARTISTA' WHERE u.email='user1440@e2e.example'");
+    await login(page,'user1440'); await page.getByRole('tab',{name:'Espacios',exact:true}).click();
+    await page.getByLabel('Buscar espacios',{exact:true}).fill('Sala E2E'); await page.getByRole('button',{name:'Backline',exact:true}).click();
+    await page.getByRole('button',{name:'Aplicar búsqueda',exact:true}).click(); await page.getByRole('button',{name:'Ver Sala E2E',exact:true}).click();
+    await page.getByLabel('Fecha (AAAA-MM-DD)',{exact:true}).fill(date);
+    await page.getByLabel('Inicio del evento (HH:MM)',{exact:true}).fill('18:00'); await page.getByLabel('Fin del evento (HH:MM)',{exact:true}).fill('20:00');
+    await page.getByRole('button',{name:'Consultar disponibilidad',exact:true}).click(); await expect(page.getByText('La franja está libre.',{exact:true})).toBeVisible();
+    await page.getByLabel('Nombre del evento',{exact:true}).fill('Ensayo E2E'); await page.getByRole('button',{name:'Reservar al precio de lista',exact:true}).click();
+    await expect(page.getByText('Ensayo E2E · HOLD',{exact:true})).toBeVisible();
+    await expect(page.getByText(/no se cobra dinero ni se piden datos de tarjeta/)).toBeVisible();
+    assert.equal(await page.locator('input[aria-label*="tarjeta" i], input[autocomplete^="cc-"]').count(),0);
+    await page.getByRole('button',{name:'Simular pago aprobado',exact:true}).click();
+    await expect(page.getByText(/^Pago simulado: no se cobró dinero real.*APPROVED\.$/)).toBeVisible();
+    await expect(page.getByText('Ensayo E2E · CONFIRMED',{exact:true})).toBeVisible();
+    await expect(page.getByText(/Total \$ 3\.000,00/)).toBeVisible();
+    await page.screenshot({path:'../frontend/test-results/marketplace-reservation-1440.png',fullPage:true});
+    await logout(page);
+    // The provider sees the confirmed booking among those received by its spaces.
+    await login(page,'organizer'); await page.goto('http://localhost:8081/marketplace/reservations');
+    await page.getByRole('button',{name:'Recibidos en mis espacios',exact:true}).click();
+    await expect(page.getByText('Ensayo E2E · CONFIRMED',{exact:true})).toBeVisible();
+    await logout(page);
     assert.deepEqual(errors,[]);
   } finally { await browserContext.close(); }
 });

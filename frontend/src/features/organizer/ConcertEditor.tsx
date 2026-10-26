@@ -4,7 +4,7 @@ import { View } from "react-native";
 import { useAuth } from "../../contexts/AuthContext";
 import { useResource } from "../../hooks/useResource";
 import { api } from "../../services/api";
-import type { Concert, TicketType } from "../../types/api";
+import type { Concert, StaffMember, TicketType } from "../../types/api";
 import {
   ActionFeedback,
   Button,
@@ -26,6 +26,11 @@ const iso = (value: string) => {
     );
   return date.toISOString();
 };
+const location = (form: Record<string, string>) => {
+  const linked = Boolean(form.venue_id || form.reservation_id);
+  const value = (key: string) => form[key]?.trim() || (linked ? undefined : null);
+  return { venue_name: value("venue_name"), address_line: value("address_line"), city_id: value("city_id") };
+};
 export default function ConcertEditor() {
   const { id } = useLocalSearchParams<{ id?: string }>();
   const editing = Boolean(id && id !== "new");
@@ -33,7 +38,6 @@ export default function ConcertEditor() {
   const resource = useResource<Concert>(editing ? `/concerts/${id}` : null);
   const action = useAction();
   const [form, setForm] = useState<Record<string, string>>({});
-  const [artists, setArtists] = useState<string[]>([]);
   const [genres, setGenres] = useState<string[]>([]);
   const [confirm, setConfirm] = useState("");
   const concert = resource.result?.data;
@@ -47,10 +51,13 @@ export default function ConcertEditor() {
         image_url: concert.image_url ?? "",
         start_datetime: concert.start_datetime,
         end_datetime: concert.end_datetime ?? "",
-        venue_id: concert.venue_id,
-        concert_type_id: concert.concert_type_id,
+        artist_name: concert.artist_name,
+        venue_id: concert.venue_id ?? "",
+        reservation_id: concert.reservation_id ?? "",
+        venue_name: concert.venue_name ?? "",
+        address_line: concert.address_line ?? "",
+        city_id: concert.city_id ?? "",
       });
-      setArtists(concert.artists.map((a) => a.id));
       setGenres(concert.genres.map((g) => g.id));
     }
   }, [concert]);
@@ -62,9 +69,12 @@ export default function ConcertEditor() {
         image_url: form.image_url || null,
         start_datetime: iso(form.start_datetime ?? ""),
         end_datetime: iso(form.end_datetime ?? ""),
-        venue_id: form.venue_id ?? "",
-        concert_type_id: form.concert_type_id ?? "",
-        artist_ids: artists,
+        artist_name: form.artist_name ?? "",
+        // With a space or reservation, blank place fields are omitted so the backend copies them from the space.
+        // A reservation already fixes the space: sending venue_id too would have to match it.
+        venue_id: form.reservation_id ? undefined : form.venue_id || null,
+        reservation_id: form.reservation_id || null,
+        ...location(form),
         genre_ids: genres,
         ...(!editing && form.organizer_id
           ? { organizer_id: form.organizer_id }
@@ -140,24 +150,43 @@ export default function ConcertEditor() {
                 value={form.end_datetime ?? ""}
                 onChangeText={(v) => set("end_datetime", v)}
               />
-              <Select
-                label="Venue"
-                path="/venues"
-                values={form.venue_id ? [form.venue_id] : []}
-                onChange={(v) => set("venue_id", v[0] ?? "")}
+              <Field
+                label="Artista"
+                value={form.artist_name ?? ""}
+                onChangeText={(v) => set("artist_name", v)}
               />
               <Select
-                label="Tipo de concierto"
-                path="/concert-types"
-                values={form.concert_type_id ? [form.concert_type_id] : []}
-                onChange={(v) => set("concert_type_id", v[0] ?? "")}
+                label="Reserva confirmada (opcional)"
+                path="/marketplace/reservations?status=CONFIRMED"
+                searchable={false}
+                itemLabel={(item) => `${String(item.event_name)} · ${String(item.venue_name)} · ${String(item.public_code)}`}
+                values={form.reservation_id ? [form.reservation_id] : []}
+                onChange={(v) => setForm((current) => ({ ...current, reservation_id: v[0] ?? "", venue_id: "", venue_name: "", address_line: "", city_id: "" }))}
+              />
+              {!form.reservation_id && (
+                <Select
+                  label="Espacio del marketplace (opcional)"
+                  path="/venues"
+                  values={form.venue_id ? [form.venue_id] : []}
+                  onChange={(v) => setForm((current) => ({ ...current, venue_id: v[0] ?? "", venue_name: "", address_line: "", city_id: "" }))}
+                />
+              )}
+              <Field
+                label="Lugar"
+                placeholder={form.venue_id || form.reservation_id ? "Se toma del espacio si lo dejás vacío" : "Nombre de la sala o predio"}
+                value={form.venue_name ?? ""}
+                onChangeText={(v) => set("venue_name", v)}
+              />
+              <Field
+                label="Dirección (opcional)"
+                value={form.address_line ?? ""}
+                onChangeText={(v) => set("address_line", v)}
               />
               <Select
-                label="Artistas"
-                path="/artists"
-                multiple
-                values={artists}
-                onChange={setArtists}
+                label="Ciudad"
+                path="/cities"
+                values={form.city_id ? [form.city_id] : []}
+                onChange={(v) => set("city_id", v[0] ?? "")}
               />
               <Select
                 label="Géneros"
@@ -195,6 +224,7 @@ export default function ConcertEditor() {
               {mutable && (
                 <TicketEditor concertId={concert.id} reload={resource.reload} />
               )}
+              <StaffPanel concertId={concert.id} mutable={mutable} />
               <View style={styles.row}>
                 {concert.status === "DRAFT" && (
                   <Button
@@ -360,6 +390,56 @@ function TicketEditor({
           )}
         </>
       )}
+    </Card>
+  );
+}
+// Staff validates tickets only for the concerts it is assigned to (concert_staff); assigning never grants a role.
+function StaffPanel({ concertId, mutable }: { concertId: string; mutable: boolean }) {
+  const staff = useResource<StaffMember[]>(`/concerts/${concertId}/staff`);
+  const [email, setEmail] = useState("");
+  const action = useAction();
+  return (
+    <Card>
+      <Copy>Staff de control de acceso</Copy>
+      <ResourceState {...staff} retry={() => void staff.reload()} />
+      {staff.result?.data.map((member) => (
+        <View key={member.user_id} style={styles.row}>
+          <Copy muted>
+            {[member.first_name, member.last_name].filter(Boolean).join(" ") || member.email} · {member.email}
+          </Copy>
+          <Button
+            title={`Quitar staff ${member.email}`}
+            secondary
+            danger
+            disabled={action.busy}
+            onPress={() =>
+              void action.run(async () => {
+                await api.request(`/concerts/${concertId}/staff/${member.user_id}`, { method: "DELETE" });
+                await staff.reload();
+              })
+            }
+          />
+        </View>
+      ))}
+      {staff.result?.data.length === 0 && <Copy muted>Sin staff asignado.</Copy>}
+      {mutable && (
+        <>
+          <Field label="Email del staff" keyboardType="email-address" value={email} onChangeText={setEmail} />
+          <Button
+            title="Asignar staff"
+            disabled={action.busy}
+            onPress={() =>
+              void action.run(async () => {
+                await api.request(`/concerts/${concertId}/staff`, { method: "POST", body: { email } });
+                setEmail("");
+                await staff.reload();
+                action.setMessage("Staff asignado.");
+              })
+            }
+          />
+        </>
+      )}
+      <ActionFeedback action={action} />
     </Card>
   );
 }

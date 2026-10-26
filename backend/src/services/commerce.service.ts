@@ -1,15 +1,16 @@
 import { AppError } from '../utils/app-error.util.js';
+import { PERMISSIONS as P, can } from '../utils/access.util.js';
 import { createQrToken } from '../utils/qr.util.ts';
-import { CommerceRepository, type PurchaseRow } from '../repositories/commerce.repository.ts';
+import { CommerceRepository, type PurchaseRow, type ScanResult } from '../repositories/commerce.repository.ts';
 import type { Database, Principal, ConcertRow, TicketRow } from '../types/management.types.ts';
 import { purchaseSchema, validationSchema, type PurchaseInput, type PageQuery, type ValidationInput } from '../validators/commerce.schemas.ts';
 
 function fail(status: number, code: string, message: string): never { throw new AppError(status, code, message, undefined); }
 const required = <T>(value: T | undefined): T => value ?? fail(404, 'NOT_FOUND', 'Recurso inexistente.');
-const ownerFilter = (user: Principal) => user.roles.includes('ADMIN') ? undefined : user.id;
+const ownerFilter = (user: Principal) => can(user, P.ordersReadAll) ? undefined : user.id;
 const ascending = (a: string, b: string) => BigInt(a) < BigInt(b) ? -1 : BigInt(a) > BigInt(b) ? 1 : 0;
 function owner(purchase: PurchaseRow, user: Principal): void {
-    if (purchase.user_id !== user.id && !user.roles.includes('ADMIN')) fail(404, 'NOT_FOUND', 'Recurso inexistente.');
+    if (purchase.user_id !== user.id && !can(user, P.ordersReadAll)) fail(404, 'NOT_FOUND', 'Recurso inexistente.');
 }
 function sale(concert: ConcertRow, type: TicketRow, now: Date): void {
     if (concert.status !== 'PUBLISHED') fail(409, 'CONCERT_NOT_PUBLISHED', 'El concierto no está publicado.');
@@ -50,6 +51,7 @@ export class CommerceService {
             }
             const id = await repo.reserve(user.id, new Date(expires));
             for (const [index, type] of types.entries()) await repo.addItem(id, type, items[index].quantity);
+            await repo.total(id);
             return { ...required(await repo.purchase(id)), items: await repo.items(id) };
         });
     }
@@ -70,31 +72,34 @@ export class CommerceService {
             const purchase = required(await repo.lockPurchase(id));
             owner(purchase, user);
             const now = await repo.now();
-            if (['PENDING', 'RESERVED'].includes(purchase.status) && (!purchase.expires_at || purchase.expires_at <= now)) {
+            if (purchase.status === 'PENDING' && (!purchase.expires_at || purchase.expires_at <= now)) {
                 await repo.setPurchaseStatus(id, 'EXPIRED');
                 return { expired: true as const };
             }
             if (purchase.status === 'EXPIRED') return { expired: true as const };
             if (action === 'confirm') {
-                if (!['PENDING', 'RESERVED'].includes(purchase.status)) fail(409, 'INVALID_STATE', 'La compra no puede confirmarse.');
+                if (purchase.status !== 'PENDING') fail(409, 'INVALID_STATE', 'La compra no puede confirmarse.');
                 for (const type of types.values()) sale(required(concerts.get(type.concert_id)), type, now);
                 if ((await repo.purchaseTickets(id)).length) fail(409, 'INVALID_STATE', 'La compra ya tiene entradas.');
                 if (await repo.confirm(id) !== 1) {
                     await repo.setPurchaseStatus(id, 'EXPIRED');
                     return { expired: true as const };
                 }
-                for (const item of initial.items)
-                    for (let index = 0; index < item.quantity; index++) await repo.addTicket(item.id, createQrToken());
+                for (const item of initial.items) {
+                    await repo.sold(item, 1);
+                    for (let index = 0; index < item.quantity; index++) await repo.addTicket(item, purchase.user_id, createQrToken());
+                }
                 await repo.notifications.purchase(purchase.user_id, id, initial.items[0].concert_id);
             } else {
-                if (!['PENDING', 'RESERVED', 'CONFIRMED'].includes(purchase.status)) fail(409, 'INVALID_STATE', 'La compra no puede cancelarse.');
+                if (!['PENDING', 'CONFIRMED'].includes(purchase.status)) fail(409, 'INVALID_STATE', 'La compra no puede cancelarse.');
                 const tickets = await repo.purchaseTickets(id);
                 if (tickets.some(ticket => ticket.used_at !== null)) fail(409, 'TICKET_ALREADY_USED', 'La compra contiene entradas utilizadas.');
                 if (purchase.status === 'CONFIRMED' && [...concerts.values()].some(concert => concert.status !== 'CANCELLED' && concert.start_datetime <= now))
                     fail(409, 'CANCELLATION_CLOSED', 'El concierto ya comenzó.');
-                const status = purchase.status === 'CONFIRMED' ? 'REFUNDED' : 'CANCELLED';
-                await repo.invalidateTickets(id, status);
-                await repo.setPurchaseStatus(id, status);
+                // The schema has no REFUNDED state: a cancelled confirmed order frees its stock and voids its tickets.
+                if (purchase.status === 'CONFIRMED') for (const item of initial.items) await repo.sold(item, -1);
+                await repo.invalidateTickets(id);
+                await repo.setPurchaseStatus(id, 'CANCELLED');
             }
             return { expired: false as const, data: { ...required(await repo.purchase(id)), items: await repo.items(id) } };
         });
@@ -105,24 +110,31 @@ export class CommerceService {
     tickets(user: Principal, query: PageQuery) { return this.run(false, repo => repo.tickets(user.id, query)); }
     ticket(id: string, user: Principal) { return this.run(false, async repo => required(await repo.ticket(id, ownerFilter(user)))); }
     async validate(input: ValidationInput, user: Principal) {
-        if (!user.roles.some(role => ['STAFF', 'ADMIN'].includes(role))) fail(403, 'FORBIDDEN', 'Permisos insuficientes.');
         const parsed = validationSchema.parse(input);
-        return this.run(true, async repo => {
+        // Rejections are committed together with their ticket_validations row, then reported.
+        const outcome = await this.run(true, async repo => {
             const concert = await repo.concert(parsed.concertId);
-            if (!user.roles.includes('ADMIN') && !await repo.assigned(parsed.concertId, user.id))
+            if (!can(user, P.ticketsValidate) && !await repo.assigned(parsed.concertId, user.id))
                 fail(403, 'STAFF_NOT_ASSIGNED', 'Staff no asignado al concierto.');
             if (!concert) fail(404, 'INVALID', 'Entrada inválida.');
             const ticket = await repo.scan(parsed.qrToken);
-            if (!ticket) fail(404, 'INVALID', 'Entrada inválida.');
-            if (ticket.concert_id !== parsed.concertId) fail(409, 'WRONG_CONCERT', 'La entrada corresponde a otro concierto.');
+            const reject = async (result: ScanResult, status: number, code: string, message: string) => {
+                await repo.logScan(concert.id, ticket?.id ?? null, parsed.qrToken, result, user.id);
+                return { error: new AppError(status, code, message, undefined) };
+            };
+            if (!ticket) return reject('NOT_FOUND', 404, 'INVALID', 'Entrada inválida.');
+            if (ticket.concert_id !== parsed.concertId) return reject('WRONG_CONCERT', 409, 'WRONG_CONCERT', 'La entrada corresponde a otro concierto.');
             const purchase = required(await repo.lockPurchase(ticket.purchase_id));
-            if (ticket.status === 'USED' || ticket.used_at !== null) fail(409, 'ALREADY_USED', 'La entrada ya fue utilizada.');
-            if (['CANCELLED', 'REFUNDED'].includes(ticket.status) || ['CANCELLED', 'REFUNDED'].includes(purchase.status) || concert.status === 'CANCELLED')
-                fail(409, 'CANCELLED', 'Entrada o concierto cancelado.');
-            if (ticket.status !== 'ACTIVE' || purchase.status !== 'CONFIRMED' || concert.status !== 'PUBLISHED')
+            if (ticket.status === 'USED' || ticket.used_at !== null) return reject('ALREADY_USED', 409, 'ALREADY_USED', 'La entrada ya fue utilizada.');
+            if (ticket.status === 'CANCELLED' || purchase.status === 'CANCELLED' || concert.status === 'CANCELLED')
+                return reject('CANCELLED', 409, 'CANCELLED', 'Entrada o concierto cancelado.');
+            if (ticket.status !== 'VALID' || purchase.status !== 'CONFIRMED' || concert.status !== 'PUBLISHED')
                 fail(409, 'INVALID', 'Entrada inválida.');
-            if (await repo.useTicket(ticket.id, user.id) !== 1) fail(409, 'ALREADY_USED', 'La entrada ya no está disponible.');
-            return { result: 'VALID', ticket_id: ticket.id, concert_id: concert.id, status: 'USED' };
+            if (await repo.useTicket(ticket.id, user.id) !== 1) return reject('ALREADY_USED', 409, 'ALREADY_USED', 'La entrada ya no está disponible.');
+            await repo.logScan(concert.id, ticket.id, parsed.qrToken, 'ACCEPTED', user.id);
+            return { data: { result: 'VALID', ticket_id: ticket.id, concert_id: concert.id, status: 'USED' } };
         });
+        if ('error' in outcome) throw outcome.error;
+        return outcome.data;
     }
 }

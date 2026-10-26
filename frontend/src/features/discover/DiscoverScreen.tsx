@@ -34,7 +34,7 @@ export default function DiscoverScreen() {
   return (
     <Page
       title="Venti Discover"
-      subtitle="Conciertos para vos, a partir de tus entradas y favoritos."
+      subtitle="Conciertos para vos, a partir de tus entradas."
     >
       <ResourceState
         loading={preferences.loading || preferences.saving}

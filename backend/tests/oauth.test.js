@@ -22,7 +22,7 @@ for (const provider of ['google', 'github', 'facebook']) {
         assert.equal(flow.url.searchParams.get('response_type'), 'code');
         assert.ok(flow.response.headers['set-cookie']?.[0]?.includes('HttpOnly'));
         const result = await request(ctx.app).get(`/auth/oauth/${provider}/callback`).set('Cookie', flow.cookie).query({ state: flow.state, code: 'provider-code' }).expect(200);
-        assert.deepEqual(result.body.data.roles, ['USER']);
+        assert.deepEqual(result.body.data.roles, ['COMPRADOR']);
         assert.ok(result.body.data.refreshToken);
         assert.equal((await database.rows('SELECT * FROM oauth_accounts')).length, 1);
         const again = await start(provider);
@@ -69,7 +69,7 @@ test('OAuth nuevo sin garantía de email exige verificación local y luego permi
     const flow = await start('facebook');
     await request(ctx.app).get('/auth/oauth/facebook/callback').set('Cookie', flow.cookie).query({ state: flow.state, code: 'code' }).expect(403);
     assert.equal((await database.rows('SELECT id FROM oauth_accounts')).length, 1);
-    assert.equal((await database.rows('SELECT id FROM refresh_tokens')).length, 0);
+    assert.equal((await database.rows('SELECT id FROM auth_refresh_tokens')).length, 0);
     await ctx.auth.verifyEmail(ctx.mailer.last('verification').token);
     const next = await start('facebook');
     await request(ctx.app).get('/auth/oauth/facebook/callback').set('Cookie', next.cookie).query({ state: next.state, code: 'new-code' }).expect(200);
@@ -99,7 +99,7 @@ test('deep link entrega solo código de un uso ligado al PKCE del cliente', asyn
     assert.equal(url.protocol, 'venti:');
     assert.deepEqual([...url.searchParams.keys()], ['code']);
     const code = url.searchParams.get('code');
-    assert.equal((await database.rows('SELECT id FROM refresh_tokens')).length, 0);
+    assert.equal((await database.rows('SELECT id FROM auth_refresh_tokens')).length, 0);
     await request(ctx.app).post('/auth/oauth/exchange').send({ code, codeVerifier: 'b'.repeat(64) }).expect(401);
     const result = await request(ctx.app).post('/auth/oauth/exchange').send({ code, codeVerifier: verifier }).expect(200);
     assert.ok(result.body.data.accessToken);

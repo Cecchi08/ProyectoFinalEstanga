@@ -9,7 +9,7 @@ export default function NotificationPreference() {
     {preferences.notificationsEnabled !== null && <>
       <Switch accessibilityLabel="Notificaciones opcionales" value={preferences.notificationsEnabled}
         disabled={preferences.loading || preferences.saving} onValueChange={value => void preferences.setNotificationsEnabled(value)} />
-      <Copy muted>{preferences.notificationsEnabled ? 'ON · Recibís recomendaciones y novedades de favoritos.' : 'OFF · No se generan recomendaciones ni avisos de favoritos.'}</Copy>
+      <Copy muted>{preferences.notificationsEnabled ? 'ON · Recibís avisos de Venti Discover.' : 'OFF · No se generan avisos de Venti Discover.'}</Copy>
       <Copy muted>Las confirmaciones y los cambios de conciertos con compras vigentes siempre se guardan aquí.</Copy>
     </>}
   </Card>;

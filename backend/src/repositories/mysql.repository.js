@@ -1,5 +1,7 @@
-import { ROLES } from '../types/auth.types.js';
-const tokenTables = { refresh: 'refresh_tokens', verification: 'email_verification_tokens', reset: 'password_reset_tokens' };
+import { DEFAULT_ROLE, ROLES } from '../types/auth.types.js';
+// Codes stored in the database must belong to the known catalog; this validates data, it does not authorize.
+const KNOWN_ROLES = new Set(ROLES);
+const tokenTables = { refresh: 'auth_refresh_tokens', verification: 'email_verification_tokens', reset: 'password_reset_tokens' };
 const tokenColumn = (kind) => kind === 'refresh' ? 'revoked_at' : 'used_at';
 export class MysqlAuthRepository {
     connection;
@@ -16,7 +18,7 @@ export class MysqlAuthRepository {
         return { id: String(row.id), first_name: row.first_name, last_name: row.last_name,
             email: row.email, password_hash: row.password_hash,
             avatar_url: row.avatar_url, email_verified_at: row.email_verified_at,
-            is_active: Boolean(row.is_active), created_at: row.created_at, updated_at: row.updated_at };
+            is_active: row.status === 'ACTIVE', created_at: row.created_at, updated_at: row.updated_at };
     }
     async findUserByEmail(email, lock = false) {
         return this.mapUser((await this.rows(`SELECT * FROM users WHERE email = ?${lock ? ' FOR UPDATE' : ''}`, [email]))[0]);
@@ -34,18 +36,28 @@ export class MysqlAuthRepository {
         return user;
     }
     async initializeUser(id) {
-        const [result] = await this.connection.execute("INSERT INTO user_roles (user_id, role_id) SELECT ?, id FROM roles WHERE code = 'USER'", [id]);
+        const [result] = await this.connection.execute('INSERT INTO user_roles (user_id, role_id) SELECT ?, id FROM roles WHERE code = ?', [id, DEFAULT_ROLE]);
         if (result.affectedRows !== 1)
-            throw new Error('Falta el catálogo USER. Importar schema.sql.');
+            throw new Error(`Falta el rol ${DEFAULT_ROLE}. Importar venti_shema2.sql.`);
         await this.connection.execute('INSERT INTO user_preferences (user_id) VALUES (?)', [id]);
     }
     async roles(id) {
         const rows = await this.rows('SELECT r.code FROM roles r JOIN user_roles ur ON ur.role_id = r.id WHERE ur.user_id = ? ORDER BY r.id', [id]);
         return rows.map(row => {
-            if (!ROLES.includes(row.code))
+            if (!KNOWN_ROLES.has(row.code))
                 throw new Error('Rol desconocido en la base de datos.');
             return row.code;
         });
+    }
+    // Roles and the union of their permissions in a single query (one row per role/permission pair).
+    async access(id) {
+        const rows = await this.rows(`SELECT r.code AS role, p.code AS permission FROM user_roles ur JOIN roles r ON r.id = ur.role_id
+            LEFT JOIN role_permissions rp ON rp.role_id = r.id LEFT JOIN permissions p ON p.id = rp.permission_id
+            WHERE ur.user_id = ? ORDER BY r.id, p.code`, [id]);
+        const roles = [...new Set(rows.map(row => row.role))];
+        if (roles.find(role => !KNOWN_ROLES.has(role)) !== undefined)
+            throw new Error('Rol desconocido en la base de datos.');
+        return { roles, permissions: [...new Set(rows.map(row => row.permission).filter(Boolean))] };
     }
     async preferences(id) {
         const row = (await this.rows('SELECT recommendations_enabled, notifications_enabled FROM user_preferences WHERE user_id = ?', [id]))[0];
@@ -68,19 +80,18 @@ export class MysqlAuthRepository {
         await this.connection.execute(`UPDATE ${tokenTables[kind]} SET ${tokenColumn(kind)} = UTC_TIMESTAMP() WHERE user_id = ? AND ${tokenColumn(kind)} IS NULL`, [userId]);
     }
     async oauthUser(provider, subject) {
-        const row = (await this.rows('SELECT a.user_id FROM oauth_accounts a JOIN oauth_providers p ON p.id = a.provider_id WHERE p.code = ? AND a.provider_user_id = ?', [provider.toUpperCase(), subject]))[0];
+        const row = (await this.rows('SELECT user_id FROM oauth_accounts WHERE provider = ? AND provider_user_id = ?', [provider.toUpperCase(), subject]))[0];
         return row ? String(row.user_id) : null;
     }
     async linkOAuth(userId, provider, subject) {
-        const [result] = await this.connection.execute('INSERT INTO oauth_accounts (user_id, provider_id, provider_user_id) SELECT ?, id, ? FROM oauth_providers WHERE code = ?', [userId, subject, provider.toUpperCase()]);
-        if (result.affectedRows !== 1)
-            throw new Error('Falta el catálogo de proveedores OAuth.');
+        // provider is an ENUM: an unsupported value fails in MySQL instead of being stored.
+        await this.connection.execute('INSERT INTO oauth_accounts (user_id, provider, provider_user_id) VALUES (?, ?, ?)', [userId, provider.toUpperCase(), subject]);
     }
     async concertOwner(concertId) {
-        const row = (await this.rows('SELECT organizer_id FROM concerts WHERE id = ?', [concertId]))[0];
-        return row ? String(row.organizer_id) : null;
+        const row = (await this.rows('SELECT organizer_user_id FROM concerts WHERE id = ?', [concertId]))[0];
+        return row ? String(row.organizer_user_id) : null;
     }
     async staffAssigned(concertId, userId) {
-        return (await this.rows('SELECT 1 FROM staff_assignments WHERE concert_id = ? AND user_id = ?', [concertId, userId])).length > 0;
+        return (await this.rows('SELECT 1 FROM concert_staff WHERE concert_id = ? AND user_id = ?', [concertId, userId])).length > 0;
     }
 }
