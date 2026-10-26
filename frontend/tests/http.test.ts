@@ -6,7 +6,7 @@ import {
   query,
   type TokenStorage,
 } from "../src/services/http";
-import { hasRoles, type Session } from "../src/types/api";
+import { can, type Session } from "../src/types/api";
 import { scanMessage } from "../src/features/staff/validation";
 test('storage failure during rotation also logs the user out', async () => {
   let failWrites = false;
@@ -28,7 +28,7 @@ const session: Session = {
     email: "ana@example.com",
     email_verified_at: null,
   },
-  roles: ["CUSTOMER", "ORGANIZER"],
+  roles: ["COMPRADOR", "ORGANIZADOR"],
   accessToken: "old",
   refreshToken: "refresh",
   expiresIn: 900,
@@ -174,11 +174,11 @@ test("204, network errors and query encoding", async () => {
     "?q=rock+%26+pop&page=2",
   );
 });
-test("multi-role access uses membership, admin and ordinary user stay distinct", () => {
-  assert.equal(hasRoles(["CUSTOMER", "GUEST"], ["GUEST", "ADMIN"]), true);
-  assert.equal(hasRoles(["CUSTOMER", "ORGANIZER"], ["ORGANIZER", "ADMIN"]), true);
-  assert.equal(hasRoles(["CUSTOMER"], ["ADMIN"]), false);
-  assert.equal(hasRoles([], ["CUSTOMER"]), false);
+test("screens gate on the permissions of every profile, not on the profile codes", () => {
+  assert.equal(can(["tickets.purchase", "artist.profile.manage"], ["artist.profile.manage", "artists.admin"]), true);
+  assert.equal(can(["concerts.manage", "statistics.own"], ["concerts.manage", "concerts.manage_all"]), true);
+  assert.equal(can(["tickets.purchase"], ["users.manage"]), false);
+  assert.equal(can([], ["tickets.purchase"]), false);
 });
 test("scanner has separate human-readable results for every backend outcome", () => {
   const codes = [

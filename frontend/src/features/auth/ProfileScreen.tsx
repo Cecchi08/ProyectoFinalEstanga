@@ -4,7 +4,7 @@ import { usePreferences } from "../../contexts/PreferencesContext";
 import NotificationPreference from '../notifications/NotificationPreference';
 import { useAuth } from "../../contexts/AuthContext";
 import { useResource } from "../../hooks/useResource";
-import type { Role, User } from "../../types/api";
+import { ROLE_LABELS, type Me } from "../../types/api";
 import {
   ActionFeedback,
   Button,
@@ -18,7 +18,8 @@ export default function ProfileScreen() {
   const auth = useAuth();
   const preferences = usePreferences();
   const action = useAction();
-  const resource = useResource<{ user: User; roles: Role[] }>("/auth/me");
+  // /auth/me also carries the permissions; the context keeps them for the whole app.
+  const resource = useResource<Me>("/auth/me");
   const profile = resource.result?.data;
   return (
     <Page title="Mi cuenta">
@@ -29,8 +30,22 @@ export default function ProfileScreen() {
             {profile.user.first_name} {profile.user.last_name}
           </Copy>
           <Copy>{profile.user.email}</Copy>
-          <Copy muted>{profile.roles.join(" · ")}</Copy>
+          <Copy muted>
+            {profile.roles.map((role) => ROLE_LABELS[role]).join(" · ")}
+          </Copy>
+          <Button
+            title="Mis perfiles"
+            secondary
+            onPress={() => router.push("/profiles")}
+          />
         </Card>
+      )}
+      {auth.can("artist.profile.manage", "artists.admin") && (
+        <Button
+          title="Mis perfiles de artista"
+          secondary
+          onPress={() => router.push("/artists")}
+        />
       )}
       <Card>
         <Copy>Recomendaciones personalizadas</Copy>

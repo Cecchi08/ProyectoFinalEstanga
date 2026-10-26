@@ -5,14 +5,15 @@ import { useAuth } from "../../contexts/AuthContext";
 import { useResource } from "../../hooks/useResource";
 import { api } from "../../services/api";
 import { query } from "../../services/http";
-import { hasRoles, type Quote, type Reservation } from "../../types/api";
+import type { Permission, Quote, Reservation } from "../../types/api";
 import { ActionFeedback, Button, Card, Copy, Field, Page, Pager, ResourceState, dateLabel, money, styles, useAction } from "../../components/ui";
 import { at, isDate, range } from "./time";
 
 // Shared by quotes and reservations: requester view by default, provider view for organization members.
-export function useListView(statuses: string[]) {
-  const { roles } = useAuth();
-  const provider = hasRoles(roles, ["ORGANIZER", "ADMIN"]);
+// `as=provider` is authorized by a different permission on each list, so the caller passes it.
+export function useListView(statuses: string[], providerPermissions: Permission[]) {
+  const { can } = useAuth();
+  const provider = can(...providerPermissions);
   const [as, setAs] = useState<"requester" | "provider">("requester");
   const [status, setStatus] = useState("");
   const [page, setPage] = useState(1);
@@ -37,7 +38,7 @@ export function useListView(statuses: string[]) {
 }
 
 export default function QuotesScreen() {
-  const view = useListView(["REQUESTED", "SENT", "ACCEPTED", "REJECTED", "EXPIRED", "CANCELLED"]);
+  const view = useListView(["REQUESTED", "SENT", "ACCEPTED", "REJECTED", "EXPIRED", "CANCELLED"], ["marketplace.quotes.respond", "marketplace.admin"]);
   const resource = useResource<Quote[]>(`/marketplace/quotes${view.params}`);
   return (
     <Page title="Presupuestos" subtitle="Pedidos de presupuesto para espacios del marketplace.">
@@ -60,7 +61,7 @@ export default function QuotesScreen() {
 type Line = { description: string; quantity: string; unit_price: string };
 export function QuoteScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
-  const { user, roles } = useAuth();
+  const { user, can } = useAuth();
   const resource = useResource<Quote>(`/marketplace/quotes/${id}`);
   const quote = resource.result?.data;
   const action = useAction();
@@ -69,7 +70,7 @@ export function QuoteScreen() {
   const set = (key: string, value: string) => setForm((current) => ({ ...current, [key]: value }));
   const mine = quote?.requester_user_id === user?.id;
   // The backend decides membership; organizers only see the provider form for quotes they did not request.
-  const provider = !mine && hasRoles(roles, ["ORGANIZER", "ADMIN"]);
+  const provider = !mine && can("marketplace.quotes.respond", "marketplace.admin");
   const open = quote && ["REQUESTED", "SENT"].includes(quote.status);
   // The body is built inside run() so validation errors are shown like API errors.
   const post = (path: string, body: () => unknown = () => ({})) => action.run(async () => {

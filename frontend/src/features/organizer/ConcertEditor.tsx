@@ -195,7 +195,7 @@ export default function ConcertEditor() {
                 values={genres}
                 onChange={setGenres}
               />
-              {!editing && auth.roles.includes("ADMIN") && (
+              {!editing && auth.can("concerts.manage_all") && (
                 <Field
                   label="ID del organizador (opcional)"
                   value={form.organizer_id ?? ""}

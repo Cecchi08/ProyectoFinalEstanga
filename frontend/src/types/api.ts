@@ -1,5 +1,31 @@
-// Staff is not a role: it is a per-concert assignment (GET /staff/assignments).
-export type Role = "ADMIN" | "ORGANIZER" | "CUSTOMER" | "GUEST";
+// Global profiles (user_roles). A user may hold several; what each one allows comes from
+// role_permissions, so screens gate on permissions, never on these codes.
+// Staff is not a profile: it is a per-concert assignment (GET /staff/assignments).
+export const ROLES = [
+  "ADMIN",
+  "COMPRADOR",
+  "ARTISTA",
+  "ORGANIZADOR",
+  "VENUE",
+  "EMPRESA_SERVICIOS",
+  "GUEST",
+] as const;
+export type Role = (typeof ROLES)[number];
+// GUEST belongs to the guest flow: it is never granted or revoked by hand.
+export const ASSIGNABLE_ROLES = ROLES.filter(
+  (role) => role !== "GUEST",
+) as Exclude<Role, "GUEST">[];
+// Profiles a registered person activates alone (POST /me/profiles).
+export const SELF_SERVICE_ROLES = ["COMPRADOR", "ARTISTA"] as const;
+export const ROLE_LABELS: Record<Role, string> = {
+  ADMIN: "Administración",
+  COMPRADOR: "Comprador",
+  ARTISTA: "Artista",
+  ORGANIZADOR: "Organizador",
+  VENUE: "Espacios",
+  EMPRESA_SERVICIOS: "Empresa de servicios",
+  GUEST: "Invitado",
+};
 export interface User {
   id: string;
   first_name: string;
@@ -115,8 +141,107 @@ export interface Attendee {
   purchase_status: string;
   used_at: string | null;
 }
-export const hasRoles = (roles: readonly Role[], allowed: readonly Role[]) =>
-  allowed.some((role) => roles.includes(role));
+// Permission codes the API authorizes with (backend/src/utils/access.util.js plus the codes
+// seeded in database/venti_shema2.sql). GET /auth/me returns the union of the user's profiles.
+export type Permission =
+  | "concerts.browse"
+  | "concerts.manage"
+  | "concerts.manage_all"
+  | "concerts.staff.manage"
+  | "tickets.purchase"
+  | "tickets.validate"
+  | "orders.read_all"
+  | "statistics.own"
+  | "statistics.global"
+  | "catalogs.manage"
+  | "users.manage"
+  | "marketplace.venues.browse"
+  | "marketplace.quotes.request"
+  | "marketplace.reservations.create"
+  | "marketplace.establishments.manage"
+  | "marketplace.quotes.respond"
+  | "marketplace.reservations.manage"
+  | "marketplace.admin"
+  | "artist.profile.manage"
+  | "artists.admin"
+  | "services.manage"
+  | "services.quotes.respond";
+// True when the user holds at least one of the codes, like `can` in the backend.
+export const can = (
+  permissions: readonly Permission[],
+  allowed: readonly Permission[],
+) => allowed.some((code) => permissions.includes(code));
+// ---- Profiles and permissions ----
+export interface Access {
+  roles: Role[];
+  permissions: Permission[];
+}
+export interface Me extends Access {
+  user: User;
+}
+export interface RoleInfo {
+  code: Role;
+  name: string;
+  description: string | null;
+}
+export interface SelfProfiles extends Access {
+  self_service: (RoleInfo & { active: boolean })[];
+}
+export interface AdminUser {
+  id: string;
+  email: string | null;
+  first_name: string | null;
+  last_name: string | null;
+  status: string;
+  is_guest: boolean;
+  email_verified_at: string | null;
+  last_login_at: string | null;
+  created_at: string;
+  roles: Role[];
+}
+export interface RoleChange {
+  changed: boolean;
+  user: AdminUser;
+}
+export interface AuditEntry {
+  id: string;
+  action: "ROLE_GRANTED" | "ROLE_REVOKED" | "ROLE_SELF_ACTIVATED";
+  actor_user_id: string;
+  target_user_id: string;
+  role: Role | null;
+  details: Record<string, unknown> | string | null;
+  created_at: string;
+}
+// ---- Artist profiles ----
+export type ArtistStatus = "DRAFT" | "PUBLISHED" | "ARCHIVED";
+export type MemberRole = "OWNER" | "MEMBER";
+export interface ArtistMember {
+  user_id: string;
+  first_name: string | null;
+  last_name: string | null;
+  // Only members and artists.admin receive the email.
+  email?: string;
+  member_role: MemberRole;
+  created_at: string;
+}
+export interface Artist {
+  id: string;
+  stage_name: string;
+  slug: string;
+  bio: string | null;
+  city_id: string | null;
+  city_name: string | null;
+  image_url: string | null;
+  website: string | null;
+  status: ArtistStatus;
+  published_at: string | null;
+  created_at: string;
+  updated_at: string;
+  genres: Named[];
+}
+export interface ArtistDetail extends Artist {
+  members: ArtistMember[];
+}
 // ---- Marketplace ----
 export type OccupancyMode = "VENUE" | "ESTABLISHMENT";
 export interface Venue extends Named {

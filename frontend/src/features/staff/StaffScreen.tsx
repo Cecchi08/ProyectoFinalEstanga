@@ -19,7 +19,7 @@ import { useAuth } from "../../contexts/AuthContext";
 import type { Concert, Attendee } from "../../types/api";
 import { scanMessage } from "./validation";
 export default function StaffScreen() {
-  const { roles } = useAuth();
+  const { can } = useAuth();
   const [page, setPage] = useState(1);
   const [selected, setSelected] = useState<Concert | null>(null);
   const [attendeePage, setAttendeePage] = useState(1);
@@ -33,7 +33,7 @@ export default function StaffScreen() {
     <Page
       title="Control de acceso"
       subtitle={
-        roles.includes("ADMIN")
+        can("tickets.validate")
           ? "Seleccioná un concierto para gestionar el ingreso."
           : "Seleccioná uno de tus conciertos asignados."
       }

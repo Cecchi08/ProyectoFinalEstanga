@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { View } from "react-native";
 import { router } from "expo-router";
+import { useAuth } from "../../contexts/AuthContext";
 import { useResource } from "../../hooks/useResource";
 import { api } from "../../services/api";
 import { query } from "../../services/http";
@@ -35,16 +36,31 @@ export default function AdminScreen() {
   const [selected, setSelected] = useState<CatalogItem | null | undefined>(
     undefined,
   );
+  // Each button needs the same permission the endpoint behind it requires.
+  const { can } = useAuth();
+  const catalogs = can("catalogs.manage");
   const resource = useResource<CatalogItem[]>(
-    `/${kind}${query({ page, q: search.trim() })}`,
+    catalogs ? `/${kind}${query({ page, q: search.trim() })}` : null,
   );
   return (
     <Page title="Administración">
-      <Button title="Estadísticas globales" onPress={() => router.push('/admin/statistics')} />
-      <Button
-        title="Gestionar todos los conciertos"
-        onPress={() => router.push("/admin/concerts")}
-      />
+      {can("users.manage") && (
+        <>
+          <Button title="Perfiles de usuarios" onPress={() => router.push("/admin/users")} />
+          <Button title="Auditoría de perfiles" secondary onPress={() => router.push("/admin/audit")} />
+        </>
+      )}
+      {can("statistics.global") && (
+        <Button title="Estadísticas globales" onPress={() => router.push('/admin/statistics')} />
+      )}
+      {can("concerts.manage_all") && (
+        <Button
+          title="Gestionar todos los conciertos"
+          onPress={() => router.push("/admin/concerts")}
+        />
+      )}
+      {!catalogs ? null : (
+      <>
       <View style={styles.row}>
         {(Object.keys(names) as Catalog[]).map((key) => (
           <Button
@@ -100,6 +116,8 @@ export default function AdminScreen() {
         </Card>
       ))}
       <Pager pagination={resource.result?.pagination} onPage={setPage} />
+      </>
+      )}
     </Page>
   );
 }

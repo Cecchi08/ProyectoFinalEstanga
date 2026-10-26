@@ -27,7 +27,7 @@ export function ConcertCard({
   manage?: boolean;
   reason?: string;
 }) {
-  const { roles } = useAuth();
+  const { can } = useAuth();
   return (
     <View style={{ flexGrow: 1, flexBasis: 300, maxWidth: 560 }}>
       <Card>
@@ -53,7 +53,7 @@ export function ConcertCard({
             )
           }
         />
-        {manage && <Button title={`Estadísticas de ${concert.name}`} secondary onPress={() => router.push(`${roles.includes('ADMIN') ? '/admin' : '/organizer'}/statistics?concert_id=${concert.id}`)} />}
+        {manage && <Button title={`Estadísticas de ${concert.name}`} secondary onPress={() => router.push(`${can('statistics.global') ? '/admin' : '/organizer'}/statistics?concert_id=${concert.id}`)} />}
       </Card>
     </View>
   );
@@ -64,7 +64,7 @@ export default function ConcertList({
   mode?: "discover" | "organizer" | "admin";
 }) {
   const [page, setPage] = useState(1);
-  const { roles } = useAuth();
+  const { can } = useAuth();
   const [draft, setDraft] = useState<Record<string, string>>({});
   const [filters, setFilters] = useState<Record<string, string>>({});
   const [expanded, setExpanded] = useState(false);
@@ -94,7 +94,7 @@ export default function ConcertList({
       }
       subtitle="Música en vivo. Experiencias que quedan."
     >
-      {mode !== 'discover' && <Button title="Ver estadísticas" onPress={() => router.push(roles.includes('ADMIN') ? '/admin/statistics' : '/organizer/statistics')} />}
+      {mode !== 'discover' && <Button title="Ver estadísticas" onPress={() => router.push(can('statistics.global') ? '/admin/statistics' : '/organizer/statistics')} />}
       {mode !== "discover" && (
         <Button
           title="Crear concierto"

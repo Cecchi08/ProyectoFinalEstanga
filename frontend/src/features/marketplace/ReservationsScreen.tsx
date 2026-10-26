@@ -11,7 +11,7 @@ import { range } from "./time";
 
 const phases: Record<string, string> = { SETUP: "Armado", EVENT: "Evento", TEARDOWN: "Desarme" };
 export default function ReservationsScreen() {
-  const view = useListView(["HOLD", "CONFIRMED", "COMPLETED", "CANCELLED", "EXPIRED"]);
+  const view = useListView(["HOLD", "CONFIRMED", "COMPLETED", "CANCELLED", "EXPIRED"], ["marketplace.reservations.manage", "marketplace.admin"]);
   const resource = useResource<Reservation[]>(`/marketplace/reservations${view.params}`);
   return (
     <Page title="Reservas de espacios" subtitle="Reservas temporales, confirmadas y su historial.">

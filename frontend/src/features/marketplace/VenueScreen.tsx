@@ -5,7 +5,7 @@ import { useAuth } from "../../contexts/AuthContext";
 import { useResource } from "../../hooks/useResource";
 import { api } from "../../services/api";
 import { query } from "../../services/http";
-import { hasRoles, type Availability, type OccupancyMode, type Quote, type Reservation, type VenueDetail } from "../../types/api";
+import type { Availability, OccupancyMode, Quote, Reservation, VenueDetail } from "../../types/api";
 import { ActionFeedback, Button, Card, Copy, Field, Notice, Page, ResourceState, money, styles, useAction } from "../../components/ui";
 import { capacityLabel } from "./MarketplaceScreen";
 import { days, isDate, range, slot } from "./time";
@@ -13,7 +13,7 @@ import { days, isDate, range, slot } from "./time";
 const modes: [OccupancyMode, string][] = [["VENUE", "Solo el espacio"], ["ESTABLISHMENT", "Establecimiento completo"]];
 export default function VenueScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
-  const { roles } = useAuth();
+  const { can } = useAuth();
   const resource = useResource<VenueDetail>(`/marketplace/venues/${id}`);
   const venue = resource.result?.data;
   const [form, setForm] = useState<Record<string, string>>({});
@@ -22,7 +22,7 @@ export default function VenueScreen() {
   const check = useAction();
   const book = useAction();
   const set = (key: string, value: string) => setForm((current) => ({ ...current, [key]: value }));
-  const requester = hasRoles(roles, ["CUSTOMER", "ORGANIZER", "ADMIN"]);
+  const requester = can("marketplace.quotes.request", "marketplace.reservations.create", "marketplace.admin");
   // Whole day (no times) or the exact requested slot.
   const lookup = () => check.run(async () => {
     if (!isDate(form.date ?? "")) throw new Error("Ingresá la fecha como AAAA-MM-DD.");
