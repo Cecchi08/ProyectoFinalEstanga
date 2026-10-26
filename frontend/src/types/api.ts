@@ -102,10 +102,28 @@ export interface Concert extends Named {
   venue_name: string | null;
   city_name: string | null;
   province_name: string | null;
-  // Derived from artist_name; kept as a list for existing screens.
-  artists: { name: string }[];
+  // Linked artist profiles (id and slug); a concert without links lists artist_name alone.
+  artists: ConcertArtist[];
+  price_from?: string | null;
   genres: Named[];
   ticket_types: TicketType[];
+}
+export interface OrderPayment {
+  id: string;
+  amount: string;
+  currency: string;
+  status: "APPROVED" | "REJECTED" | "REFUNDED";
+  provider: "SIMULATED";
+  is_simulated: boolean;
+  simulated_reference: string;
+  processed_at: string;
+  refunded_at: string | null;
+}
+export interface ConcertArtist {
+  id?: string;
+  name: string;
+  slug?: string;
+  image_url?: string | null;
 }
 export interface Purchase {
   id: string;
@@ -113,6 +131,9 @@ export interface Purchase {
   total: string;
   created_at: string;
   expires_at: string | null;
+  refund_status?: "NONE" | "REFUNDED";
+  refunded_at?: string | null;
+  payments?: OrderPayment[];
   items?: {
     id: string;
     ticket_type_name: string;
@@ -150,6 +171,7 @@ export type Permission =
   | "concerts.staff.manage"
   | "tickets.purchase"
   | "tickets.validate"
+  | "tickets.validate_all"
   | "orders.read_all"
   | "statistics.own"
   | "statistics.global"
@@ -165,7 +187,9 @@ export type Permission =
   | "artist.profile.manage"
   | "artists.admin"
   | "services.manage"
-  | "services.quotes.respond";
+  | "services.quotes.respond"
+  | "services.quotes.request"
+  | "services.admin";
 // True when the user holds at least one of the codes, like `can` in the backend.
 export const can = (
   permissions: readonly Permission[],
@@ -203,12 +227,26 @@ export interface RoleChange {
   changed: boolean;
   user: AdminUser;
 }
+export type AuditAction =
+  | "ROLE_GRANTED"
+  | "ROLE_REVOKED"
+  | "ROLE_SELF_ACTIVATED"
+  | "USER_SUSPENDED"
+  | "USER_REACTIVATED"
+  | "ORDER_PAYMENT_APPROVED"
+  | "ORDER_PAYMENT_REJECTED"
+  | "ORDER_REFUNDED"
+  | "SERVICE_PROVIDER_VERIFIED"
+  | "SERVICE_PROVIDER_UNVERIFIED";
+export type AuditEntity = "USER" | "ORDER" | "SERVICE_PROVIDER";
 export interface AuditEntry {
   id: string;
-  action: "ROLE_GRANTED" | "ROLE_REVOKED" | "ROLE_SELF_ACTIVATED";
+  action: AuditAction;
   actor_user_id: string;
-  target_user_id: string;
+  target_user_id: string | null;
   role: Role | null;
+  entity_type: AuditEntity | null;
+  entity_id: string | null;
   details: Record<string, unknown> | string | null;
   created_at: string;
 }
@@ -337,6 +375,10 @@ export interface Reservation extends Schedule {
   occupancies?: { phase: string; starts_at: string; ends_at: string }[];
   history?: { from_status: string | null; to_status: string; changed_by_user_id: string | null; changed_at: string }[];
   payments?: Payment[];
+  // Direct bookings (no quote) are confirmed by the venue after the simulated payment.
+  requires_venue_acceptance?: boolean;
+  paid?: boolean;
+  awaiting_venue?: boolean;
 }
 export interface PaymentResult { simulated: true; notice: string; payment: Payment; reservation: Reservation }
 export interface Organization extends Named { slug: string; legal_name: string | null; tax_id: string | null; member_role: "OWNER" | "ADMIN" | "STAFF" }
@@ -355,3 +397,93 @@ export interface Establishment extends Named {
 }
 export interface Block { id: string; venue_id: string | null; reason: string; description: string | null; starts_at: string; ends_at: string }
 export interface StaffMember { user_id: string; first_name: string | null; last_name: string | null; email: string }
+export interface AdminOrganization extends Named {
+  legal_name: string | null;
+  tax_id: string | null;
+  slug: string;
+  email: string | null;
+  phone: string | null;
+  status: "ACTIVE" | "SUSPENDED";
+  created_by_user_id: string | null;
+  created_at: string;
+  members: number;
+  establishments: number;
+  owners: string[];
+  service_provider: { status: PublicationStatus; is_verified: boolean } | null;
+}
+export interface ArtistConcerts { upcoming: Concert[]; past: Concert[] }
+// ---- Service companies (EMPRESA_SERVICIOS) ----
+export type PublicationStatus = "DRAFT" | "PUBLISHED" | "ARCHIVED";
+export type PricingUnit = "HOUR" | "DAY" | "EVENT" | "UNIT" | "QUOTE";
+export interface ServiceCategory { id: string; code: string; name: string }
+export interface ServiceOffering extends Named {
+  provider_id: string;
+  provider_name: string;
+  provider_verified: boolean;
+  city_id: string | null;
+  city_name: string | null;
+  coverage_area: string | null;
+  category_code: string;
+  category_name: string;
+  slug: string;
+  description: string | null;
+  equipment: string | null;
+  conditions: string | null;
+  pricing_unit: PricingUnit;
+  base_price: string | null;
+  currency: string;
+  status: PublicationStatus;
+  published_at: string | null;
+}
+export interface ServiceProvider extends Named {
+  legal_name: string | null;
+  slug: string;
+  email: string | null;
+  phone: string | null;
+  organization_status: string;
+  description: string | null;
+  city_id: string | null;
+  city_name: string | null;
+  coverage_area: string | null;
+  status: PublicationStatus;
+  published_at: string | null;
+  is_verified: boolean;
+  verified_at: string | null;
+  published_offerings: number;
+  offerings?: ServiceOffering[];
+}
+export type ServiceQuoteStatus = "REQUESTED" | "SENT" | "ACCEPTED" | "REJECTED" | "EXPIRED" | "CANCELLED";
+export interface ServiceQuote {
+  id: string;
+  public_code: string;
+  offering_id: string;
+  offering_name: string;
+  category_code: string;
+  category_name: string;
+  provider_id: string;
+  provider_name: string;
+  requester_user_id: string;
+  requester_name: string | null;
+  requester_email: string;
+  concert_id: string | null;
+  concert_name: string | null;
+  reservation_id: string | null;
+  reservation_code: string | null;
+  event_name: string;
+  event_start_at: string;
+  event_end_at: string;
+  location_text: string | null;
+  requester_notes: string | null;
+  status: ServiceQuoteStatus;
+  subtotal: string | null;
+  fees: string | null;
+  discount: string | null;
+  total_amount: string | null;
+  currency: string;
+  valid_until: string | null;
+  provider_notes: string | null;
+  responded_at: string | null;
+  accepted_at: string | null;
+  created_at: string;
+  items?: { id: string; description: string; quantity: string; unit_price: string; line_total: string }[];
+}

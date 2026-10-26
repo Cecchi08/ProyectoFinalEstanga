@@ -34,6 +34,8 @@ export class HttpClient {
   private revision = 0;
   private writes: Promise<void> = Promise.resolve();
   onSession: (session: Session | null) => void = () => {};
+  // A 403 may mean a profile was revoked since /auth/me was read: the app reloads its permissions.
+  onForbidden: () => void = () => {};
   constructor(
     readonly base: string,
     private storage: TokenStorage,
@@ -166,6 +168,7 @@ export class HttpClient {
         response.status,
       );
     }
+    if (response.status === 403 && token) this.onForbidden();
     if (!response.ok) {
       const error = record(payload) && record(payload.error) ? payload.error : {};
       throw new ApiError(

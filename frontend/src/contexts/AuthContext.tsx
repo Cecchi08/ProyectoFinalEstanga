@@ -7,6 +7,7 @@ import {
   useState,
   type PropsWithChildren,
 } from "react";
+import { AppState } from "react-native";
 import { api } from "../services/api";
 import type { Access, Me, Permission, Role, Session, User } from "../types/api";
 import { can as allows } from "../types/api";
@@ -39,22 +40,26 @@ export function AuthProvider({ children }: PropsWithChildren) {
   const [accessError, setAccessError] = useState("");
   const sequence = useRef(0);
   const userId = session?.user.id ?? null;
-  const loadAccess = useCallback(async () => {
-    const request = ++sequence.current;
+  // silent: refresh in the background without unmounting guarded screens; a failure keeps the known access.
+  const loadAccess = useCallback(async (silent = false) => {
+    // A silent reload does not supersede a visible one in flight; both stop applying once the user changes.
+    const request = silent ? sequence.current : ++sequence.current;
     if (!userId) {
       setAccess(null);
       setAccessLoading(false);
       setAccessError("");
       return;
     }
-    setAccessLoading(true);
-    setAccessError("");
+    if (!silent) {
+      setAccessLoading(true);
+      setAccessError("");
+    }
     try {
       const { data } = await api.request<Me>("/auth/me");
       if (request === sequence.current)
         setAccess({ roles: data.roles, permissions: data.permissions ?? [] });
     } catch (e) {
-      if (request === sequence.current) {
+      if (request === sequence.current && !silent) {
         setAccess(null);
         setAccessError(
           e instanceof Error
@@ -63,7 +68,7 @@ export function AuthProvider({ children }: PropsWithChildren) {
         );
       }
     } finally {
-      if (request === sequence.current) setAccessLoading(false);
+      if (request === sequence.current && !silent) setAccessLoading(false);
     }
   }, [userId]);
   useEffect(() => {
@@ -86,6 +91,25 @@ export function AuthProvider({ children }: PropsWithChildren) {
       sequence.current++;
     };
   }, [loadAccess]);
+  // Profiles change on the server (an ADMIN grants or revokes one): permissions are read again when the
+  // app comes back to the foreground and after a 403, at most once every few seconds.
+  const lastReload = useRef(0);
+  useEffect(() => {
+    if (!userId) return;
+    const refresh = () => {
+      if (Date.now() - lastReload.current < 5000) return;
+      lastReload.current = Date.now();
+      void loadAccess(true);
+    };
+    api.onForbidden = refresh;
+    const subscription = AppState.addEventListener("change", (state) => {
+      if (state === "active") refresh();
+    });
+    return () => {
+      api.onForbidden = () => {};
+      subscription.remove();
+    };
+  }, [userId, loadAccess]);
   const permissions = access?.permissions ?? [];
   return (
     <Context.Provider
@@ -99,7 +123,7 @@ export function AuthProvider({ children }: PropsWithChildren) {
         accessLoading,
         accessError,
         can: (...codes) => allows(permissions, codes),
-        reloadAccess: loadAccess,
+        reloadAccess: () => loadAccess(),
         applyAccess: (next) => {
           sequence.current++;
           setAccess({ roles: next.roles, permissions: next.permissions ?? [] });

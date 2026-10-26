@@ -3,19 +3,24 @@ import { router, useLocalSearchParams } from "expo-router";
 import { useResource } from "../../hooks/useResource";
 import { api } from "../../services/api";
 import type { Purchase } from "../../types/api";
+import { View } from "react-native";
 import { useNotifications } from '../../contexts/NotificationsContext';
 import {
   ActionFeedback,
   Button,
   Card,
   Copy,
+  Notice,
   Page,
   Pager,
   ResourceState,
   dateLabel,
   money,
+  styles,
   useAction,
 } from "../../components/ui";
+const refundLabel = (purchase: Purchase) =>
+  purchase.refund_status === "REFUNDED" ? " · reembolsada" : "";
 export default function PurchasesScreen() {
   const [page, setPage] = useState(1);
   const resource = useResource<Purchase[]>(`/purchases/me?page=${page}`);
@@ -30,6 +35,7 @@ export default function PurchasesScreen() {
         <Card key={purchase.id}>
           <Copy>
             Compra #{purchase.id} · {purchase.status}
+            {refundLabel(purchase)}
           </Copy>
           <Copy>
             {dateLabel(purchase.created_at)} · {money(purchase.total)}
@@ -50,24 +56,29 @@ export function PurchaseDetail() {
   const resource = useResource<Purchase>(`/purchases/${id}`);
   const action = useAction();
   const [cancel, setCancel] = useState(false);
+  const [notice, setNotice] = useState("");
   const purchase = resource.result?.data;
-  const transition = (operation: string) =>
+  // confirm is the simulated payment: APPROVED confirms the purchase, REJECTED is recorded and it stays PENDING.
+  const transition = (operation: "confirm" | "cancel", outcome?: "APPROVED" | "REJECTED") =>
     action.run(async () => {
       try {
-        await api.request(`/purchases/${id}/${operation}`, {
+        const { data } = await api.request<Purchase & { notice?: string }>(`/purchases/${id}/${operation}`, {
           method: "POST",
-          body: {},
+          body: outcome ? { outcome } : {},
         });
         setCancel(false);
+        setNotice(data.notice ?? "");
         await notifications.reload();
       } finally {
         // An expired reservation can change state even when confirmation fails.
         await resource.reload();
       }
       action.setMessage(
-        operation === "confirm"
-          ? "Compra confirmada. Tus QR están en Entradas."
-          : "Compra cancelada.",
+        operation === "cancel"
+          ? "Compra cancelada."
+          : outcome === "REJECTED"
+            ? "Pago simulado rechazado: la compra sigue pendiente."
+            : "Pago aprobado y compra confirmada. Tus QR están en Entradas.",
       );
     });
   return (
@@ -88,12 +99,21 @@ export function PurchaseDetail() {
               <Copy>Vence: {dateLabel(purchase.expires_at)}</Copy>
             )}
           <ActionFeedback action={action} />
+          <Notice message={notice} />
           {purchase.status === "PENDING" && (
-            <Button
-              title="Confirmar compra"
-              disabled={action.busy}
-              onPress={() => void transition("confirm")}
-            />
+            <View style={styles.row}>
+              <Button
+                title="Simular pago aprobado"
+                disabled={action.busy}
+                onPress={() => void transition("confirm", "APPROVED")}
+              />
+              <Button
+                title="Simular pago rechazado"
+                secondary
+                disabled={action.busy}
+                onPress={() => void transition("confirm", "REJECTED")}
+              />
+            </View>
           )}
           {purchase.status === "CONFIRMED" && (
             <Button
@@ -112,9 +132,24 @@ export function PurchaseDetail() {
               }
             />
           )}
+          {purchase.status === "CONFIRMED" && (
+            <Copy muted>Si cancelás, el pago simulado se marca como reembolsado.</Copy>
+          )}
           <Copy muted>
-            Confirmación y devolución internas; no hay pagos externos.
+            Pago simulado: no se cobra dinero ni se piden datos de tarjeta.
           </Copy>
+        </Card>
+      )}
+      {purchase && (purchase.payments?.length ?? 0) > 0 && (
+        <Card>
+          <Copy>Pagos (simulados){refundLabel(purchase)}</Copy>
+          {purchase.refunded_at && <Copy muted>Reembolso: {dateLabel(purchase.refunded_at)}</Copy>}
+          {purchase.payments?.map((payment) => (
+            <Copy key={payment.id} muted>
+              {payment.simulated_reference} · {payment.status} · {money(payment.amount)} · {dateLabel(payment.processed_at)}
+              {payment.refunded_at ? ` · reembolsado ${dateLabel(payment.refunded_at)}` : ""}
+            </Copy>
+          ))}
         </Card>
       )}
     </Page>

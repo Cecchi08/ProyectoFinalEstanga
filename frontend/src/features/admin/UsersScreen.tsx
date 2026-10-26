@@ -9,6 +9,8 @@ import {
   ROLE_LABELS,
   ROLES,
   type AdminUser,
+  type AuditAction,
+  type AuditEntity,
   type AuditEntry,
   type Role,
   type RoleChange,
@@ -34,6 +36,7 @@ const fullName = (user: {
   [user.first_name, user.last_name].filter(Boolean).join(" ") ||
   user.email ||
   "Cuenta sin nombre";
+export const STATUS_LABELS: Record<string, string> = { ACTIVE: "Activa", BLOCKED: "Suspendida", DELETED: "Eliminada" };
 const profiles = (roles: Role[]) =>
   roles.length ? roles.map((role) => ROLE_LABELS[role]).join(" · ") : "Sin perfiles";
 // GET /admin/users (users.manage). Search covers email and name; the filter uses role codes.
@@ -41,13 +44,14 @@ export default function UsersScreen() {
   const [page, setPage] = useState(1);
   const [search, setSearch] = useState("");
   const [role, setRole] = useState<Role | "">("");
+  const [status, setStatus] = useState("");
   const resource = useResource<AdminUser[]>(
-    `/admin/users${query({ page, q: search.trim(), role: role || undefined })}`,
+    `/admin/users${query({ page, q: search.trim(), role: role || undefined, status: status || undefined })}`,
   );
   return (
     <Page
-      title="Perfiles de usuarios"
-      subtitle="Asigná y quitá perfiles. Cada cambio queda registrado en la auditoría."
+      title="Usuarios"
+      subtitle="Asigná y quitá perfiles, suspendé o reactivá cuentas. Cada cambio queda registrado en la auditoría."
     >
       <View style={styles.row}>
         <Button title="Ver auditoría" secondary onPress={() => router.push("/admin/audit")} />
@@ -74,6 +78,19 @@ export default function UsersScreen() {
           />
         ))}
       </View>
+      <View style={styles.row}>
+        {["", "ACTIVE", "BLOCKED"].map((value) => (
+          <Button
+            key={value || "any"}
+            title={value ? STATUS_LABELS[value] : "Cualquier estado"}
+            secondary={status !== value}
+            onPress={() => {
+              setStatus(value);
+              setPage(1);
+            }}
+          />
+        ))}
+      </View>
       <ResourceState
         {...resource}
         empty={resource.result?.data.length === 0}
@@ -83,12 +100,12 @@ export default function UsersScreen() {
         <Card key={user.id}>
           <Copy>{fullName(user)}</Copy>
           <Copy muted>
-            #{user.id} · {user.email ?? "sin email"} · {user.status}
+            #{user.id} · {user.email ?? "sin email"} · {STATUS_LABELS[user.status] ?? user.status}
             {user.is_guest ? " · invitado" : ""}
           </Copy>
           <Copy muted>{profiles(user.roles)}</Copy>
           <Button
-            title={`Gestionar perfiles de ${fullName(user)}`}
+            title={`Gestionar cuenta de ${fullName(user)}`}
             onPress={() => router.push(`/admin/users/${user.id}`)}
           />
         </Card>
@@ -109,6 +126,22 @@ export function UserScreen() {
   const action = useAction();
   const [reason, setReason] = useState("");
   const [confirm, setConfirm] = useState<Role | null>(null);
+  const [statusReason, setStatusReason] = useState("");
+  const [confirmStatus, setConfirmStatus] = useState(false);
+  // POST /admin/users/:id/suspend (motivo obligatorio) y /reactivate. Suspender cierra las sesiones de la cuenta.
+  const changeStatus = (suspend: boolean) =>
+    action.run(async () => {
+      if (suspend && statusReason.trim().length < 3) throw new Error("Indicá el motivo de la suspensión (mínimo 3 caracteres).");
+      await api.request<AdminUser>(`/admin/users/${id}/${suspend ? "suspend" : "reactivate"}`, {
+        method: "POST",
+        body: { reason: statusReason.trim() || null },
+      });
+      setConfirmStatus(false);
+      setStatusReason("");
+      await resource.reload();
+      await audit.reload();
+      action.setMessage(suspend ? "Cuenta suspendida y sesiones cerradas." : "Cuenta reactivada.");
+    });
   const apply = (role: Role, grant: boolean) =>
     action.run(async () => {
       const { data } = await api.request<RoleChange>(
@@ -140,7 +173,7 @@ export function UserScreen() {
               #{user.id} · {user.email ?? "sin email"}
             </Copy>
             <Copy muted>
-              Estado {user.status}
+              Estado {STATUS_LABELS[user.status] ?? user.status}
               {user.is_guest ? " · cuenta de invitado" : ""} ·{" "}
               {user.email_verified_at
                 ? `email verificado ${dateLabel(user.email_verified_at)}`
@@ -154,6 +187,36 @@ export function UserScreen() {
             </Copy>
             <Copy muted>{profiles(user.roles)}</Copy>
           </Card>
+          {["ACTIVE", "BLOCKED"].includes(user.status) && (
+            <Card>
+              <Copy>{user.status === "ACTIVE" ? "Suspender cuenta" : "Reactivar cuenta"}</Copy>
+              <Copy muted>
+                {user.status === "ACTIVE"
+                  ? "La cuenta no podrá ingresar y se cierran sus sesiones. No se borra ningún dato."
+                  : "La cuenta vuelve a poder ingresar con sus perfiles actuales."}
+              </Copy>
+              <Field
+                label={user.status === "ACTIVE" ? "Motivo (obligatorio, queda en la auditoría)" : "Motivo (opcional)"}
+                value={statusReason}
+                onChangeText={setStatusReason}
+              />
+              <Button
+                title={
+                  user.status === "ACTIVE"
+                    ? confirmStatus ? "Confirmar suspensión" : "Suspender cuenta"
+                    : "Reactivar cuenta"
+                }
+                danger={user.status === "ACTIVE"}
+                secondary={user.status === "ACTIVE" && !confirmStatus}
+                disabled={action.busy}
+                onPress={() =>
+                  user.status !== "ACTIVE"
+                    ? void changeStatus(false)
+                    : confirmStatus ? void changeStatus(true) : setConfirmStatus(true)
+                }
+              />
+            </Card>
+          )}
           {(user.is_guest || user.status !== "ACTIVE") && (
             <Card>
               <Copy muted>
@@ -215,7 +278,7 @@ export function UserScreen() {
             />
             {audit.result?.data.map((entry) => (
               <Copy key={entry.id} muted>
-                {dateLabel(entry.created_at)} · {ACTIONS[entry.action]} ·{" "}
+                {dateLabel(entry.created_at)} · {ACTIONS[entry.action] ?? entry.action} ·{" "}
                 {entry.role ? ROLE_LABELS[entry.role] : "—"} · por #
                 {entry.actor_user_id}
               </Copy>
@@ -227,21 +290,31 @@ export function UserScreen() {
     </Page>
   );
 }
-export const ACTIONS: Record<AuditEntry["action"], string> = {
+export const ACTIONS: Record<AuditAction, string> = {
   ROLE_GRANTED: "Perfil asignado",
   ROLE_REVOKED: "Perfil quitado",
   ROLE_SELF_ACTIVATED: "Perfil activado por el usuario",
+  USER_SUSPENDED: "Cuenta suspendida",
+  USER_REACTIVATED: "Cuenta reactivada",
+  ORDER_PAYMENT_APPROVED: "Pago simulado aprobado",
+  ORDER_PAYMENT_REJECTED: "Pago simulado rechazado",
+  ORDER_REFUNDED: "Compra reembolsada",
+  SERVICE_PROVIDER_VERIFIED: "Empresa verificada",
+  SERVICE_PROVIDER_UNVERIFIED: "Verificación quitada",
 };
+const ENTITIES: Record<AuditEntity, string> = { USER: "Cuentas", ORDER: "Compras", SERVICE_PROVIDER: "Empresas de servicios" };
 // GET /admin/audit (users.manage), newest first, filterable by target or actor.
 export function AuditScreen() {
   const [page, setPage] = useState(1);
   const [target, setTarget] = useState("");
   const [actor, setActor] = useState("");
+  const [entity, setEntity] = useState<AuditEntity | "">("");
   const resource = useResource<AuditEntry[]>(
     `/admin/audit${query({
       page,
       target_user_id: target.trim() || undefined,
       actor_user_id: actor.trim() || undefined,
+      entity_type: entity || undefined,
     })}`,
   );
   // MySQL JSON arrives parsed, but a driver that hands it back as text must not break the list.
@@ -258,16 +331,30 @@ export function AuditScreen() {
     const parts = [
       details?.target_email ? String(details.target_email) : "",
       details?.reason ? `Motivo: ${String(details.reason)}` : "",
+      details?.amount ? `Importe ${String(details.amount)} ${String(details.currency ?? "")}`.trim() : "",
     ];
     return parts.filter(Boolean).join(" · ");
   };
   return (
     <Page
-      title="Auditoría de perfiles"
-      subtitle="Cada asignación, baja y autoservicio, de lo más nuevo a lo más viejo."
+      title="Auditoría"
+      subtitle="Perfiles, suspensiones, pagos simulados y verificaciones, de lo más nuevo a lo más viejo."
     >
       <View style={styles.row}>
         <Button title="Ver usuarios" secondary onPress={() => router.push("/admin/users")} />
+      </View>
+      <View style={styles.row}>
+        {(["", "USER", "ORDER", "SERVICE_PROVIDER"] as const).map((value) => (
+          <Button
+            key={value || "all"}
+            title={value ? ENTITIES[value] : "Todo"}
+            secondary={entity !== value}
+            onPress={() => {
+              setEntity(value);
+              setPage(1);
+            }}
+          />
+        ))}
       </View>
       <Field
         label="ID de la cuenta afectada (opcional)"
@@ -295,19 +382,23 @@ export function AuditScreen() {
       {resource.result?.data.map((entry) => (
         <Card key={entry.id}>
           <Copy>
-            {ACTIONS[entry.action]} ·{" "}
-            {entry.role ? ROLE_LABELS[entry.role] : "perfil eliminado"}
+            {ACTIONS[entry.action] ?? entry.action}
+            {entry.action.startsWith("ROLE_") ? ` · ${entry.role ? ROLE_LABELS[entry.role] : "perfil eliminado"}` : ""}
           </Copy>
           <Copy muted>
-            {dateLabel(entry.created_at)} · cuenta #{entry.target_user_id} · por #
+            {dateLabel(entry.created_at)}
+            {entry.target_user_id ? ` · cuenta #${entry.target_user_id}` : ""}
+            {entry.entity_type && entry.entity_type !== "USER" ? ` · ${ENTITIES[entry.entity_type]} #${entry.entity_id}` : ""} · por #
             {entry.actor_user_id}
           </Copy>
           {detail(entry) ? <Copy muted>{detail(entry)}</Copy> : null}
-          <Button
-            title={`Ver cuenta #${entry.target_user_id}`}
-            secondary
-            onPress={() => router.push(`/admin/users/${entry.target_user_id}`)}
-          />
+          {entry.target_user_id && (
+            <Button
+              title={`Ver cuenta #${entry.target_user_id}`}
+              secondary
+              onPress={() => router.push(`/admin/users/${entry.target_user_id}`)}
+            />
+          )}
         </Card>
       ))}
       <Pager pagination={resource.result?.pagination} onPage={setPage} />

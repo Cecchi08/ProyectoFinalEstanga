@@ -57,9 +57,9 @@ export default function Shell() {
   const auth = useAuth();
   const { width } = useWindowDimensions();
   const path = usePathname();
-  // Staff is a per-concert assignment: show the tab to anyone who can validate any ticket
-  // (tickets.validate) or who has at least one assignment.
-  const validator = auth.can("tickets.validate");
+  // Staff is a per-concert assignment: tickets.validate comes from concert_staff (published concerts),
+  // tickets.validate_all lets ADMIN validate any ticket; an assignment to an unpublished concert also shows the tab.
+  const validator = auth.can("tickets.validate", "tickets.validate_all");
   const assignments = useResource<Concert[]>(
     auth.user && !auth.accessLoading && !validator ? "/staff/assignments?limit=1" : null,
   );
@@ -88,7 +88,7 @@ export default function Shell() {
     ...(staff
       ? [{ path: "/staff", label: "Staff" }]
       : []),
-    ...(auth.can("users.manage", "catalogs.manage", "statistics.global")
+    ...(auth.can("users.manage", "catalogs.manage", "statistics.global", "marketplace.admin", "services.admin")
       ? [{ path: "/admin", label: "Admin" }]
       : []),
   ];

@@ -46,9 +46,12 @@ export default function AdminScreen() {
     <Page title="Administración">
       {can("users.manage") && (
         <>
-          <Button title="Perfiles de usuarios" onPress={() => router.push("/admin/users")} />
-          <Button title="Auditoría de perfiles" secondary onPress={() => router.push("/admin/audit")} />
+          <Button title="Usuarios y perfiles" onPress={() => router.push("/admin/users")} />
+          <Button title="Auditoría" secondary onPress={() => router.push("/admin/audit")} />
         </>
+      )}
+      {can("users.manage", "marketplace.admin") && (
+        <Button title="Organizaciones" secondary onPress={() => router.push("/admin/organizations")} />
       )}
       {can("statistics.global") && (
         <Button title="Estadísticas globales" onPress={() => router.push('/admin/statistics')} />

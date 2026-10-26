@@ -33,7 +33,7 @@ export default function StaffScreen() {
     <Page
       title="Control de acceso"
       subtitle={
-        can("tickets.validate")
+        can("tickets.validate_all")
           ? "Seleccioná un concierto para gestionar el ingreso."
           : "Seleccioná uno de tus conciertos asignados."
       }
