@@ -4,8 +4,9 @@ import type { Row, Value, TicketRow, ConcertRow } from '../types/management.type
 import type { PageQuery } from '../validators/commerce.schemas.ts';
 import { NotificationsRepository } from './notifications.repository.ts';
 import { ticketTypeSelect } from './management.repository.ts';
+import { audit, type AuditEntry } from './audit.repository.ts';
 
-export interface PurchaseRow extends Row { id: string; user_id: string; status: string; expires_at: Date | null }
+export interface PurchaseRow extends Row { id: string; user_id: string; status: string; expires_at: Date | null; total: string; currency: string }
 export interface ItemRow extends Row { id: string; ticket_type_id: string; concert_id: string; quantity: number; unit_price: string }
 export interface ScanRow extends Row { id: string; purchase_id: string; concert_id: string; status: string; used_at: Date | null }
 export type ScanResult = 'ACCEPTED' | 'ALREADY_USED' | 'CANCELLED' | 'WRONG_CONCERT' | 'NOT_FOUND';
@@ -13,7 +14,7 @@ export type ScanResult = 'ACCEPTED' | 'ALREADY_USED' | 'CANCELLED' | 'WRONG_CONC
 const effectiveStatus = `CASE WHEN o.status = 'PENDING' AND (o.expires_at IS NULL OR o.expires_at <= NOW())
     THEN 'EXPIRED' ELSE o.status END`;
 const purchaseSelect = `SELECT o.id, o.public_code, o.user_id, ${effectiveStatus} AS status, o.expires_at, o.confirmed_at, o.cancelled_at,
-    o.created_at, o.total_amount AS total, o.currency FROM orders o`;
+    o.refund_status, o.refunded_at, o.created_at, o.total_amount AS total, o.currency FROM orders o`;
 const ticketJoins = `FROM tickets t JOIN order_items oi ON oi.id = t.order_item_id JOIN orders o ON o.id = oi.order_id
     JOIN ticket_types tt ON tt.id = t.ticket_type_id JOIN concerts c ON c.id = t.concert_id`;
 const ticketSelect = `SELECT t.id, t.order_item_id AS purchase_item_id, t.qr_token, t.status, t.used_at, t.created_at,
@@ -67,8 +68,28 @@ export class CommerceRepository {
         return (await this.rows<PurchaseRow>(`${purchaseSelect} WHERE o.id = ?${ownerId ? ' AND o.user_id = ?' : ''}`, ownerId ? [id, ownerId] : [id]))[0];
     }
     async lockPurchase(id: string): Promise<PurchaseRow | undefined> {
-        return (await this.rows<PurchaseRow>('SELECT id, user_id, status, expires_at FROM orders WHERE id = ? FOR UPDATE', [id]))[0];
+        return (await this.rows<PurchaseRow>(`SELECT id, user_id, status, expires_at, total_amount AS total, currency
+            FROM orders WHERE id = ? FOR UPDATE`, [id]))[0];
     }
+    // Simulated payments only: an outcome and a reference, never card or bank data.
+    async addPayment(purchase: PurchaseRow, payerId: string, status: 'APPROVED' | 'REJECTED'): Promise<string> {
+        await this.execute(`INSERT INTO order_payments (order_id, payer_user_id, amount, currency, status, simulated_reference, processed_at)
+            VALUES (?, ?, ?, ?, ?, ?, UTC_TIMESTAMP())`, [purchase.id, payerId, purchase.total, purchase.currency, status,
+            `SIM-${randomBytes(8).toString('hex').toUpperCase()}`]);
+        return String((await this.rows('SELECT CAST(LAST_INSERT_ID() AS CHAR) AS id'))[0].id);
+    }
+    async payments(purchaseId: string) {
+        return (await this.rows(`SELECT id, amount, currency, status, provider, is_simulated, simulated_reference, processed_at, refunded_at, created_at
+            FROM order_payments WHERE order_id = ? ORDER BY id`, [purchaseId])).map(payment => ({ ...payment, is_simulated: Boolean(payment.is_simulated) }));
+    }
+    // Cancelling a confirmed purchase returns its approved simulated payment. The order must already be CANCELLED (chk_orders_refunded).
+    async refund(purchaseId: string): Promise<number> {
+        const payments = await this.execute(`UPDATE order_payments SET status = 'REFUNDED', refunded_at = UTC_TIMESTAMP()
+            WHERE order_id = ? AND status = 'APPROVED'`, [purchaseId]);
+        await this.execute(`UPDATE orders SET refund_status = 'REFUNDED', refunded_at = UTC_TIMESTAMP() WHERE id = ? AND status = 'CANCELLED'`, [purchaseId]);
+        return payments;
+    }
+    audit(entry: AuditEntry) { return audit(this.connection, entry); }
     async items(id: string): Promise<ItemRow[]> {
         return this.rows<ItemRow>(`SELECT oi.id, oi.ticket_type_id, oi.quantity, oi.unit_price, oi.line_total, oi.concert_id,
             tt.name AS ticket_type_name FROM order_items oi JOIN ticket_types tt ON tt.id = oi.ticket_type_id

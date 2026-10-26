@@ -68,6 +68,8 @@ export const quoteResponseSchema = z.strictObject({
 });
 export const notesSchema = z.strictObject({ provider_notes: text(16000) }).default({});
 export const cancelSchema = z.strictObject({ reason: text(255) }).default({});
+// The requester reads the reason, so rejecting a booking requires one.
+export const rejectSchema = z.strictObject({ reason: z.string().trim().min(3).max(255) });
 // Payments are always simulated: only the desired outcome is accepted, never card or bank data.
 export const paymentSchema = z.strictObject({ outcome: z.enum(['APPROVED', 'REJECTED']).default('APPROVED') }).default({ outcome: 'APPROVED' });
 

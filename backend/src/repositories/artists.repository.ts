@@ -2,6 +2,8 @@ import type { PoolConnection, ResultSetHeader, RowDataPacket } from 'mysql2/prom
 import type { Fields, Row, Value } from '../types/management.types.ts';
 import type { ArtistQuery } from '../validators/artists.schemas.ts';
 import { PERMISSIONS as P } from '../utils/access.util.js';
+import { ManagementRepository, concertSelect } from './management.repository.ts';
+import type { ConcertRow } from '../types/management.types.ts';
 
 const normalize = <T extends Row>(row: T): T => Object.fromEntries(Object.entries(row).map(([key, value]) =>
     [key, value !== null && (key === 'id' || key.endsWith('_id')) ? String(value) : value])) as T;
@@ -82,6 +84,13 @@ export class ArtistsRepository {
         return this.execute('UPDATE artist_members SET member_role = ? WHERE artist_profile_id = ? AND user_id = ?', [role, id, userId]);
     }
     removeMember(id: string, userId: string) { return this.execute('DELETE FROM artist_members WHERE artist_profile_id = ? AND user_id = ?', [id, userId]); }
+    // Performances: concerts that bill this profile. Drafts stay private to their organizer.
+    async concerts(id: string) {
+        const management = new ManagementRepository(this.connection);
+        const rows = await management.rows<ConcertRow>(`${concertSelect} JOIN concert_artists ca ON ca.concert_id = c.id
+            WHERE ca.artist_profile_id = ? AND c.status <> 'DRAFT' ORDER BY c.starts_at DESC, c.id DESC LIMIT 200`, [id]);
+        return management.concertDetails(rows);
+    }
     async owners(id: string): Promise<number> {
         return Number((await this.rows("SELECT COUNT(*) AS total FROM artist_members WHERE artist_profile_id = ? AND member_role = 'OWNER'", [id]))[0].total);
     }

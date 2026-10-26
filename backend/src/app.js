@@ -20,6 +20,7 @@ import { statisticsRoutes } from './routes/statistics.routes.ts';
 import { marketplaceRoutes } from './routes/marketplace.routes.ts';
 import { adminRoutes } from './routes/admin.routes.ts';
 import { artistsRoutes } from './routes/artists.routes.ts';
+import { servicesRoutes } from './routes/services.routes.ts';
 export function createApp({ env, database, mailer, oauthClient }) {
     const app = express();
     app.disable('x-powered-by');
@@ -46,6 +47,7 @@ export function createApp({ env, database, mailer, oauthClient }) {
     app.use(marketplaceRoutes(database, authenticate(tokens, auth)));
     app.use(adminRoutes(database, authenticate(tokens, auth)));
     app.use(artistsRoutes(database, authenticate(tokens, auth)));
+    app.use(servicesRoutes(database, authenticate(tokens, auth)));
     app.use(notFound);
     app.use(errorHandler());
     return app;

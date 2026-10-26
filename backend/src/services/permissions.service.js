@@ -18,7 +18,7 @@ export class PermissionsService {
             if (can(principal, P.concertsManageAll))
                 return;
             // Global QR validation (ADMIN) also reaches the staff tools of any concert.
-            if (scope === 'staff' && can(principal, P.ticketsValidate))
+            if (scope === 'staff' && can(principal, P.ticketsValidateAll))
                 return;
             if (scope === 'owner')
                 return assertConcertOwner(principal, ownerId);

@@ -19,6 +19,7 @@ export function artistsRoutes(database: Database, authenticate: RequestHandler):
     router.get('/artists', controller.list);
     router.get('/artists/mine', authenticate, manage, controller.mine);
     router.get('/artists/:id', optionalAuth, controller.get);
+    router.get('/artists/:id/concerts', optionalAuth, controller.concerts);
     router.post('/artists', authenticate, manage, validateRequest(artistSchema), controller.create);
     router.patch('/artists/:id', authenticate, manage, validateRequest(artistPatchSchema), controller.update);
     router.post('/artists/:id/publish', authenticate, manage, validateRequest(emptySchema.default({})), controller.status('PUBLISHED'));

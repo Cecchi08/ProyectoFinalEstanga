@@ -10,7 +10,7 @@ export class ParticipationRepository {
 
     assignments(user: Principal, query: PageQuery) {
         // Global QR validators see every concert; everybody else only their concert_staff assignments.
-        const global = can(user, P.ticketsValidate);
+        const global = can(user, P.ticketsValidateAll);
         return this.concerts(global ? 'TRUE' :
             'EXISTS (SELECT 1 FROM concert_staff cs WHERE cs.concert_id = c.id AND cs.user_id = ?)',
         global ? [] : [user.id], query);

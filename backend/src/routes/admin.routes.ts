@@ -4,7 +4,7 @@ import { validateRequest } from '../middlewares/validation.middleware.js';
 import { AdminController } from '../controllers/admin.controller.ts';
 import { AdminService } from '../services/admin.service.ts';
 import { PERMISSIONS as P } from '../utils/access.util.js';
-import { grantSchema, selfProfileSchema } from '../validators/admin.schemas.ts';
+import { grantSchema, selfProfileSchema, suspendSchema } from '../validators/admin.schemas.ts';
 import type { Database } from '../types/management.types.ts';
 
 export function adminRoutes(database: Database, authenticate: RequestHandler): Router {
@@ -21,6 +21,12 @@ export function adminRoutes(database: Database, authenticate: RequestHandler): R
     router.get('/admin/users/:id', controller.user);
     router.post('/admin/users/:id/roles', validateRequest(grantSchema), controller.grant);
     router.delete('/admin/users/:id/roles/:role', controller.revoke);
+    router.post('/admin/users/:id/suspend', validateRequest(suspendSchema), controller.suspend);
+    router.post('/admin/users/:id/reactivate', controller.reactivate);
     router.get('/admin/audit', controller.audit);
+    // Read-only list of every organization (venues and service companies); marketplace.admin also reaches it.
+    router.get('/admin/organizations', authenticate, requirePermission(P.usersManage, P.marketplaceAdmin), (_req, res, next) => {
+        res.setHeader('Cache-Control', 'no-store'); next();
+    }, controller.organizations);
     return router;
 }

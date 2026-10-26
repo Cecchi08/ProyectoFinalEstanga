@@ -3,6 +3,7 @@ import { PERMISSIONS as P, can } from '../utils/access.util.js';
 import { MarketplaceRepository } from '../repositories/marketplace.repository.ts';
 import { NotificationsRepository } from '../repositories/notifications.repository.ts';
 import { slugify } from '../repositories/management.repository.ts';
+import { MAX_AMOUNT, cents, decimal } from '../utils/money.util.ts';
 import type { Database, Principal, Row } from '../types/management.types.ts';
 import type { AvailabilityQuery, BlockInput, EstablishmentInput, EstablishmentPatch, ListQuery, MemberInput, MemberRole, OrganizationInput, QuoteRequest,
     QuoteResponse, ReservationInput, VenueInput, VenuePatch, VenueQuery } from '../validators/marketplace.schemas.ts';
@@ -15,7 +16,7 @@ export const SIMULATED_PAYMENT_NOTICE = 'Pago simulado: no se cobró dinero real
 const signals: Record<string, number> = {
     SLOT_CONFLICT: 409, SLOT_BLOCKED: 409, VENUE_NOT_AVAILABLE: 409, VENUE_NOT_FOUND: 404, RESERVATION_NOT_FOUND: 404, HOLD_EXPIRED: 409,
     INVALID_STATUS: 409, INVALID_TRANSITION: 409, IMMUTABLE_RESERVATION: 409, MISSING_OCCUPANCY: 409, INVALID_OCCUPANCY_RANGE: 422,
-    OCCUPANCY_IN_USE: 409, IMMUTABLE_OCCUPANCY: 409,
+    OCCUPANCY_IN_USE: 409, IMMUTABLE_OCCUPANCY: 409, ALREADY_PAID: 409,
 };
 function translate(error: unknown): void {
     if (typeof error !== 'object' || error === null || !('code' in error)) return;
@@ -30,13 +31,6 @@ function translate(error: unknown): void {
     if (code === 'ER_CHECK_CONSTRAINT_VIOLATED') fail(422, 'VALIDATION_ERROR', 'Los datos incumplen las restricciones del recurso.');
 }
 const deadlock = (error: unknown) => typeof error === 'object' && error !== null && 'code' in error && error.code === 'ER_LOCK_DEADLOCK';
-// Money as integer cents: never accumulate binary floating point amounts.
-const cents = (value: number | string) => {
-    const [whole, fraction = ''] = String(value).split('.');
-    return BigInt(whole) * 100n + BigInt((fraction + '00').slice(0, 2)) * (String(value).startsWith('-') ? -1n : 1n);
-};
-const decimal = (value: bigint) => `${value / 100n}.${String(value % 100n).padStart(2, '0')}`;
-const MAX_AMOUNT = 999999999999n;
 function window(input: { setup_start_at?: Date; event_start_at: Date; event_end_at: Date; teardown_end_at?: Date }) {
     const slot = { setup_start_at: input.setup_start_at ?? input.event_start_at, event_start_at: input.event_start_at,
         event_end_at: input.event_end_at, teardown_end_at: input.teardown_end_at ?? input.event_end_at };
@@ -376,7 +370,8 @@ export class MarketplaceService {
             event_name: input.event_name, expected_attendance: input.expected_attendance ?? null, ...slot, total: decimal(total) }));
         return this.run(true, async repo => {
             if (input.notes) await repo.setNotes(id, input.notes);
-            await repo.notifyProviders(input.venue_id, 'RESERVATION_UPDATE', { reservation_id: id }, 'Nueva reserva temporal', `${input.event_name} en ${String(venue.name)}, pendiente de pago.`);
+            await repo.notifyProviders(input.venue_id, 'RESERVATION_UPDATE', { reservation_id: id }, 'Nueva solicitud de reserva',
+                `${input.event_name} en ${String(venue.name)}: pendiente de pago y de tu aceptación.`);
             return repo.reservationDetails(required(await repo.reservation(id)));
         });
     }
@@ -393,6 +388,7 @@ export class MarketplaceService {
             const { reservation, provider } = await this.reservationAccess(repo, id, user);
             if (locked.status === 'EXPIRED' && locked.status_code === 'HOLD') {
                 await repo.setReservationStatus(id, user.id, 'EXPIRED');
+                await repo.refundPayments(id);
                 return { expired: true as const };
             }
             if (!['HOLD', 'CONFIRMED'].includes(String(locked.status_code))) fail(409, 'INVALID_STATE', 'La reserva ya está cerrada.');
@@ -409,22 +405,59 @@ export class MarketplaceService {
         if (outcome.expired) fail(409, 'RESERVATION_EXPIRED', 'La reserva temporal venció.');
         return outcome.data;
     }
+    // The venue answers a direct booking (no quote). Accepting needs the simulated payment first: the payment
+    // confirms the purchase and the venue's acceptance confirms the reservation. Rejecting cancels and refunds.
+    async acceptReservation(id: string, user: Principal) {
+        const outcome = await this.run(true, async repo => {
+            const locked = required(await repo.lockReservation(id), 'Reserva inexistente.');
+            const { reservation, provider } = await this.reservationAccess(repo, id, user);
+            if (!provider) fail(403, 'FORBIDDEN', 'Solo el espacio acepta la reserva.');
+            if (locked.status === 'EXPIRED' && locked.status_code === 'HOLD') {
+                await repo.setReservationStatus(id, user.id, 'EXPIRED');
+                await repo.refundPayments(id);
+                return { expired: true as const };
+            }
+            if (locked.status_code !== 'HOLD') fail(409, 'INVALID_STATE', 'Solo se acepta una reserva pendiente.');
+            if (locked.quote_id) fail(409, 'QUOTE_RESERVATION', 'Las reservas con presupuesto aceptado se confirman con el pago.');
+            if (!await repo.approvedPayments(id)) fail(409, 'PAYMENT_REQUIRED', 'La reserva todavía no tiene el pago simulado aprobado.');
+            await repo.confirmReservation(id, user.id);
+            await new NotificationsRepository(repo.connection).marketplace(String(reservation.user_id), 'RESERVATION_UPDATE', { reservation_id: id },
+                'Reserva confirmada', `${String(reservation.event_name)}: el espacio aceptó tu reserva.`);
+            return { expired: false as const, data: await repo.reservationDetails(required(await repo.reservation(id))) };
+        });
+        if (outcome.expired) fail(409, 'RESERVATION_EXPIRED', 'La reserva temporal venció.');
+        return outcome.data;
+    }
+    async rejectReservation(id: string, reason: string, user: Principal) {
+        await this.run(false, async repo => {
+            const { reservation, provider } = await this.reservationAccess(repo, id, user);
+            if (!provider) fail(403, 'FORBIDDEN', 'Solo el espacio rechaza la reserva.');
+            if (reservation.status !== 'HOLD') fail(409, 'INVALID_STATE', 'Solo se rechaza una reserva pendiente.');
+        });
+        return this.cancelReservation(id, reason, user);
+    }
     async pay(id: string, outcome: 'APPROVED' | 'REJECTED', user: Principal) {
         const reservation = await this.run(false, async repo => (await this.reservationAccess(repo, id, user)).reservation);
         if (reservation.user_id !== user.id) fail(403, 'FORBIDDEN', 'Solo quien reservó puede pagar.');
         if (reservation.status === 'EXPIRED') {
             await this.run(true, async repo => {
                 const locked = await repo.lockReservation(id);
-                if (locked?.status_code === 'HOLD' && locked.status === 'EXPIRED') await repo.setReservationStatus(id, user.id, 'EXPIRED');
+                if (locked?.status_code === 'HOLD' && locked.status === 'EXPIRED') {
+                    await repo.setReservationStatus(id, user.id, 'EXPIRED');
+                    await repo.refundPayments(id);
+                }
             });
             fail(409, 'HOLD_EXPIRED', 'La reserva temporal venció y no puede pagarse.');
         }
         if (reservation.status !== 'HOLD') fail(409, 'INVALID_STATUS', 'Solo se paga una reserva temporal (HOLD).');
-        // sp_simulate_payment locks the reservation, records the payment and confirms it in one transaction.
+        // sp_simulate_payment locks the reservation and records the payment. With an accepted quote it also confirms the
+        // reservation; a direct booking stays in HOLD (extended up to 48 h) until the venue accepts it.
         const paymentId = await this.procedure(repo => repo.simulatePayment(id, user.id, outcome === 'APPROVED'));
         return this.run(true, async repo => {
             if (outcome === 'APPROVED') await repo.notifyProviders(String(reservation.venue_id), 'RESERVATION_UPDATE', { reservation_id: id },
-                'Reserva confirmada', `${String(reservation.event_name)}: pago simulado aprobado.`);
+                reservation.quote_id ? 'Reserva confirmada' : 'Reserva pagada: falta tu aceptación',
+                reservation.quote_id ? `${String(reservation.event_name)}: pago simulado aprobado.`
+                    : `${String(reservation.event_name)}: pago simulado aprobado. Aceptala o rechazala antes de que venza.`);
             return { simulated: true, notice: SIMULATED_PAYMENT_NOTICE, payment: await repo.payment(paymentId),
                 reservation: await repo.reservationDetails(required(await repo.reservation(id))) };
         });

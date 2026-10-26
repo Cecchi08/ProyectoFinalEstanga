@@ -44,6 +44,17 @@ export class ArtistsService {
             return this.detail(repo, id, insider);
         });
     }
+    // Upcoming and past performances; a non-published profile shows them only to its members and admins.
+    concerts(id: string, user?: Principal) {
+        return this.run(false, async repo => {
+            const profile = required(await repo.profile(id));
+            const insider = Boolean(user && (admin(user) || await repo.memberRole(id, user.id)));
+            if (profile.status !== 'PUBLISHED' && !insider) fail(404, 'NOT_FOUND', 'Perfil de artista inexistente.');
+            const now = Date.now();
+            const concerts = await repo.concerts(id);
+            return { upcoming: concerts.filter(c => c.start_datetime.getTime() >= now).reverse(), past: concerts.filter(c => c.start_datetime.getTime() < now) };
+        });
+    }
     create(input: ArtistInput, user: Principal) {
         return this.run(true, async repo => {
             const { genre_ids = [], ...fields } = input;

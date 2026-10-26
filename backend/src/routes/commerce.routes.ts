@@ -5,7 +5,7 @@ import { PERMISSIONS as P } from '../utils/access.util.js';
 import { CommerceController } from '../controllers/commerce.controller.ts';
 import { CommerceService } from '../services/commerce.service.ts';
 import { emptySchema } from '../validators/management.schemas.ts';
-import { purchaseSchema, validationSchema } from '../validators/commerce.schemas.ts';
+import { purchasePaymentSchema, purchaseSchema, validationSchema } from '../validators/commerce.schemas.ts';
 import type { Database } from '../types/management.types.ts';
 
 export function commerceRoutes(database: Database, authenticate: RequestHandler): Router {
@@ -16,11 +16,12 @@ export function commerceRoutes(database: Database, authenticate: RequestHandler)
     router.post('/purchases', requirePermission(P.ticketsPurchase), validateRequest(purchaseSchema), controller.create);
     router.get('/purchases/me', controller.list('purchases'));
     router.get('/purchases/:id', controller.purchase);
-    for (const action of ['confirm', 'cancel'] as const)
-        router.post(`/purchases/:id/${action}`, validateRequest(emptySchema.default({})), controller.transition(action));
+    router.post('/purchases/:id/confirm', validateRequest(purchasePaymentSchema), controller.transition('confirm'));
+    router.post('/purchases/:id/cancel', validateRequest(emptySchema.default({})), controller.transition('cancel'));
     router.get('/tickets', controller.list('tickets'));
-    // Staff permission is per concert (concert_staff); the service checks the assignment.
-    router.post('/tickets/validate', validateRequest(validationSchema), controller.validate);
+    // tickets.validate comes from a concert_staff assignment (never from a profile); the service also checks that the
+    // assignment is for this concert. tickets.validate_all (ADMIN) validates any concert.
+    router.post('/tickets/validate', requirePermission(P.ticketsValidate, P.ticketsValidateAll), validateRequest(validationSchema), controller.validate);
     router.get('/tickets/:id', controller.ticket);
     return router;
 }

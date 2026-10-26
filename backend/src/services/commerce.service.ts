@@ -5,6 +5,9 @@ import { CommerceRepository, type PurchaseRow, type ScanResult } from '../reposi
 import type { Database, Principal, ConcertRow, TicketRow } from '../types/management.types.ts';
 import { purchaseSchema, validationSchema, type PurchaseInput, type PageQuery, type ValidationInput } from '../validators/commerce.schemas.ts';
 
+export const SIMULATED_PURCHASE_NOTICE = 'Pago simulado: no se cobró dinero real ni se guardaron datos de tarjeta.';
+export type PaymentOutcome = 'APPROVED' | 'REJECTED';
+
 function fail(status: number, code: string, message: string): never { throw new AppError(status, code, message, undefined); }
 const required = <T>(value: T | undefined): T => value ?? fail(404, 'NOT_FOUND', 'Recurso inexistente.');
 const ownerFilter = (user: Principal) => can(user, P.ordersReadAll) ? undefined : user.id;
@@ -57,9 +60,11 @@ export class CommerceService {
     }
     purchases(user: Principal, query: PageQuery) { return this.run(false, repo => repo.purchases(user.id, query)); }
     async purchase(id: string, user: Principal) {
-        return this.run(false, async repo => ({ ...required(await repo.purchase(id, ownerFilter(user))), items: await repo.items(id) }));
+        return this.run(false, async repo => ({ ...required(await repo.purchase(id, ownerFilter(user))), items: await repo.items(id), payments: await repo.payments(id) }));
     }
-    async transition(id: string, action: 'confirm' | 'cancel', user: Principal) {
+    // confirm = simulated payment: APPROVED confirms the purchase and issues tickets; REJECTED is recorded and the purchase stays PENDING.
+    // cancel of a CONFIRMED purchase is a refund: tickets are voided, stock returns and the approved payment becomes REFUNDED.
+    async transition(id: string, action: 'confirm' | 'cancel', user: Principal, outcome: PaymentOutcome = 'APPROVED') {
         const initial = await this.purchase(id, user);
         const result = await this.run(true, async repo => {
             // All writers acquire concerts -> ticket types (numeric ascending) -> purchase -> tickets.
@@ -81,6 +86,12 @@ export class CommerceService {
                 if (purchase.status !== 'PENDING') fail(409, 'INVALID_STATE', 'La compra no puede confirmarse.');
                 for (const type of types.values()) sale(required(concerts.get(type.concert_id)), type, now);
                 if ((await repo.purchaseTickets(id)).length) fail(409, 'INVALID_STATE', 'La compra ya tiene entradas.');
+                if (outcome === 'REJECTED') {
+                    const paymentId = await repo.addPayment(purchase, user.id, 'REJECTED');
+                    await repo.audit({ actor: user.id, action: 'ORDER_PAYMENT_REJECTED', target: purchase.user_id, entity: { type: 'ORDER', id },
+                        details: { payment_id: paymentId, amount: purchase.total, currency: purchase.currency, simulated: true } });
+                    return { expired: false as const, data: await this.details(repo, id) };
+                }
                 if (await repo.confirm(id) !== 1) {
                     await repo.setPurchaseStatus(id, 'EXPIRED');
                     return { expired: true as const };
@@ -89,6 +100,9 @@ export class CommerceService {
                     await repo.sold(item, 1);
                     for (let index = 0; index < item.quantity; index++) await repo.addTicket(item, purchase.user_id, createQrToken());
                 }
+                const paymentId = await repo.addPayment(purchase, user.id, 'APPROVED');
+                await repo.audit({ actor: user.id, action: 'ORDER_PAYMENT_APPROVED', target: purchase.user_id, entity: { type: 'ORDER', id },
+                    details: { payment_id: paymentId, amount: purchase.total, currency: purchase.currency, simulated: true } });
                 await repo.notifications.purchase(purchase.user_id, id, initial.items[0].concert_id);
             } else {
                 if (!['PENDING', 'CONFIRMED'].includes(purchase.status)) fail(409, 'INVALID_STATE', 'La compra no puede cancelarse.');
@@ -96,16 +110,25 @@ export class CommerceService {
                 if (tickets.some(ticket => ticket.used_at !== null)) fail(409, 'TICKET_ALREADY_USED', 'La compra contiene entradas utilizadas.');
                 if (purchase.status === 'CONFIRMED' && [...concerts.values()].some(concert => concert.status !== 'CANCELLED' && concert.start_datetime <= now))
                     fail(409, 'CANCELLATION_CLOSED', 'El concierto ya comenzó.');
-                // The schema has no REFUNDED state: a cancelled confirmed order frees its stock and voids its tickets.
+                // A cancelled confirmed order frees its stock, voids its tickets and refunds its simulated payment.
                 if (purchase.status === 'CONFIRMED') for (const item of initial.items) await repo.sold(item, -1);
                 await repo.invalidateTickets(id);
                 await repo.setPurchaseStatus(id, 'CANCELLED');
+                if (purchase.status === 'CONFIRMED') {
+                    const refunded = await repo.refund(id);
+                    await repo.audit({ actor: user.id, action: 'ORDER_REFUNDED', target: purchase.user_id, entity: { type: 'ORDER', id },
+                        details: { amount: purchase.total, currency: purchase.currency, refunded_payments: refunded, simulated: true,
+                            by_owner: purchase.user_id === user.id } });
+                }
             }
-            return { expired: false as const, data: { ...required(await repo.purchase(id)), items: await repo.items(id) } };
+            return { expired: false as const, data: await this.details(repo, id) };
         });
         // Persist EXPIRED before returning the conflict; every other failure rolls back the transaction.
         if (result.expired) fail(409, 'RESERVATION_EXPIRED', 'La reserva venció.');
         return result.data;
+    }
+    private async details(repo: CommerceRepository, id: string) {
+        return { ...required(await repo.purchase(id)), items: await repo.items(id), payments: await repo.payments(id), simulated: true, notice: SIMULATED_PURCHASE_NOTICE };
     }
     tickets(user: Principal, query: PageQuery) { return this.run(false, repo => repo.tickets(user.id, query)); }
     ticket(id: string, user: Principal) { return this.run(false, async repo => required(await repo.ticket(id, ownerFilter(user)))); }
@@ -114,7 +137,7 @@ export class CommerceService {
         // Rejections are committed together with their ticket_validations row, then reported.
         const outcome = await this.run(true, async repo => {
             const concert = await repo.concert(parsed.concertId);
-            if (!can(user, P.ticketsValidate) && !await repo.assigned(parsed.concertId, user.id))
+            if (!can(user, P.ticketsValidateAll) && !await repo.assigned(parsed.concertId, user.id))
                 fail(403, 'STAFF_NOT_ASSIGNED', 'Staff no asignado al concierto.');
             if (!concert) fail(404, 'INVALID', 'Entrada inválida.');
             const ticket = await repo.scan(parsed.qrToken);

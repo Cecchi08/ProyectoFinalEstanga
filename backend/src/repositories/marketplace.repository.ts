@@ -20,8 +20,12 @@ const venueSelect = `SELECT v.id, v.establishment_id, e.organization_id, v.name,
 // Effective status: the maintenance event may be disabled, so expired holds and finished bookings are derived on read.
 const reservationStatus = `CASE WHEN r.status_code = 'HOLD' AND r.hold_expires_at <= UTC_TIMESTAMP() THEN 'EXPIRED'
     WHEN r.status_code = 'CONFIRMED' AND r.teardown_end_at <= UTC_TIMESTAMP() THEN 'COMPLETED' ELSE r.status_code END`;
+// A direct booking (no quote) is confirmed by the venue, not by the payment: once paid it waits for the venue's answer.
+const paid = "EXISTS (SELECT 1 FROM payments p WHERE p.reservation_id = r.id AND p.status = 'APPROVED')";
 const reservationSelect = `SELECT r.id, r.public_code, r.venue_id, v.name AS venue_name, r.establishment_id, e.name AS establishment_name,
     e.organization_id, r.user_id, r.quote_id, ${reservationStatus} AS status, r.occupancy_mode_code AS occupancy_mode, r.event_name,
+    (r.quote_id IS NULL) AS requires_venue_acceptance, ${paid} AS paid,
+    (${reservationStatus} = 'HOLD' AND r.quote_id IS NULL AND ${paid}) AS awaiting_venue,
     r.expected_attendance, r.setup_start_at, r.event_start_at, r.event_end_at, r.teardown_end_at, r.hold_expires_at, r.total_amount, r.currency,
     r.notes, r.confirmed_at, r.completed_at, r.cancelled_at, r.cancelled_by_user_id, r.cancellation_reason, r.expired_at, r.created_at
     FROM reservations r JOIN venues v ON v.id = r.venue_id JOIN establishments e ON e.id = r.establishment_id`;
@@ -32,6 +36,8 @@ const quoteSelect = `SELECT q.id, q.public_code, q.venue_id, v.name AS venue_nam
     q.total_amount, q.currency, q.valid_until, q.requester_notes, q.provider_notes, q.responded_by_user_id, q.responded_at, q.accepted_at,
     q.created_at, (SELECT r.id FROM reservations r WHERE r.quote_id = q.id ORDER BY r.id DESC LIMIT 1) AS reservation_id
     FROM quotes q JOIN venues v ON v.id = q.venue_id JOIN establishments e ON e.id = v.establishment_id`;
+const flags = (row: Row) => ({ ...row, requires_venue_acceptance: Boolean(Number(row.requires_venue_acceptance)), paid: Boolean(Number(row.paid)),
+    awaiting_venue: Boolean(Number(row.awaiting_venue)) });
 const member = (organization: string) => `EXISTS (SELECT 1 FROM organization_members m WHERE m.organization_id = ${organization} AND m.user_id = ?)`;
 
 export class MarketplaceRepository {
@@ -247,8 +253,17 @@ export class MarketplaceRepository {
     }
     async reservation(id: string): Promise<Row | undefined> { return (await this.rows(`${reservationSelect} WHERE r.id = ?`, [id]))[0]; }
     async lockReservation(id: string): Promise<Row | undefined> {
-        return (await this.rows(`SELECT r.id, r.user_id, r.status_code, r.hold_expires_at, r.event_start_at, ${reservationStatus} AS status
+        return (await this.rows(`SELECT r.id, r.user_id, r.quote_id, r.status_code, r.hold_expires_at, r.event_start_at, ${reservationStatus} AS status
             FROM reservations r WHERE r.id = ? FOR UPDATE`, [id]))[0];
+    }
+    async approvedPayments(reservationId: string): Promise<number> {
+        return Number((await this.rows("SELECT COUNT(*) AS total FROM payments WHERE reservation_id = ? AND status = 'APPROVED'", [reservationId]))[0].total);
+    }
+    // The venue accepts a direct booking: HOLD -> CONFIRMED through the trigger (it rejects an expired HOLD).
+    async confirmReservation(id: string, actorId: string): Promise<void> {
+        await this.connection.query('SET @venti_user_id = ?', [actorId]);
+        try { await this.execute("UPDATE reservations SET status_code = 'CONFIRMED' WHERE id = ?", [id]); }
+        finally { await this.connection.query('SET @venti_user_id = NULL'); }
     }
     // Status changes go through the triggers; @venti_user_id attributes the history row to the actor.
     async setReservationStatus(id: string, actorId: string, status: 'CANCELLED' | 'EXPIRED', reason?: string | null): Promise<void> {
@@ -267,7 +282,7 @@ export class MarketplaceRepository {
     }
     async reservationDetails(reservation: Row) {
         const id = String(reservation.id);
-        return { ...reservation,
+        return { ...flags(reservation),
             occupancies: await this.rows('SELECT phase, starts_at, ends_at FROM reservation_occupancies WHERE reservation_id = ? ORDER BY starts_at', [id]),
             history: await this.rows('SELECT from_status, to_status, changed_by_user_id, changed_at FROM reservation_status_history WHERE reservation_id = ? ORDER BY changed_at, id', [id]),
             payments: (await this.payments(id)) };
@@ -286,7 +301,7 @@ export class MarketplaceRepository {
         const clause = where.length ? ` WHERE ${where.join(' AND ')}` : '';
         const from = reservationSelect.slice(reservationSelect.indexOf('FROM reservations'));
         const total = Number((await this.rows(`SELECT COUNT(*) AS total ${from}${clause}`, values))[0].total);
-        return { data: await this.rows(`${reservationSelect}${clause} ORDER BY r.event_start_at DESC, r.id DESC LIMIT ? OFFSET ?`, [...values, ...limit(query)]), total };
+        return { data: (await this.rows(`${reservationSelect}${clause} ORDER BY r.event_start_at DESC, r.id DESC LIMIT ? OFFSET ?`, [...values, ...limit(query)])).map(flags), total };
     }
 
     // ---- Notifications to the provider side (every member of the venue's organization) ----

@@ -15,6 +15,7 @@ export class ArtistsController {
         res.json({ success: true, data: result.data, pagination: { page: query.page, limit: query.limit, total: result.total, total_pages: Math.ceil(result.total / query.limit) } });
     };
     mine = async (req: Request, res: Response) => { ok(res, await this.service.mine(principal(req))); };
+    concerts = async (req: Request, res: Response) => { ok(res, await this.service.concerts(id(req), req.user)); };
     get = async (req: Request, res: Response) => { ok(res, await this.service.get(id(req), req.user)); };
     create = async (req: Request, res: Response) => { ok(res, await this.service.create(req.body, principal(req)), 201); };
     update = async (req: Request, res: Response) => { ok(res, await this.service.update(id(req), req.body, principal(req))); };

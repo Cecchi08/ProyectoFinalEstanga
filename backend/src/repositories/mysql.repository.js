@@ -50,11 +50,17 @@ export class MysqlAuthRepository {
         });
     }
     // Roles and the union of their permissions in a single query (one row per role/permission pair).
+    // tickets.validate comes from concert_staff, not from a role: it is present while the user is assigned
+    // to a concert that can still be validated. The service still checks the assignment for each concert.
     async access(id) {
-        const rows = await this.rows(`SELECT r.code AS role, p.code AS permission FROM user_roles ur JOIN roles r ON r.id = ur.role_id
+        const rows = await this.rows(`SELECT r.id AS role_order, r.code AS role, p.code AS permission FROM user_roles ur JOIN roles r ON r.id = ur.role_id
             LEFT JOIN role_permissions rp ON rp.role_id = r.id LEFT JOIN permissions p ON p.id = rp.permission_id
-            WHERE ur.user_id = ? ORDER BY r.id, p.code`, [id]);
-        const roles = [...new Set(rows.map(row => row.role))];
+            WHERE ur.user_id = ?
+            UNION ALL
+            SELECT NULL, NULL, 'tickets.validate' FROM DUAL WHERE EXISTS (SELECT 1 FROM concert_staff cs JOIN concerts c ON c.id = cs.concert_id
+                WHERE cs.user_id = ? AND c.status = 'PUBLISHED')
+            ORDER BY role_order IS NULL, role_order, permission`, [id, id]);
+        const roles = [...new Set(rows.map(row => row.role).filter(Boolean))];
         if (roles.find(role => !KNOWN_ROLES.has(role)) !== undefined)
             throw new Error('Rol desconocido en la base de datos.');
         return { roles, permissions: [...new Set(rows.map(row => row.permission).filter(Boolean))] };

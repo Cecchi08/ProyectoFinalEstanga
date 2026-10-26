@@ -2,7 +2,7 @@ import type { Request, Response } from 'express';
 import { unauthorized } from '../utils/app-error.util.js';
 import { AdminService } from '../services/admin.service.ts';
 import { idSchema } from '../validators/management.schemas.ts';
-import { auditQuerySchema, revokeSchema, roleCodeSchema, userQuerySchema } from '../validators/admin.schemas.ts';
+import { auditQuerySchema, organizationQuerySchema, reactivateSchema, revokeSchema, roleCodeSchema, userQuerySchema } from '../validators/admin.schemas.ts';
 
 const principal = (req: Request) => { if (!req.user) throw unauthorized(); return req.user; };
 const id = (req: Request) => idSchema.parse(req.params.id);
@@ -27,4 +27,11 @@ export class AdminController {
         res.status(result.changed ? 201 : 200).json({ success: true, data: result });
     };
     audit = async (req: Request, res: Response) => { const query = auditQuerySchema.parse(req.query); page(res, await this.service.auditLog(query), query); };
+    suspend = async (req: Request, res: Response) => { res.json({ success: true, data: await this.service.suspend(id(req), req.body.reason, principal(req)) }); };
+    reactivate = async (req: Request, res: Response) => {
+        res.json({ success: true, data: await this.service.reactivate(id(req), reactivateSchema.parse(req.body ?? {}).reason, principal(req)) });
+    };
+    organizations = async (req: Request, res: Response) => {
+        const query = organizationQuerySchema.parse(req.query); page(res, await this.service.organizations(query), query);
+    };
 }

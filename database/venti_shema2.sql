@@ -132,20 +132,24 @@ CREATE TABLE user_preferences (
   CONSTRAINT chk_user_preferences_notifications CHECK (notifications_enabled IN (0,1))
 ) ENGINE=InnoDB;
 
--- Auditoria de acciones sensibles del admin (por ahora, asignar y quitar roles).
+-- Auditoria de acciones sensibles: perfiles, suspension de cuentas, pagos simulados y reembolsos de compras.
 -- Sin cascada: el historial sobrevive al usuario; details guarda una copia de emails y codigos.
+-- entity_type/entity_id apuntan al recurso afectado (ORDER, USER, ...) sin FK, para que sobreviva a borrados.
 CREATE TABLE admin_audit_log (
   id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
   actor_user_id BIGINT UNSIGNED NULL,
   action VARCHAR(40) NOT NULL,
   target_user_id BIGINT UNSIGNED NULL,
   role_id SMALLINT UNSIGNED NULL,
+  entity_type VARCHAR(30) NULL,
+  entity_id BIGINT UNSIGNED NULL,
   details JSON NULL,
   created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
   PRIMARY KEY (id),
   KEY idx_audit_target (target_user_id, created_at),
   KEY idx_audit_actor (actor_user_id, created_at),
   KEY idx_audit_role (role_id),
+  KEY idx_audit_entity (entity_type, entity_id),
   CONSTRAINT fk_audit_actor FOREIGN KEY (actor_user_id) REFERENCES users (id) ON DELETE SET NULL,
   CONSTRAINT fk_audit_target FOREIGN KEY (target_user_id) REFERENCES users (id) ON DELETE SET NULL,
   CONSTRAINT fk_audit_role FOREIGN KEY (role_id) REFERENCES roles (id)
@@ -693,6 +697,18 @@ CREATE TABLE concert_staff (
   CONSTRAINT fk_concert_staff_user FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE
 ) ENGINE=InnoDB;
 
+-- Perfiles de artista reales que actuan en un concierto (concerts.artist_name sigue siendo el texto del cartel).
+CREATE TABLE concert_artists (
+  concert_id BIGINT UNSIGNED NOT NULL,
+  artist_profile_id BIGINT UNSIGNED NOT NULL,
+  billing_order SMALLINT UNSIGNED NOT NULL DEFAULT 0,
+  created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (concert_id, artist_profile_id),
+  KEY idx_concert_artists_artist (artist_profile_id),
+  CONSTRAINT fk_concert_artists_concert FOREIGN KEY (concert_id) REFERENCES concerts (id) ON DELETE CASCADE,
+  CONSTRAINT fk_concert_artists_artist FOREIGN KEY (artist_profile_id) REFERENCES artist_profiles (id) ON DELETE CASCADE
+) ENGINE=InnoDB;
+
 CREATE TABLE ticket_types (
   id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
   concert_id BIGINT UNSIGNED NOT NULL,
@@ -731,6 +747,8 @@ CREATE TABLE orders (
   expires_at DATETIME NULL,
   confirmed_at DATETIME NULL,
   cancelled_at DATETIME NULL,
+  refund_status ENUM('NONE','REFUNDED') NOT NULL DEFAULT 'NONE',
+  refunded_at DATETIME NULL,
   created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
   updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   PRIMARY KEY (id),
@@ -740,7 +758,34 @@ CREATE TABLE orders (
   CONSTRAINT fk_orders_user FOREIGN KEY (user_id) REFERENCES users (id),
   CONSTRAINT chk_orders_amount CHECK (total_amount >= 0),
   CONSTRAINT chk_orders_confirmed CHECK (status <> 'CONFIRMED' OR confirmed_at IS NOT NULL),
-  CONSTRAINT chk_orders_cancelled CHECK (status <> 'CANCELLED' OR cancelled_at IS NOT NULL)
+  CONSTRAINT chk_orders_cancelled CHECK (status <> 'CANCELLED' OR cancelled_at IS NOT NULL),
+  CONSTRAINT chk_orders_refunded CHECK (refund_status = 'NONE' OR (refunded_at IS NOT NULL AND status = 'CANCELLED'))
+) ENGINE=InnoDB;
+
+-- Pago simulado de una compra de entradas: confirma la compra. No guarda datos de tarjeta ni mueve dinero.
+-- Un reembolso (cancelacion de una compra confirmada) pasa el pago APPROVED a REFUNDED.
+CREATE TABLE order_payments (
+  id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+  order_id BIGINT UNSIGNED NOT NULL,
+  payer_user_id BIGINT UNSIGNED NULL,
+  amount DECIMAL(12,2) NOT NULL,
+  currency CHAR(3) NOT NULL DEFAULT 'ARS',
+  status ENUM('APPROVED','REJECTED','REFUNDED') NOT NULL,
+  provider ENUM('SIMULATED') NOT NULL DEFAULT 'SIMULATED',
+  is_simulated TINYINT(1) NOT NULL DEFAULT 1,
+  simulated_reference VARCHAR(40) NOT NULL,
+  processed_at DATETIME NOT NULL,
+  refunded_at DATETIME NULL,
+  created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (id),
+  UNIQUE KEY uq_order_payments_reference (simulated_reference),
+  KEY idx_order_payments_order (order_id, status),
+  KEY idx_order_payments_payer (payer_user_id),
+  CONSTRAINT fk_order_payments_order FOREIGN KEY (order_id) REFERENCES orders (id),
+  CONSTRAINT fk_order_payments_payer FOREIGN KEY (payer_user_id) REFERENCES users (id) ON DELETE SET NULL,
+  CONSTRAINT chk_order_payments_simulated CHECK (is_simulated = 1),
+  CONSTRAINT chk_order_payments_amount CHECK (amount >= 0),
+  CONSTRAINT chk_order_payments_refunded CHECK (status <> 'REFUNDED' OR refunded_at IS NOT NULL)
 ) ENGINE=InnoDB;
 
 CREATE TABLE order_items (
@@ -803,6 +848,126 @@ CREATE TABLE ticket_validations (
   CONSTRAINT fk_ticket_validations_ticket FOREIGN KEY (ticket_id) REFERENCES tickets (id) ON DELETE SET NULL,
   CONSTRAINT fk_ticket_validations_concert FOREIGN KEY (concert_id) REFERENCES concerts (id) ON DELETE CASCADE,
   CONSTRAINT fk_ticket_validations_user FOREIGN KEY (validated_by_user_id) REFERENCES users (id) ON DELETE SET NULL
+) ENGINE=InnoDB;
+
+-- EMPRESA_SERVICIOS. La empresa es una organizacion (organizations + organization_members); service_providers
+-- guarda su perfil comercial. Solo un ADMIN marca is_verified. Una cotizacion ACCEPTED es un servicio contratado.
+CREATE TABLE service_categories (
+  id SMALLINT UNSIGNED NOT NULL AUTO_INCREMENT,
+  code VARCHAR(40) NOT NULL,
+  name VARCHAR(100) NOT NULL,
+  PRIMARY KEY (id),
+  UNIQUE KEY uq_service_categories_code (code)
+) ENGINE=InnoDB;
+
+CREATE TABLE service_providers (
+  organization_id BIGINT UNSIGNED NOT NULL,
+  description TEXT NULL,
+  city_id INT UNSIGNED NULL,
+  coverage_area VARCHAR(255) NULL,
+  status ENUM('DRAFT','PUBLISHED','ARCHIVED') NOT NULL DEFAULT 'DRAFT',
+  published_at DATETIME NULL,
+  is_verified TINYINT(1) NOT NULL DEFAULT 0,
+  verified_at DATETIME NULL,
+  verified_by_user_id BIGINT UNSIGNED NULL,
+  created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (organization_id),
+  KEY idx_service_providers_status_city (status, city_id),
+  KEY idx_service_providers_city (city_id),
+  KEY idx_service_providers_verified_by (verified_by_user_id),
+  CONSTRAINT fk_service_providers_organization FOREIGN KEY (organization_id) REFERENCES organizations (id) ON DELETE CASCADE,
+  CONSTRAINT fk_service_providers_city FOREIGN KEY (city_id) REFERENCES cities (id),
+  CONSTRAINT fk_service_providers_verified_by FOREIGN KEY (verified_by_user_id) REFERENCES users (id) ON DELETE SET NULL,
+  CONSTRAINT chk_service_providers_published CHECK (status <> 'PUBLISHED' OR published_at IS NOT NULL),
+  CONSTRAINT chk_service_providers_verified CHECK (is_verified = 0 OR verified_at IS NOT NULL)
+) ENGINE=InnoDB;
+
+CREATE TABLE service_offerings (
+  id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+  organization_id BIGINT UNSIGNED NOT NULL,
+  category_id SMALLINT UNSIGNED NOT NULL,
+  name VARCHAR(150) NOT NULL,
+  slug VARCHAR(170) NOT NULL,
+  description TEXT NULL,
+  equipment TEXT NULL,
+  conditions TEXT NULL,
+  pricing_unit ENUM('HOUR','DAY','EVENT','UNIT','QUOTE') NOT NULL DEFAULT 'QUOTE',
+  base_price DECIMAL(12,2) NULL,
+  currency CHAR(3) NOT NULL DEFAULT 'ARS',
+  status ENUM('DRAFT','PUBLISHED','ARCHIVED') NOT NULL DEFAULT 'DRAFT',
+  published_at DATETIME NULL,
+  created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (id),
+  UNIQUE KEY uq_service_offerings_slug (slug),
+  KEY idx_service_offerings_provider (organization_id, status),
+  KEY idx_service_offerings_category (category_id, status),
+  CONSTRAINT fk_service_offerings_provider FOREIGN KEY (organization_id) REFERENCES service_providers (organization_id) ON DELETE CASCADE,
+  CONSTRAINT fk_service_offerings_category FOREIGN KEY (category_id) REFERENCES service_categories (id),
+  CONSTRAINT chk_service_offerings_price CHECK (base_price IS NULL OR base_price >= 0),
+  CONSTRAINT chk_service_offerings_pricing CHECK (pricing_unit = 'QUOTE' OR base_price IS NOT NULL),
+  CONSTRAINT chk_service_offerings_published CHECK (status <> 'PUBLISHED' OR published_at IS NOT NULL)
+) ENGINE=InnoDB;
+
+CREATE TABLE service_quotes (
+  id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+  public_code VARCHAR(20) NOT NULL,
+  offering_id BIGINT UNSIGNED NOT NULL,
+  organization_id BIGINT UNSIGNED NOT NULL,
+  requester_user_id BIGINT UNSIGNED NOT NULL,
+  concert_id BIGINT UNSIGNED NULL,
+  reservation_id BIGINT UNSIGNED NULL,
+  event_name VARCHAR(200) NOT NULL,
+  event_start_at DATETIME NOT NULL,
+  event_end_at DATETIME NOT NULL,
+  location_text VARCHAR(255) NULL,
+  requester_notes TEXT NULL,
+  status ENUM('REQUESTED','SENT','ACCEPTED','REJECTED','EXPIRED','CANCELLED') NOT NULL DEFAULT 'REQUESTED',
+  subtotal DECIMAL(12,2) NULL,
+  fees DECIMAL(12,2) NULL,
+  discount DECIMAL(12,2) NULL,
+  total_amount DECIMAL(12,2) NULL,
+  currency CHAR(3) NOT NULL DEFAULT 'ARS',
+  valid_until DATETIME NULL,
+  provider_notes TEXT NULL,
+  responded_by_user_id BIGINT UNSIGNED NULL,
+  responded_at DATETIME NULL,
+  accepted_at DATETIME NULL,
+  created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (id),
+  UNIQUE KEY uq_service_quotes_public_code (public_code),
+  KEY idx_service_quotes_provider (organization_id, status),
+  KEY idx_service_quotes_requester (requester_user_id, status),
+  KEY idx_service_quotes_offering (offering_id),
+  KEY idx_service_quotes_concert (concert_id),
+  KEY idx_service_quotes_reservation (reservation_id),
+  KEY idx_service_quotes_responded_by (responded_by_user_id),
+  CONSTRAINT fk_service_quotes_offering FOREIGN KEY (offering_id) REFERENCES service_offerings (id),
+  CONSTRAINT fk_service_quotes_provider FOREIGN KEY (organization_id) REFERENCES service_providers (organization_id),
+  CONSTRAINT fk_service_quotes_requester FOREIGN KEY (requester_user_id) REFERENCES users (id),
+  CONSTRAINT fk_service_quotes_concert FOREIGN KEY (concert_id) REFERENCES concerts (id) ON DELETE SET NULL,
+  CONSTRAINT fk_service_quotes_reservation FOREIGN KEY (reservation_id) REFERENCES reservations (id) ON DELETE SET NULL,
+  CONSTRAINT fk_service_quotes_responded_by FOREIGN KEY (responded_by_user_id) REFERENCES users (id) ON DELETE SET NULL,
+  CONSTRAINT chk_service_quotes_times CHECK (event_start_at < event_end_at),
+  CONSTRAINT chk_service_quotes_amounts CHECK ((subtotal IS NULL OR subtotal >= 0) AND (fees IS NULL OR fees >= 0) AND (discount IS NULL OR discount >= 0) AND (total_amount IS NULL OR total_amount >= 0)),
+  CONSTRAINT chk_service_quotes_sent_has_total CHECK (status IN ('REQUESTED','CANCELLED','REJECTED','EXPIRED') OR total_amount IS NOT NULL),
+  CONSTRAINT chk_service_quotes_accepted CHECK (status <> 'ACCEPTED' OR accepted_at IS NOT NULL)
+) ENGINE=InnoDB;
+
+CREATE TABLE service_quote_items (
+  id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+  service_quote_id BIGINT UNSIGNED NOT NULL,
+  description VARCHAR(255) NOT NULL,
+  quantity DECIMAL(10,2) NOT NULL DEFAULT 1.00,
+  unit_price DECIMAL(12,2) NOT NULL,
+  line_total DECIMAL(12,2) NOT NULL,
+  sort_order SMALLINT UNSIGNED NOT NULL DEFAULT 0,
+  PRIMARY KEY (id),
+  KEY idx_service_quote_items_quote (service_quote_id, sort_order),
+  CONSTRAINT fk_service_quote_items_quote FOREIGN KEY (service_quote_id) REFERENCES service_quotes (id) ON DELETE CASCADE,
+  CONSTRAINT chk_service_quote_items_values CHECK (quantity > 0 AND unit_price >= 0 AND line_total >= 0)
 ) ENGINE=InnoDB;
 
 CREATE TABLE recommendations (
@@ -1159,6 +1324,10 @@ BEGIN
   DECLARE v_status VARCHAR(20);
   DECLARE v_amount DECIMAL(12,2);
   DECLARE v_currency CHAR(3);
+  DECLARE v_quote_id BIGINT UNSIGNED;
+  DECLARE v_setup DATETIME;
+  DECLARE v_hold_expires DATETIME;
+  DECLARE v_paid INT DEFAULT 0;
   DECLARE EXIT HANDLER FOR SQLEXCEPTION
   BEGIN
     ROLLBACK;
@@ -1168,7 +1337,8 @@ BEGIN
 
   START TRANSACTION;
 
-  SELECT status_code, total_amount, currency INTO v_status, v_amount, v_currency
+  SELECT status_code, total_amount, currency, quote_id, setup_start_at, hold_expires_at
+    INTO v_status, v_amount, v_currency, v_quote_id, v_setup, v_hold_expires
   FROM reservations WHERE id = p_reservation_id FOR UPDATE;
 
   IF v_status IS NULL THEN
@@ -1179,15 +1349,32 @@ BEGIN
     SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'INVALID_STATUS: solo se puede pagar una reserva en HOLD';
   END IF;
 
+  IF v_hold_expires <= UTC_TIMESTAMP() THEN
+    SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'HOLD_EXPIRED: el HOLD vencio y no puede pagarse';
+  END IF;
+
+  SELECT COUNT(*) INTO v_paid FROM payments WHERE reservation_id = p_reservation_id AND status = 'APPROVED';
+  IF v_paid > 0 THEN
+    SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'ALREADY_PAID: la reserva ya tiene un pago aprobado';
+  END IF;
+
   INSERT INTO payments (reservation_id, payer_user_id, amount, currency, status, provider, is_simulated, simulated_reference, processed_at)
   VALUES (p_reservation_id, p_payer_user_id, v_amount, v_currency, IF(p_approve = 1, 'APPROVED', 'REJECTED'), 'SIMULATED', 1,
           CONCAT('SIM-', UPPER(HEX(RANDOM_BYTES(8)))), UTC_TIMESTAMP());
 
   SET p_payment_id = LAST_INSERT_ID();
 
+  -- El pago confirma la compra, no la reserva. Con presupuesto aceptado el espacio ya acepto las condiciones y
+  -- la reserva se confirma. Una reserva directa queda en HOLD hasta que el espacio la acepta: el HOLD se extiende
+  -- hasta 48 horas (nunca despues del armado) para que el espacio responda; si no responde, vence y se reembolsa.
   IF p_approve = 1 THEN
     SET @venti_user_id = p_payer_user_id;
-    UPDATE reservations SET status_code = 'CONFIRMED' WHERE id = p_reservation_id;
+    IF v_quote_id IS NOT NULL THEN
+      UPDATE reservations SET status_code = 'CONFIRMED' WHERE id = p_reservation_id;
+    ELSE
+      UPDATE reservations SET hold_expires_at = GREATEST(hold_expires_at, LEAST(v_setup, UTC_TIMESTAMP() + INTERVAL 48 HOUR))
+      WHERE id = p_reservation_id;
+    END IF;
     SET @venti_user_id = NULL;
   END IF;
 
@@ -1200,6 +1387,13 @@ BEGIN
   SET status_code = 'EXPIRED'
   WHERE status_code = 'HOLD'
     AND hold_expires_at <= UTC_TIMESTAMP();
+
+  -- Un HOLD pagado que el espacio no acepto a tiempo devuelve el pago simulado.
+  UPDATE payments p
+  JOIN reservations r ON r.id = p.reservation_id
+  SET p.status = 'REFUNDED'
+  WHERE r.status_code = 'EXPIRED'
+    AND p.status = 'APPROVED';
 END$$
 
 CREATE PROCEDURE sp_complete_reservations()
@@ -1233,7 +1427,7 @@ INSERT IGNORE INTO roles (code, name, description) VALUES
   ('ARTISTA', 'Artista', 'Busca espacios, pide presupuestos y reserva salas'),
   ('ORGANIZADOR', 'Organizador', 'Publica conciertos, vende entradas, asigna staff y reserva espacios'),
   ('VENUE', 'Venue', 'Gestiona establecimientos y espacios de su organizacion, responde presupuestos y reservas'),
-  ('EMPRESA_SERVICIOS', 'Empresa de servicios', 'Ofrece servicios para eventos (catalogo pendiente de aprobar)'),
+  ('EMPRESA_SERVICIOS', 'Empresa de servicios', 'Ofrece servicios para eventos y responde cotizaciones'),
   ('GUEST', 'Invitado', 'Usuario sin registro completo');
 
 INSERT IGNORE INTO permissions (code, description) VALUES
@@ -1244,7 +1438,8 @@ INSERT IGNORE INTO permissions (code, description) VALUES
   ('concerts.manage_all', 'Gestionar y ver cualquier concierto, incluidos borradores'),
   ('concerts.staff.manage', 'Asignar staff a conciertos propios'),
   ('tickets.purchase', 'Comprar entradas'),
-  ('tickets.validate', 'Validar entradas por QR de cualquier concierto (el staff valida por asignacion)'),
+  ('tickets.validate', 'Validar entradas por QR de los conciertos asignados (concert_staff); no se asigna por perfil'),
+  ('tickets.validate_all', 'Validar entradas por QR de cualquier concierto'),
   ('orders.read_all', 'Ver y gestionar todas las compras'),
   ('statistics.own', 'Ver estadisticas de conciertos propios'),
   ('statistics.global', 'Ver estadisticas de toda la plataforma'),
@@ -1257,12 +1452,16 @@ INSERT IGNORE INTO permissions (code, description) VALUES
   ('marketplace.admin', 'Administrar todo el marketplace'),
   ('artists.admin', 'Gestionar cualquier perfil de artista'),
   ('artist.profile.manage', 'Crear y gestionar perfiles de artista propios'),
-  ('services.manage', 'Gestionar el catalogo de servicios (tablas pendientes de aprobar)'),
-  ('services.quotes.respond', 'Responder presupuestos de servicios (tablas pendientes de aprobar)');
+  ('services.manage', 'Gestionar la empresa de servicios propia y su catalogo'),
+  ('services.quotes.respond', 'Responder cotizaciones de servicios de su empresa'),
+  ('services.quotes.request', 'Pedir cotizaciones a empresas de servicios'),
+  ('services.admin', 'Administrar y verificar cualquier empresa de servicios');
 
+-- ADMIN tiene todo menos tickets.validate, que no se otorga por perfil: lo da una asignacion en concert_staff
+-- (ver MysqlAuthRepository.access). ADMIN valida cualquier concierto con tickets.validate_all.
 INSERT IGNORE INTO role_permissions (role_id, permission_id)
 SELECT r.id, p.id FROM roles r CROSS JOIN permissions p
-WHERE r.code = 'ADMIN';
+WHERE r.code = 'ADMIN' AND p.code <> 'tickets.validate';
 
 INSERT IGNORE INTO role_permissions (role_id, permission_id)
 SELECT r.id, p.id FROM roles r JOIN permissions p ON p.code IN (
@@ -1279,13 +1478,14 @@ INSERT IGNORE INTO role_permissions (role_id, permission_id)
 SELECT r.id, p.id FROM roles r JOIN permissions p ON p.code IN (
   'concerts.browse','tickets.purchase','marketplace.venues.browse',
   'concerts.manage','concerts.staff.manage','statistics.own',
-  'marketplace.quotes.request','marketplace.reservations.create')
+  'marketplace.quotes.request','marketplace.reservations.create','services.quotes.request')
 WHERE r.code = 'ORGANIZADOR';
 
 INSERT IGNORE INTO role_permissions (role_id, permission_id)
 SELECT r.id, p.id FROM roles r JOIN permissions p ON p.code IN (
   'concerts.browse','tickets.purchase','marketplace.venues.browse',
-  'marketplace.establishments.manage','marketplace.quotes.respond','marketplace.reservations.manage')
+  'marketplace.establishments.manage','marketplace.quotes.respond','marketplace.reservations.manage',
+  'services.quotes.request')
 WHERE r.code = 'VENUE';
 
 INSERT IGNORE INTO role_permissions (role_id, permission_id)
@@ -1293,6 +1493,17 @@ SELECT r.id, p.id FROM roles r JOIN permissions p ON p.code IN (
   'concerts.browse','tickets.purchase','marketplace.venues.browse',
   'services.manage','services.quotes.respond')
 WHERE r.code = 'EMPRESA_SERVICIOS';
+
+INSERT IGNORE INTO service_categories (code, name) VALUES
+  ('CLEANING', 'Limpieza'),
+  ('SOUND', 'Sonido'),
+  ('LIGHTING', 'Iluminacion'),
+  ('SECURITY', 'Seguridad'),
+  ('STAGING', 'Montaje y desmontaje'),
+  ('EQUIPMENT_RENTAL', 'Equipamiento y alquiler tecnico'),
+  ('CATERING', 'Catering'),
+  ('PHOTO_VIDEO', 'Foto y video'),
+  ('TRANSPORT', 'Transporte');
 
 INSERT INTO reservation_statuses (code, name, is_hold, blocks_space, is_final, sort_order) VALUES
   ('HOLD', 'Reserva temporal', 1, 1, 0, 1),

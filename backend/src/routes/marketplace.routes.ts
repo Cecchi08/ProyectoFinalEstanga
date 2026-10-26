@@ -64,5 +64,9 @@ export function marketplaceRoutes(database: Database, authenticate: RequestHandl
     router.get('/marketplace/reservations/:id', authenticate, reservationReaders, controller.reservation);
     router.post('/marketplace/reservations/:id/cancel', authenticate, reservationReaders, controller.cancelReservation);
     router.post('/marketplace/reservations/:id/payments', authenticate, booking, controller.pay);
+    // The venue side answers direct bookings; the service also requires membership in the venue's organization.
+    const venueSide = requirePermission(P.reservationsManage, P.marketplaceAdmin);
+    router.post('/marketplace/reservations/:id/accept', authenticate, venueSide, empty, controller.acceptReservation);
+    router.post('/marketplace/reservations/:id/reject', authenticate, venueSide, controller.rejectReservation);
     return router;
 }

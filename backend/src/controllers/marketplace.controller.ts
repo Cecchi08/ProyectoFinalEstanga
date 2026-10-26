@@ -2,7 +2,7 @@ import type { Request, Response } from 'express';
 import { unauthorized } from '../utils/app-error.util.js';
 import { MarketplaceService } from '../services/marketplace.service.ts';
 import { idSchema } from '../validators/management.schemas.ts';
-import { availabilityQuerySchema, cancelSchema, listQuerySchema, memberPatchSchema, notesSchema, paymentSchema, venueQuerySchema } from '../validators/marketplace.schemas.ts';
+import { availabilityQuerySchema, cancelSchema, listQuerySchema, memberPatchSchema, notesSchema, paymentSchema, rejectSchema, venueQuerySchema } from '../validators/marketplace.schemas.ts';
 
 const principal = (req: Request) => { if (!req.user) throw unauthorized(); return req.user; };
 const id = (req: Request) => idSchema.parse(req.params.id);
@@ -63,6 +63,10 @@ export class MarketplaceController {
     reservation = async (req: Request, res: Response) => { ok(res, await this.service.reservation(id(req), principal(req))); };
     cancelReservation = async (req: Request, res: Response) => {
         ok(res, await this.service.cancelReservation(id(req), cancelSchema.parse(req.body).reason, principal(req)));
+    };
+    acceptReservation = async (req: Request, res: Response) => { ok(res, await this.service.acceptReservation(id(req), principal(req))); };
+    rejectReservation = async (req: Request, res: Response) => {
+        ok(res, await this.service.rejectReservation(id(req), rejectSchema.parse(req.body).reason, principal(req)));
     };
     pay = async (req: Request, res: Response) => { ok(res, await this.service.pay(id(req), paymentSchema.parse(req.body).outcome, principal(req)), 201); };
 }

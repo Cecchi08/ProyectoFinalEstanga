@@ -130,18 +130,24 @@ export class ManagementService {
             fail(422, 'INCOMPLETE_CONCERT', 'Publicar requiere al menos un género y un tipo de entrada.');
         for (const ticket of detail.ticket_types) ticketValid(ticket, concert);
     }
+    private async artists(repo: ManagementRepository, id: string, ids: string[] | undefined): Promise<void> {
+        if (ids === undefined) return;
+        if (await repo.publishedArtists(ids) !== ids.length) fail(422, 'INVALID_ARTIST', 'Solo se vinculan perfiles de artista publicados.');
+        await repo.replaceArtists(id, ids);
+    }
     async concertCreate(input: ConcertInput, user: Principal) {
         manager(user);
         if (!can(user, P.concertsManageAll) && input.organizer_id !== undefined)
             fail(403, 'FORBIDDEN_OWNER', 'El organizador se obtiene de la sesión.');
         dates(input.start_datetime, input.end_datetime);
         return this.run(true, async repo => {
-            const { genre_ids = [], ticket_types = [], organizer_id, ...fields } = input;
+            const { genre_ids = [], ticket_types = [], organizer_id, artist_profile_ids, ...fields } = input;
             const owner = can(user, P.concertsManageAll) ? organizer_id ?? user.id : user.id;
             if (!(await repo.organizerExists(owner))) fail(422, 'INVALID_ORGANIZER', 'Se requiere una cuenta activa con permiso para gestionar conciertos.');
             const location = await this.location(repo, fields, owner);
             const id = await repo.insert('concerts', { ...fields, ...location, organizer_id: owner, slug: slugify(fields.name, 200), status: 'DRAFT' });
             await repo.replaceGenres(id, genre_ids);
+            await this.artists(repo, id, artist_profile_ids);
             const concert = required(await repo.concert(id));
             await this.reservationFits(repo, concert);
             for (const ticket of ticket_types) { ticketValid(ticket, concert); await repo.insert('ticket_types', { ...ticket, concert_id: id }); }
@@ -153,9 +159,10 @@ export class ManagementService {
             const concert = await this.owned(repo, id, user); editable(concert);
             const before = (await repo.concertDetails([concert]))[0];
             dates(input.start_datetime ?? concert.start_datetime, input.end_datetime === undefined ? concert.end_datetime : input.end_datetime);
-            const { genre_ids, ...fields } = input;
+            const { genre_ids, artist_profile_ids, ...fields } = input;
             await repo.update('concerts', id, { ...fields, ...await this.location(repo, fields, concert.organizer_id, concert) });
             if (genre_ids !== undefined) await repo.replaceGenres(id, genre_ids);
+            await this.artists(repo, id, artist_profile_ids);
             const updated = required(await repo.concert(id));
             await this.reservationFits(repo, updated);
             for (const ticket of await repo.tickets(id)) ticketValid(ticket, updated);
@@ -164,7 +171,7 @@ export class ManagementService {
             const schedule = concert.start_datetime.getTime() !== updated.start_datetime.getTime() || concert.end_datetime?.getTime() !== updated.end_datetime?.getTime();
             const relations = (values: Row[]) => values.map(value => String(value.id)).sort().join(',');
             const relevant = ['name', 'artist_name', 'description', 'venue_id', 'venue_name', 'address_line', 'city_id'].some(key => concert[key] !== updated[key]) ||
-                relations(before.genres) !== relations(detail.genres);
+                relations(before.genres) !== relations(detail.genres) || relations(before.artists) !== relations(detail.artists);
             if (concert.status === 'PUBLISHED' && (schedule || relevant)) {
                 const when = updated.start_datetime.toISOString().replace('T', ' ').slice(0, 16);
                 await notifications.concert(id, 'CONCERT_UPDATED', schedule ? 'Cambio de horario' : 'Información del concierto',

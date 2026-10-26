@@ -3,7 +3,7 @@ import { AdminRepository } from '../repositories/admin.repository.ts';
 import { MysqlAuthRepository } from '../repositories/mysql.repository.js';
 import { SELF_SERVICE_ROLES } from '../types/auth.types.js';
 import type { Database, Principal } from '../types/management.types.ts';
-import type { AuditQuery, UserQuery } from '../validators/admin.schemas.ts';
+import type { AuditQuery, OrganizationQuery, UserQuery } from '../validators/admin.schemas.ts';
 
 const fail = (status: number, code: string, message: string): never => { throw new AppError(status, code, message, undefined); };
 const SELF_SERVICE = new Set(SELF_SERVICE_ROLES);
@@ -18,6 +18,31 @@ export class AdminService {
     users(query: UserQuery) { return this.run(false, repo => repo.users(query)); }
     user(id: string) { return this.run(false, async repo => await repo.user(id) ?? fail(404, 'NOT_FOUND', 'Usuario inexistente.')); }
     auditLog(query: AuditQuery) { return this.run(false, repo => repo.auditLog(query)); }
+    organizations(query: OrganizationQuery) { return this.run(false, repo => repo.organizations(query)); }
+    // Suspension uses users.status: login, refresh and every authenticated request already refuse non-ACTIVE accounts.
+    suspend(userId: string, reason: string, actor: Principal) {
+        return this.run(true, async repo => {
+            if (userId === actor.id) fail(409, 'SELF_SUSPEND', 'No podés suspender tu propia cuenta.');
+            const { role, user } = await this.lock(repo, 'ADMIN', userId);
+            if (user.status !== 'ACTIVE') fail(409, 'INVALID_STATE', 'Solo se suspende una cuenta activa.');
+            if (await repo.isAdmin(userId) && await repo.activeHolders(role.id) <= 1) fail(409, 'LAST_ADMIN', 'La plataforma necesita al menos un ADMIN activo.');
+            await repo.setStatus(userId, 'BLOCKED');
+            const sessions = await repo.revokeSessions(userId);
+            await repo.audit({ actor: actor.id, action: 'USER_SUSPENDED', target: userId, entity: { type: 'USER', id: userId },
+                details: { reason, target_email: user.email, revoked_sessions: sessions } });
+            return repo.user(userId);
+        });
+    }
+    reactivate(userId: string, reason: string | null | undefined, actor: Principal) {
+        return this.run(true, async repo => {
+            const { user } = await this.lock(repo, 'ADMIN', userId);
+            if (user.status !== 'BLOCKED') fail(409, 'INVALID_STATE', 'Solo se reactiva una cuenta suspendida.');
+            await repo.setStatus(userId, 'ACTIVE');
+            await repo.audit({ actor: actor.id, action: 'USER_REACTIVATED', target: userId, entity: { type: 'USER', id: userId },
+                details: { reason: reason ?? null, target_email: user.email } });
+            return repo.user(userId);
+        });
+    }
     // The change and its audit row commit together: a role change is never left unrecorded.
     grant(userId: string, role: string, reason: string | null | undefined, actor: Principal) {
         return this.run(true, async repo => {

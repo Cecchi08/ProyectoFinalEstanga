@@ -76,6 +76,16 @@ export class ManagementRepository {
         await this.connection.execute('DELETE FROM concert_genres WHERE concert_id = ?', [id]);
         if (ids.length) await this.connection.execute(`INSERT INTO concert_genres (concert_id, genre_id) VALUES ${ids.map(() => '(?, ?)').join(',')}`, ids.flatMap(value => [id, value]));
     }
+    async replaceArtists(id: string, artistIds: string[]): Promise<void> {
+        await this.connection.execute('DELETE FROM concert_artists WHERE concert_id = ?', [id]);
+        if (artistIds.length) await this.connection.execute(`INSERT INTO concert_artists (concert_id, artist_profile_id, billing_order) VALUES
+            ${artistIds.map(() => '(?, ?, ?)').join(',')}`, artistIds.flatMap((artist, index) => [id, artist, index]));
+    }
+    // Only published profiles can be billed; returns how many of the ids qualify.
+    async publishedArtists(ids: string[]): Promise<number> {
+        if (!ids.length) return 0;
+        return Number((await this.rows(`SELECT COUNT(*) AS total FROM artist_profiles WHERE status = 'PUBLISHED' AND id IN (${placeholders(ids)})`, ids))[0].total);
+    }
     async genreReferenced(id: string): Promise<boolean> {
         // concert_genres cascades on delete: refuse instead of silently untagging concerts.
         return (await this.rows('SELECT genre_id FROM concert_genres WHERE genre_id = ? LIMIT 1', [id])).length > 0;
@@ -110,7 +120,17 @@ export class ManagementRepository {
             if (query[key]) { where.push(`${column} = ?`); values.push(query[key]); }
         }
         if (query.genre_id) { where.push('EXISTS (SELECT 1 FROM concert_genres rel WHERE rel.concert_id = c.id AND rel.genre_id = ?)'); values.push(query.genre_id); }
-        if (query.artist) { where.push('c.artist_name LIKE ?'); values.push(`%${query.artist}%`); }
+        if (query.artist) {
+            where.push(`(c.artist_name LIKE ? OR EXISTS (SELECT 1 FROM concert_artists ca JOIN artist_profiles ap ON ap.id = ca.artist_profile_id
+                WHERE ca.concert_id = c.id AND ap.stage_name LIKE ?))`);
+            values.push(`%${query.artist}%`, `%${query.artist}%`);
+        }
+        if (query.artist_profile_id) { where.push('EXISTS (SELECT 1 FROM concert_artists ca WHERE ca.concert_id = c.id AND ca.artist_profile_id = ?)'); values.push(query.artist_profile_id); }
+        // Price: at least one active ticket type inside the range, so "from $X" listings and the filter agree.
+        if (query.min_price !== undefined || query.max_price !== undefined) {
+            where.push('EXISTS (SELECT 1 FROM ticket_types pt WHERE pt.concert_id = c.id AND pt.is_active = 1 AND pt.price >= ? AND pt.price <= ?)');
+            values.push(query.min_price ?? 0, query.max_price ?? 9999999999.99);
+        }
         for (const key of ['q', 'name'] as const) if (query[key]) { where.push('c.title LIKE ?'); values.push(`%${query[key]}%`); }
         if (query.date_from) { where.push('c.starts_at >= ?'); values.push(query.date_from); }
         if (query.date_to) { where.push('c.starts_at <= ?'); values.push(query.date_to); }
@@ -126,12 +146,21 @@ export class ManagementRepository {
         const ids = rows.map(row => row.id); const marks = placeholders(ids);
         const genres = await this.rows(`SELECT cg.concert_id, g.* FROM concert_genres cg JOIN genres g ON g.id = cg.genre_id WHERE cg.concert_id IN (${marks}) ORDER BY g.name, g.id`, ids);
         const tickets = await this.rows<TicketRow>(`${ticketTypeSelect} WHERE concert_id IN (${marks}) ORDER BY id`, ids);
-        return rows.map(row => ({ ...row,
-            // The schema stores a single artist name; the list shape is kept for existing clients.
-            artists: [{ name: row.artist_name }],
-            genres: genres.filter(g => g.concert_id === row.id).map(({ concert_id: _id, ...genre }) => genre),
-            ticket_types: tickets.filter(t => t.concert_id === row.id),
-        }));
+        const artists = await this.rows(`SELECT ca.concert_id, a.id, a.stage_name AS name, a.slug, a.image_url, ca.billing_order
+            FROM concert_artists ca JOIN artist_profiles a ON a.id = ca.artist_profile_id WHERE ca.concert_id IN (${marks})
+            ORDER BY ca.billing_order, a.id`, ids);
+        return rows.map(row => {
+            const linked = artists.filter(a => a.concert_id === row.id).map(({ concert_id: _id, billing_order: _order, ...artist }) => artist);
+            const types = tickets.filter(t => t.concert_id === row.id);
+            const prices = types.filter(t => Number(t.is_active)).map(t => Number(t.price));
+            return { ...row,
+                // Linked artist profiles when there are any; otherwise the billing text, in the same list shape.
+                artists: linked.length ? linked : [{ name: row.artist_name }],
+                genres: genres.filter(g => g.concert_id === row.id).map(({ concert_id: _id, ...genre }) => genre),
+                ticket_types: types,
+                price_from: prices.length ? Math.min(...prices) : null,
+            };
+        });
     }
     async ticketHistory(id: string): Promise<boolean> {
         return (await this.rows('SELECT id FROM order_items WHERE ticket_type_id = ? LIMIT 1', [id])).length > 0;

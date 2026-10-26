@@ -8,6 +8,8 @@ export const purchaseSchema = z.strictObject({
         .refine(items => new Set(items.map(item => item.ticketTypeId)).size === items.length, 'Tipos de entrada duplicados.')
         .refine(items => items.reduce((sum, item) => sum + item.quantity, 0) <= 100, 'Máximo 100 entradas por compra.'),
 });
+// Confirming a purchase is a simulated payment: only the desired outcome is accepted, never card or bank data.
+export const purchasePaymentSchema = z.strictObject({ outcome: z.enum(['APPROVED', 'REJECTED']).default('APPROVED') }).default({ outcome: 'APPROVED' });
 export const validationSchema = z.strictObject({ concertId: idSchema, qrToken: z.string().regex(/^[a-f0-9]{64}$/) });
 export const pageSchema = z.strictObject({
     page: z.coerce.number().int().min(1).max(1000000).default(1),

@@ -1,6 +1,7 @@
 import type { PoolConnection, ResultSetHeader, RowDataPacket } from 'mysql2/promise';
 import type { Row, Value } from '../types/management.types.ts';
-import type { AuditQuery, UserQuery } from '../validators/admin.schemas.ts';
+import type { AuditQuery, OrganizationQuery, UserQuery } from '../validators/admin.schemas.ts';
+import { audit, type AuditEntry } from './audit.repository.ts';
 
 const normalize = <T extends Row>(row: T): T => Object.fromEntries(Object.entries(row).map(([key, value]) =>
     [key, value !== null && (key === 'id' || key.endsWith('_id')) ? String(value) : value])) as T;
@@ -23,6 +24,7 @@ export class AdminRepository {
         const where: string[] = []; const values: Value[] = [];
         if (query.q) { where.push("(u.email LIKE ? OR CONCAT_WS(' ', u.first_name, u.last_name) LIKE ?)"); values.push(`%${query.q}%`, `%${query.q}%`); }
         if (query.role) { where.push('EXISTS (SELECT 1 FROM user_roles ur JOIN roles r ON r.id = ur.role_id WHERE ur.user_id = u.id AND r.code = ?)'); values.push(query.role); }
+        if (query.status) { where.push('u.status = ?'); values.push(query.status); }
         const clause = where.length ? ` WHERE ${where.join(' AND ')}` : '';
         const total = Number((await this.rows(`SELECT COUNT(*) AS total FROM users u${clause}`, values))[0].total);
         const data = (await this.rows(`${userSelect}${clause} ORDER BY u.id LIMIT ? OFFSET ?`, [...values, ...page(query)])).map(shape);
@@ -56,17 +58,47 @@ export class AdminRepository {
         return Number((await this.rows(`SELECT COUNT(*) AS total FROM user_roles ur JOIN users u ON u.id = ur.user_id
             WHERE ur.role_id = ? AND u.status = 'ACTIVE'`, [roleId]))[0].total);
     }
-    async audit(entry: { actor: string; action: 'ROLE_GRANTED' | 'ROLE_REVOKED' | 'ROLE_SELF_ACTIVATED'; target: string; roleId: string; details: Record<string, unknown> }) {
-        await this.execute('INSERT INTO admin_audit_log (actor_user_id, action, target_user_id, role_id, details) VALUES (?, ?, ?, ?, ?)',
-            [entry.actor, entry.action, entry.target, entry.roleId, JSON.stringify(entry.details)]);
+    audit(entry: AuditEntry) { return audit(this.connection, entry); }
+    setStatus(userId: string, status: 'ACTIVE' | 'BLOCKED') { return this.execute('UPDATE users SET status = ? WHERE id = ?', [status, userId]); }
+    // A suspended account loses its sessions at once; access tokens already stop working because every request rebuilds the principal.
+    revokeSessions(userId: string) {
+        return this.execute('UPDATE auth_refresh_tokens SET revoked_at = UTC_TIMESTAMP() WHERE user_id = ? AND revoked_at IS NULL', [userId]);
+    }
+    async isAdmin(userId: string): Promise<boolean> {
+        return (await this.rows("SELECT 1 FROM user_roles ur JOIN roles r ON r.id = ur.role_id WHERE ur.user_id = ? AND r.code = 'ADMIN'", [userId])).length > 0;
+    }
+    // Every organization with what it operates: venue establishments, a service provider profile, or both.
+    async organizations(query: OrganizationQuery) {
+        const where: string[] = []; const values: Value[] = [];
+        if (query.q) { where.push('(o.name LIKE ? OR o.slug LIKE ? OR o.email LIKE ?)'); values.push(`%${query.q}%`, `%${query.q}%`, `%${query.q}%`); }
+        if (query.status) { where.push('o.status = ?'); values.push(query.status); }
+        if (query.kind === 'VENUE') where.push('EXISTS (SELECT 1 FROM establishments e WHERE e.organization_id = o.id)');
+        if (query.kind === 'SERVICES') where.push('sp.organization_id IS NOT NULL');
+        const clause = where.length ? ` WHERE ${where.join(' AND ')}` : '';
+        const from = 'FROM organizations o LEFT JOIN service_providers sp ON sp.organization_id = o.id';
+        const total = Number((await this.rows(`SELECT COUNT(*) AS total ${from}${clause}`, values))[0].total);
+        const data = (await this.rows(`SELECT o.id, o.name, o.legal_name, o.tax_id, o.slug, o.email, o.phone, o.status, o.created_by_user_id, o.created_at,
+            (SELECT COUNT(*) FROM organization_members m WHERE m.organization_id = o.id) AS members,
+            (SELECT COUNT(*) FROM establishments e WHERE e.organization_id = o.id) AS establishments,
+            (SELECT GROUP_CONCAT(u.email ORDER BY u.id) FROM organization_members m JOIN users u ON u.id = m.user_id
+                WHERE m.organization_id = o.id AND m.member_role = 'OWNER') AS owners,
+            sp.status AS service_status, sp.is_verified AS service_verified
+            ${from}${clause} ORDER BY o.name, o.id LIMIT ? OFFSET ?`, [...values, ...page(query)]))
+            .map(({ service_status, service_verified, ...row }) => ({ ...row, members: Number(row.members), establishments: Number(row.establishments),
+                owners: String(row.owners ?? '').split(',').filter(Boolean),
+                service_provider: service_status === null ? null : { status: service_status, is_verified: Boolean(service_verified) } }));
+        return { data, total };
     }
     async auditLog(query: AuditQuery) {
         const where: string[] = []; const values: Value[] = [];
         if (query.target_user_id) { where.push('a.target_user_id = ?'); values.push(query.target_user_id); }
         if (query.actor_user_id) { where.push('a.actor_user_id = ?'); values.push(query.actor_user_id); }
+        if (query.action) { where.push('a.action = ?'); values.push(query.action); }
+        if (query.entity_type) { where.push('a.entity_type = ?'); values.push(query.entity_type); }
+        if (query.entity_id) { where.push('a.entity_id = ?'); values.push(query.entity_id); }
         const clause = where.length ? ` WHERE ${where.join(' AND ')}` : '';
         const total = Number((await this.rows(`SELECT COUNT(*) AS total FROM admin_audit_log a${clause}`, values))[0].total);
-        const data = await this.rows(`SELECT a.id, a.action, a.actor_user_id, a.target_user_id, r.code AS role, a.details, a.created_at
+        const data = await this.rows(`SELECT a.id, a.action, a.actor_user_id, a.target_user_id, r.code AS role, a.entity_type, a.entity_id, a.details, a.created_at
             FROM admin_audit_log a LEFT JOIN roles r ON r.id = a.role_id${clause} ORDER BY a.id DESC LIMIT ? OFFSET ?`, [...values, ...page(query)]);
         return { data, total };
     }
