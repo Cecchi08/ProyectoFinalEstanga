@@ -16,11 +16,10 @@ import {
 } from "../../components/ui";
 import { useResource } from "../../hooks/useResource";
 import { useAuth } from "../../contexts/AuthContext";
-import { P, can } from "../../constants/access";
 import type { Concert, Attendee } from "../../types/api";
 import { scanMessage } from "./validation";
 export default function StaffScreen() {
-  const { permissions } = useAuth();
+  const { roles } = useAuth();
   const [page, setPage] = useState(1);
   const [selected, setSelected] = useState<Concert | null>(null);
   const [attendeePage, setAttendeePage] = useState(1);
@@ -34,7 +33,7 @@ export default function StaffScreen() {
     <Page
       title="Control de acceso"
       subtitle={
-        can(permissions, P.ticketsValidate)
+        roles.includes("ADMIN")
           ? "Seleccioná un concierto para gestionar el ingreso."
           : "Seleccioná uno de tus conciertos asignados."
       }

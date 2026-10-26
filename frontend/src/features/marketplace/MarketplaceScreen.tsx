@@ -4,8 +4,7 @@ import { router } from "expo-router";
 import { useAuth } from "../../contexts/AuthContext";
 import { useResource } from "../../hooks/useResource";
 import { query } from "../../services/http";
-import type { MarketplaceCatalogs, Named, OccupancyMode, Venue } from "../../types/api";
-import { P, can } from "../../constants/access";
+import { hasRoles, type MarketplaceCatalogs, type Named, type OccupancyMode, type Venue } from "../../types/api";
 import { Button, Card, Copy, Field, Notice, Page, Pager, ResourceState, money, styles } from "../../components/ui";
 import { at, isDate } from "./time";
 
@@ -50,7 +49,7 @@ export function Codes({ items, values, onChange, multiple = false, label }: {
 }
 
 export default function MarketplaceScreen() {
-  const { permissions } = useAuth();
+  const { roles } = useAuth();
   const catalogs = useResource<MarketplaceCatalogs>("/marketplace/catalogs");
   const cities = useResource<Named[]>("/marketplace/cities");
   const [draft, setDraft] = useState<Record<string, string>>({});
@@ -78,14 +77,13 @@ export default function MarketplaceScreen() {
       setInvalid(e instanceof Error ? e.message : "Filtros inválidos.");
     }
   };
-  const quoting = can(permissions, [P.quotesRequest, P.quotesRespond, P.marketplaceAdmin]);
-  const booking = can(permissions, [P.reservationsCreate, P.reservationsManage, P.marketplaceAdmin]);
+  const requester = hasRoles(roles, ["CUSTOMER", "ORGANIZER", "ADMIN"]);
   return (
     <Page title="Espacios para tu evento" subtitle="Salas de ensayo, estudios y escenarios. Reservá o pedí presupuesto.">
       <View style={styles.row}>
-        {quoting && <Button title="Mis presupuestos" secondary onPress={() => router.push("/marketplace/quotes")} />}
-        {booking && <Button title="Mis reservas de espacios" secondary onPress={() => router.push("/marketplace/reservations")} />}
-        {can(permissions, [P.establishmentsManage, P.marketplaceAdmin]) && (
+        {requester && <Button title="Mis presupuestos" secondary onPress={() => router.push("/marketplace/quotes")} />}
+        {requester && <Button title="Mis reservas de espacios" secondary onPress={() => router.push("/marketplace/reservations")} />}
+        {hasRoles(roles, ["ORGANIZER", "ADMIN"]) && (
           <Button title="Gestionar establecimientos" secondary onPress={() => router.push("/marketplace/manage")} />
         )}
       </View>

@@ -6,8 +6,7 @@ import {
   query,
   type TokenStorage,
 } from "../src/services/http";
-import type { Session } from "../src/types/api";
-import { P, ROLES, ROLE_LABELS, SELF_SERVICE_ROLES, ASSIGNABLE_ROLES, can } from "../src/constants/access";
+import { hasRoles, type Session } from "../src/types/api";
 import { scanMessage } from "../src/features/staff/validation";
 test('storage failure during rotation also logs the user out', async () => {
   let failWrites = false;
@@ -29,7 +28,7 @@ const session: Session = {
     email: "ana@example.com",
     email_verified_at: null,
   },
-  roles: ["COMPRADOR", "ORGANIZADOR"],
+  roles: ["CUSTOMER", "ORGANIZER"],
   accessToken: "old",
   refreshToken: "refresh",
   expiresIn: 900,
@@ -175,16 +174,11 @@ test("204, network errors and query encoding", async () => {
     "?q=rock+%26+pop&page=2",
   );
 });
-test("UI access is by permission and the role constants are consistent", () => {
-  // UI gating is by permission (GET /auth/me), any of the codes.
-  assert.equal(can(["tickets.purchase", "concerts.manage"], [P.concertsManage, P.concertsManageAll]), true);
-  assert.equal(can(["tickets.purchase"], P.usersManage), false);
-  assert.equal(can([], [P.ticketsPurchase]), false);
-  assert.equal(can(["users.manage"], []), false);
-  // One constants file: every role has a label, GUEST is neither assignable nor self-service.
-  assert.deepEqual(Object.keys(ROLE_LABELS).sort(), [...ROLES].sort());
-  assert.equal(ASSIGNABLE_ROLES.includes("GUEST"), false);
-  assert.deepEqual([...SELF_SERVICE_ROLES], ["COMPRADOR", "ARTISTA"]);
+test("multi-role access uses membership, admin and ordinary user stay distinct", () => {
+  assert.equal(hasRoles(["CUSTOMER", "GUEST"], ["GUEST", "ADMIN"]), true);
+  assert.equal(hasRoles(["CUSTOMER", "ORGANIZER"], ["ORGANIZER", "ADMIN"]), true);
+  assert.equal(hasRoles(["CUSTOMER"], ["ADMIN"]), false);
+  assert.equal(hasRoles([], ["CUSTOMER"]), false);
 });
 test("scanner has separate human-readable results for every backend outcome", () => {
   const codes = [

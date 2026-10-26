@@ -18,8 +18,6 @@ import {
   useAction,
 } from "../../components/ui";
 import { Select } from "../../components/ui/Select";
-import { useAuth } from "../../contexts/AuthContext";
-import { P, can } from "../../constants/access";
 // Artists and concert venues are no longer catalogs: concerts store artist_name and
 // spaces belong to marketplace establishments.
 const names: Record<Catalog, string> = {
@@ -31,8 +29,6 @@ const names: Record<Catalog, string> = {
 const detail = (item: CatalogItem) =>
   [`#${item.id}`, item.code, item.postal_code ? `CP ${item.postal_code}` : ""].filter(Boolean).join(" · ");
 export default function AdminScreen() {
-  const { permissions } = useAuth();
-  const catalogs = can(permissions, P.catalogsManage);
   const [kind, setKind] = useState<Catalog>("genres");
   const [page, setPage] = useState(1);
   const [search, setSearch] = useState("");
@@ -44,15 +40,11 @@ export default function AdminScreen() {
   );
   return (
     <Page title="Administración">
-      <View style={styles.row}>
-        {can(permissions, P.usersManage) && <Button title="Usuarios y perfiles" onPress={() => router.push("/admin/users")} />}
-        {can(permissions, P.usersManage) && <Button title="Auditoría" secondary onPress={() => router.push("/admin/audit")} />}
-        {can(permissions, P.statisticsGlobal) && <Button title="Estadísticas globales" onPress={() => router.push('/admin/statistics')} />}
-        {can(permissions, P.concertsManageAll) && (
-          <Button title="Gestionar todos los conciertos" onPress={() => router.push("/admin/concerts")} />
-        )}
-      </View>
-      {!catalogs && <Copy muted>Los catálogos requieren el permiso catalogs.manage.</Copy>}
+      <Button title="Estadísticas globales" onPress={() => router.push('/admin/statistics')} />
+      <Button
+        title="Gestionar todos los conciertos"
+        onPress={() => router.push("/admin/concerts")}
+      />
       <View style={styles.row}>
         {(Object.keys(names) as Catalog[]).map((key) => (
           <Button
@@ -76,13 +68,11 @@ export default function AdminScreen() {
           setPage(1);
         }}
       />
-      {catalogs && (
-        <Button
-          title={`Crear en ${names[kind]}`}
-          onPress={() => setSelected(null)}
-        />
-      )}
-      {catalogs && selected !== undefined && (
+      <Button
+        title={`Crear en ${names[kind]}`}
+        onPress={() => setSelected(null)}
+      />
+      {selected !== undefined && (
         <CatalogEditor
           key={`${kind}-${selected?.id ?? "new"}`}
           kind={kind}
@@ -102,13 +92,11 @@ export default function AdminScreen() {
         <Card key={item.id}>
           <Copy>{item.name}</Copy>
           <Copy muted>{detail(item)}</Copy>
-          {catalogs && (
-            <Button
-              title={`Editar ${item.name}`}
-              secondary
-              onPress={() => setSelected(item)}
-            />
-          )}
+          <Button
+            title={`Editar ${item.name}`}
+            secondary
+            onPress={() => setSelected(item)}
+          />
         </Card>
       ))}
       <Pager pagination={resource.result?.pagination} onPage={setPage} />

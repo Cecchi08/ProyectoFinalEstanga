@@ -1,6 +1,5 @@
-import type { Role } from "../constants/access";
 // Staff is not a role: it is a per-concert assignment (GET /staff/assignments).
-export type { Role };
+export type Role = "ADMIN" | "ORGANIZER" | "CUSTOMER" | "GUEST";
 export interface User {
   id: string;
   first_name: string;
@@ -116,6 +115,8 @@ export interface Attendee {
   purchase_status: string;
   used_at: string | null;
 }
+export const hasRoles = (roles: readonly Role[], allowed: readonly Role[]) =>
+  allowed.some((role) => roles.includes(role));
 // ---- Marketplace ----
 export type OccupancyMode = "VENUE" | "ESTABLISHMENT";
 export interface Venue extends Named {
@@ -229,51 +230,3 @@ export interface Establishment extends Named {
 }
 export interface Block { id: string; venue_id: string | null; reason: string; description: string | null; starts_at: string; ends_at: string }
 export interface StaffMember { user_id: string; first_name: string | null; last_name: string | null; email: string }
-// ---- Profiles, admin and artists ----
-// GET /auth/me: roles and the union of their permissions, as the API checks them.
-export interface Me { user: User; roles: Role[]; permissions: string[] }
-export interface SelfProfiles {
-  roles: Role[];
-  permissions: string[];
-  self_service: { code: Role; name: string; description: string | null; active: boolean }[];
-}
-export interface AdminUser {
-  id: string;
-  email: string | null;
-  first_name: string | null;
-  last_name: string | null;
-  status: "ACTIVE" | "BLOCKED" | "DELETED";
-  is_guest: boolean;
-  created_at: string;
-  roles: Role[];
-}
-export interface AuditEntry {
-  id: string;
-  action: "ROLE_GRANTED" | "ROLE_REVOKED" | "ROLE_SELF_ACTIVATED";
-  actor_user_id: string | null;
-  target_user_id: string | null;
-  role: Role | null;
-  details: { role?: string; reason?: string | null; target_email?: string | null; self_service?: boolean } | null;
-  created_at: string;
-}
-export interface ArtistMember {
-  user_id: string;
-  first_name: string | null;
-  last_name: string | null;
-  email?: string;
-  member_role: "OWNER" | "MEMBER";
-}
-export interface ArtistProfile {
-  id: string;
-  stage_name: string;
-  slug: string;
-  bio: string | null;
-  city_id: string | null;
-  city_name: string | null;
-  image_url: string | null;
-  website: string | null;
-  status: "DRAFT" | "PUBLISHED" | "ARCHIVED";
-  published_at: string | null;
-  genres: Named[];
-  members?: ArtistMember[];
-}
