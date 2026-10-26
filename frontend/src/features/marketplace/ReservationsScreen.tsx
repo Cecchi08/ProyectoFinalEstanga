@@ -137,13 +137,17 @@ export function ReservationScreen() {
               ))}
             </Card>
           )}
-          {["HOLD", "CONFIRMED"].includes(reservation.status) && (
+          {/* The venue cannot cancel a confirmed reservation (409 RESERVATION_CONFIRMED); marketplace.admin still can. */}
+          {(reservation.status === "HOLD" || (reservation.status === "CONFIRMED" && (mine || can("marketplace.admin")))) && (
             <Card>
               <Field label="Motivo de cancelación (opcional)" value={reason} onChangeText={setReason} />
               <Button title={confirm ? "Confirmar cancelación de la reserva" : "Cancelar reserva"} secondary danger disabled={action.busy}
                 onPress={() => (confirm ? void cancel() : setConfirm(true))} />
               {reservation.status === "CONFIRMED" && <Copy muted>El pago simulado aprobado se marca como reembolsado.</Copy>}
             </Card>
+          )}
+          {venueSide && reservation.status === "CONFIRMED" && !can("marketplace.admin") && (
+            <Copy muted>Una reserva confirmada solo la puede cancelar el cliente.</Copy>
           )}
         </>
       )}

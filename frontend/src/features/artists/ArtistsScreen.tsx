@@ -1,11 +1,12 @@
 import { useEffect, useState } from "react";
-import { View } from "react-native";
+import { Image, View } from "react-native";
 import { router, useLocalSearchParams } from "expo-router";
 import { useAuth } from "../../contexts/AuthContext";
 import { useResource } from "../../hooks/useResource";
 import { api } from "../../services/api";
 import type {
   Artist,
+  ArtistConcerts,
   ArtistDetail,
   ArtistMember,
   MemberRole,
@@ -23,6 +24,7 @@ import {
   useAction,
 } from "../../components/ui";
 import { Select } from "../../components/ui/Select";
+import { ConcertCard } from "../concerts/ConcertList";
 const STATUS: Record<Artist["status"], string> = {
   DRAFT: "Borrador",
   PUBLISHED: "Publicado",
@@ -365,6 +367,14 @@ export function ArtistScreen() {
               </>
             )}
           </Card>
+          {artist.status === "PUBLISHED" && (
+            <Button
+              title="Ver perfil público"
+              secondary
+              onPress={() => router.push(`/artist/${artist.id}`)}
+            />
+          )}
+          <Performances id={artist.id} />
         </>
       )}
       <Button
@@ -372,6 +382,78 @@ export function ArtistScreen() {
         secondary
         onPress={() => router.push("/artists")}
       />
+    </Page>
+  );
+}
+// GET /artists/:id/concerts: concerts that bill the profile (drafts excluded), upcoming first by date, past newest first.
+function Performances({ id }: { id: string }) {
+  const resource = useResource<ArtistConcerts>(`/artists/${id}/concerts`);
+  const concerts = resource.result?.data;
+  return (
+    <>
+      <Copy>Presentaciones</Copy>
+      <ResourceState {...resource} retry={() => void resource.reload()} />
+      {concerts && !concerts.upcoming.length && !concerts.past.length && (
+        <Copy muted>
+          Todavía no hay conciertos con este perfil en el cartel. El organizador
+          lo vincula al cargar el concierto.
+        </Copy>
+      )}
+      {([["Próximas", concerts?.upcoming], ["Anteriores", concerts?.past]] as const).map(([label, list]) =>
+        list?.length ? (
+          <View key={label} style={{ gap: 10 }}>
+            <Copy muted>{label}</Copy>
+            <View style={[styles.row, { alignItems: "stretch" }]}>
+              {list.map((concert) => (
+                <ConcertCard key={concert.id} concert={concert} />
+              ))}
+            </View>
+          </View>
+        ) : null,
+      )}
+    </>
+  );
+}
+// Public profile (GET /artists/:id): only published profiles, unless the viewer is a member or artists.admin.
+export function PublicArtistScreen() {
+  const { id } = useLocalSearchParams<{ id: string }>();
+  const resource = useResource<ArtistDetail>(`/artists/${id}`);
+  const artist = resource.result?.data;
+  return (
+    <Page title={artist?.stage_name ?? "Artista"}>
+      <ResourceState {...resource} retry={() => void resource.reload()} />
+      {artist && (
+        <>
+          {artist.image_url && (
+            <Image
+              source={{ uri: artist.image_url }}
+              accessibilityLabel={artist.stage_name}
+              style={{ width: "100%", height: 240, borderRadius: 18 }}
+            />
+          )}
+          <Card>
+            <Copy muted>
+              {[artist.city_name, artist.genres.map((genre) => genre.name).join(", ")]
+                .filter(Boolean)
+                .join(" · ") || "Sin ciudad ni géneros"}
+            </Copy>
+            {artist.bio && <Copy>{artist.bio}</Copy>}
+            {artist.website && <Copy muted>{artist.website}</Copy>}
+            {/* Outsiders get no email, so only members with a name are listed. */}
+            {artist.members.length > 1 && (
+              <Copy muted>
+                Integrantes:{" "}
+                {artist.members
+                  .map((member) => [member.first_name, member.last_name].filter(Boolean).join(" "))
+                  .filter(Boolean)
+                  .join(", ") || "sin nombres públicos"}
+              </Copy>
+            )}
+          </Card>
+          <Performances id={artist.id} />
+        </>
+      )}
+      <Button title="Volver" secondary onPress={() => router.back()} />
     </Page>
   );
 }

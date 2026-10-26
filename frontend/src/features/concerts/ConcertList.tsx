@@ -7,17 +7,20 @@ import {
   Card,
   Copy,
   Field,
+  Notice,
   Page,
   Pager,
   ResourceState,
   dateLabel,
+  money,
   styles,
 } from "../../components/ui";
 import { Select } from "../../components/ui/Select";
 import { useResource } from "../../hooks/useResource";
 import { query } from "../../services/http";
 import type { Concert } from "../../types/api";
-import { place } from "./ConcertDetail";
+import { lineup, place } from "./ConcertDetail";
+const PRICE = /^\d+(\.\d{1,2})?$/;
 export function ConcertCard({
   concert,
   manage = false,
@@ -42,8 +45,9 @@ export function ConcertCard({
           {dateLabel(concert.start_datetime)} · {concert.status}
         </Copy>
         <Copy>{concert.name}</Copy>
-        <Copy muted>{concert.artist_name}</Copy>
+        <Copy muted>{lineup(concert)}</Copy>
         <Copy muted>{place(concert)}</Copy>
+        {concert.price_from != null && <Copy muted>Desde {money(concert.price_from)}</Copy>}
         {reason && <Copy>{reason}</Copy>}
         <Button
           title={manage ? `Gestionar ${concert.name}` : `Ver ${concert.name}`}
@@ -68,6 +72,7 @@ export default function ConcertList({
   const [draft, setDraft] = useState<Record<string, string>>({});
   const [filters, setFilters] = useState<Record<string, string>>({});
   const [expanded, setExpanded] = useState(false);
+  const [invalid, setInvalid] = useState("");
   const resource = useResource<Concert[]>(
     "/concerts" +
       query({
@@ -83,6 +88,18 @@ export default function ConcertList({
   );
   const set = (key: string, value: string) =>
     setDraft({ ...draft, [key]: value });
+  // min_price/max_price match concerts with at least one active ticket type inside the range.
+  const apply = (close = false) => {
+    const [min, max] = [draft.min_price?.trim() ?? "", draft.max_price?.trim() ?? ""];
+    if ([min, max].some((value) => value && !PRICE.test(value)))
+      return setInvalid("Los precios son números con hasta dos decimales, sin signo $.");
+    if (min && max && Number(min) > Number(max))
+      return setInvalid("El precio mínimo no puede superar al máximo.");
+    setInvalid("");
+    setFilters({ ...draft, min_price: min, max_price: max });
+    setPage(1);
+    if (close) setExpanded(false);
+  };
   return (
     <Page
       title={
@@ -106,19 +123,10 @@ export default function ConcertList({
           label="Buscar conciertos"
           value={draft.q ?? ""}
           onChangeText={(value) => set("q", value)}
-          onSubmitEditing={() => {
-            setFilters(draft);
-            setPage(1);
-          }}
+          onSubmitEditing={() => apply()}
         />
         <View style={styles.row}>
-          <Button
-            title="Buscar"
-            onPress={() => {
-              setFilters(draft);
-              setPage(1);
-            }}
-          />
+          <Button title="Buscar" onPress={() => apply()} />
           <Button
             title="Filtros"
             secondary
@@ -130,6 +138,7 @@ export default function ConcertList({
             onPress={() => {
               setDraft({});
               setFilters({});
+              setInvalid("");
               setPage(1);
             }}
           />
@@ -169,6 +178,20 @@ export default function ConcertList({
               value={draft.date_to ?? ""}
               onChangeText={(v) => set("date_to", v)}
             />
+            <View style={styles.row}>
+              <Field
+                label="Precio mínimo"
+                keyboardType="decimal-pad"
+                value={draft.min_price ?? ""}
+                onChangeText={(v) => set("min_price", v)}
+              />
+              <Field
+                label="Precio máximo"
+                keyboardType="decimal-pad"
+                value={draft.max_price ?? ""}
+                onChangeText={(v) => set("max_price", v)}
+              />
+            </View>
             {mode !== "discover" && (
               <View style={styles.row}>
                 {["", "DRAFT", "PUBLISHED", "CANCELLED", "FINISHED"].map(
@@ -183,16 +206,10 @@ export default function ConcertList({
                 )}
               </View>
             )}
-            <Button
-              title="Aplicar filtros"
-              onPress={() => {
-                setFilters(draft);
-                setPage(1);
-                setExpanded(false);
-              }}
-            />
+            <Button title="Aplicar filtros" onPress={() => apply(true)} />
           </>
         )}
+        <Notice message={invalid} error />
       </Card>
       <ResourceState
         {...resource}

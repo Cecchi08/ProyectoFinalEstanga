@@ -20,6 +20,9 @@ import {
 // The location is optional while the concert is a draft.
 export const place = (concert: Pick<Concert, "venue_name" | "city_name" | "province_name">) =>
   [concert.venue_name, [concert.city_name, concert.province_name].filter(Boolean).join(", ")].filter(Boolean).join(" · ") || "Lugar a confirmar";
+// Linked artist profiles in billing order; a concert without links only has the billing text.
+export const lineup = (concert: Pick<Concert, "artists" | "artist_name">) =>
+  concert.artists?.length ? concert.artists.map((artist) => artist.name).join(" · ") : concert.artist_name;
 export default function ConcertDetail() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const resource = useResource<Concert>(`/concerts/${id}`);
@@ -63,12 +66,26 @@ export default function ConcertDetail() {
             {concert.address_line && <Copy muted>{concert.address_line}</Copy>}
             <Copy>{concert.description}</Copy>
             <Copy muted>
-              Artista: {concert.artist_name}
+              Artistas: {lineup(concert)}
             </Copy>
             <Copy muted>
               Géneros: {concert.genres.map((g) => g.name).join(", ")}
             </Copy>
+            {concert.price_from != null && <Copy muted>Entradas desde {money(concert.price_from)}</Copy>}
           </Card>
+          {concert.artists.some((artist) => artist.id) && (
+            <Card>
+              <Copy>En el cartel</Copy>
+              <View style={styles.row}>
+                {concert.artists.map((artist, index) =>
+                  artist.id ? (
+                    <Button key={artist.id} title={`${index === 0 ? "Principal: " : ""}${artist.name}`} secondary
+                      onPress={() => router.push(`/artist/${artist.id}`)} />
+                  ) : null,
+                )}
+              </View>
+            </Card>
+          )}
           <Copy>Elegí tus entradas</Copy>
           {concert.ticket_types.map((type) => (
             <Card key={type.id}>

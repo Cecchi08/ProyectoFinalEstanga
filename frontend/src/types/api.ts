@@ -104,7 +104,8 @@ export interface Concert extends Named {
   province_name: string | null;
   // Linked artist profiles (id and slug); a concert without links lists artist_name alone.
   artists: ConcertArtist[];
-  price_from?: string | null;
+  // Lowest active ticket price (a number in the JSON); null without active ticket types.
+  price_from?: number | null;
   genres: Named[];
   ticket_types: TicketType[];
 }

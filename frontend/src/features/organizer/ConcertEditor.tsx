@@ -4,7 +4,8 @@ import { View } from "react-native";
 import { useAuth } from "../../contexts/AuthContext";
 import { useResource } from "../../hooks/useResource";
 import { api } from "../../services/api";
-import type { Concert, StaffMember, TicketType } from "../../types/api";
+import { query } from "../../services/http";
+import type { Artist, Concert, StaffMember, TicketType } from "../../types/api";
 import {
   ActionFeedback,
   Button,
@@ -31,6 +32,48 @@ const location = (form: Record<string, string>) => {
   const value = (key: string) => form[key]?.trim() || (linked ? undefined : null);
   return { venue_name: value("venue_name"), address_line: value("address_line"), city_id: value("city_id") };
 };
+type Billed = { id: string; name: string };
+// Published artist profiles performing (GET /artists lists only published ones), in billing order: the first is the headliner.
+function ArtistPicker({ values, onChange }: { values: Billed[]; onChange(values: Billed[]): void }) {
+  const [open, setOpen] = useState(false);
+  const [search, setSearch] = useState("");
+  const results = useResource<Artist[]>(open ? `/artists${query({ q: search.trim(), limit: 10 })}` : null);
+  const up = (index: number) => {
+    const next = [...values];
+    [next[index - 1], next[index]] = [next[index], next[index - 1]];
+    onChange(next);
+  };
+  return (
+    <View style={{ gap: 10 }}>
+      <Copy>Perfiles de artista en el cartel</Copy>
+      <Copy muted>
+        {values.length
+          ? "El primero es el artista principal. Solo se vinculan perfiles publicados (máximo 20)."
+          : "Sin perfiles vinculados: el concierto muestra el texto de Artista."}
+      </Copy>
+      {values.map((artist, index) => (
+        <View key={artist.id} style={styles.row}>
+          <Copy>{index + 1}. {artist.name}</Copy>
+          {index > 0 && <Button title={`Subir ${artist.name}`} secondary onPress={() => up(index)} />}
+          <Button title={`Quitar ${artist.name}`} secondary danger onPress={() => onChange(values.filter((a) => a.id !== artist.id))} />
+        </View>
+      ))}
+      <Button title={open ? "Cerrar búsqueda de artistas" : "Agregar perfil de artista"} secondary onPress={() => setOpen(!open)} />
+      {open && (
+        <>
+          <Field label="Buscar perfil de artista" value={search} onChangeText={setSearch} />
+          <ResourceState {...results} empty={results.result?.data.length === 0} retry={() => void results.reload()} />
+          <View style={styles.row}>
+            {results.result?.data.filter((artist) => !values.some((value) => value.id === artist.id)).map((artist) => (
+              <Button key={artist.id} title={`Agregar ${artist.stage_name}${artist.city_name ? ` (${artist.city_name})` : ""}`} secondary
+                disabled={values.length >= 20} onPress={() => onChange([...values, { id: artist.id, name: artist.stage_name }])} />
+            ))}
+          </View>
+        </>
+      )}
+    </View>
+  );
+}
 export default function ConcertEditor() {
   const { id } = useLocalSearchParams<{ id?: string }>();
   const editing = Boolean(id && id !== "new");
@@ -39,6 +82,8 @@ export default function ConcertEditor() {
   const action = useAction();
   const [form, setForm] = useState<Record<string, string>>({});
   const [genres, setGenres] = useState<string[]>([]);
+  const [artists, setArtists] = useState<Billed[]>([]);
+  const [artistsChanged, setArtistsChanged] = useState(false);
   const [confirm, setConfirm] = useState("");
   const concert = resource.result?.data;
   const set = (key: string, value: string) =>
@@ -59,6 +104,8 @@ export default function ConcertEditor() {
         city_id: concert.city_id ?? "",
       });
       setGenres(concert.genres.map((g) => g.id));
+      setArtists(concert.artists.flatMap((a) => (a.id ? [{ id: a.id, name: a.name }] : [])));
+      setArtistsChanged(false);
     }
   }, [concert]);
   const save = () =>
@@ -76,6 +123,9 @@ export default function ConcertEditor() {
         reservation_id: form.reservation_id || null,
         ...location(form),
         genre_ids: genres,
+        // Sent only when changed: the backend re-checks every id is published, and a profile archived since the last
+        // save must not block unrelated edits.
+        ...(artistsChanged ? { artist_profile_ids: artists.map((a) => a.id) } : {}),
         ...(!editing && form.organizer_id
           ? { organizer_id: form.organizer_id }
           : {}),
@@ -151,10 +201,11 @@ export default function ConcertEditor() {
                 onChangeText={(v) => set("end_datetime", v)}
               />
               <Field
-                label="Artista"
+                label="Artista (texto del cartel)"
                 value={form.artist_name ?? ""}
                 onChangeText={(v) => set("artist_name", v)}
               />
+              <ArtistPicker values={artists} onChange={(next) => { setArtists(next); setArtistsChanged(true); }} />
               <Select
                 label="Reserva confirmada (opcional)"
                 path="/marketplace/reservations?status=CONFIRMED"
