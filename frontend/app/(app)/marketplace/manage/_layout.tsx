@@ -1,4 +1,5 @@
 import { Guard } from "../../../../src/components/layout/Shell";
+import { P } from "../../../../src/constants/access";
 export default function Layout() {
-  return <Guard roles={["ORGANIZER", "ADMIN"]} />;
+  return <Guard permissions={[P.establishmentsManage, P.marketplaceAdmin]} />;
 }

@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { router, useLocalSearchParams } from "expo-router";
 import { View } from "react-native";
 import { useAuth } from "../../contexts/AuthContext";
+import { P, can } from "../../constants/access";
 import { useResource } from "../../hooks/useResource";
 import { api } from "../../services/api";
 import type { Concert, StaffMember, TicketType } from "../../types/api";
@@ -195,7 +196,7 @@ export default function ConcertEditor() {
                 values={genres}
                 onChange={setGenres}
               />
-              {!editing && auth.roles.includes("ADMIN") && (
+              {!editing && can(auth.permissions, P.concertsManageAll) && (
                 <Field
                   label="ID del organizador (opcional)"
                   value={form.organizer_id ?? ""}

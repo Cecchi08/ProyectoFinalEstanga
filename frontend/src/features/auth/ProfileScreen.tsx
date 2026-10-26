@@ -5,6 +5,7 @@ import NotificationPreference from '../notifications/NotificationPreference';
 import { useAuth } from "../../contexts/AuthContext";
 import { useResource } from "../../hooks/useResource";
 import type { Role, User } from "../../types/api";
+import { roleLabel } from "../../constants/access";
 import {
   ActionFeedback,
   Button,
@@ -29,7 +30,8 @@ export default function ProfileScreen() {
             {profile.user.first_name} {profile.user.last_name}
           </Copy>
           <Copy>{profile.user.email}</Copy>
-          <Copy muted>{profile.roles.join(" · ")}</Copy>
+          <Copy muted>{profile.roles.map(roleLabel).join(" · ")}</Copy>
+          <Button title="Mis perfiles" secondary onPress={() => router.push("/profiles")} />
         </Card>
       )}
       <Card>

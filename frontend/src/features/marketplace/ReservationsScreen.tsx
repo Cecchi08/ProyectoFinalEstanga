@@ -8,10 +8,11 @@ import type { PaymentResult, Reservation } from "../../types/api";
 import { ActionFeedback, Button, Card, Copy, Field, Notice, Page, Pager, ResourceState, dateLabel, money, styles, useAction } from "../../components/ui";
 import { useListView } from "./QuotesScreen";
 import { range } from "./time";
+import { P } from "../../constants/access";
 
 const phases: Record<string, string> = { SETUP: "Armado", EVENT: "Evento", TEARDOWN: "Desarme" };
 export default function ReservationsScreen() {
-  const view = useListView(["HOLD", "CONFIRMED", "COMPLETED", "CANCELLED", "EXPIRED"]);
+  const view = useListView(["HOLD", "CONFIRMED", "COMPLETED", "CANCELLED", "EXPIRED"], P.reservationsManage);
   const resource = useResource<Reservation[]>(`/marketplace/reservations${view.params}`);
   return (
     <Page title="Reservas de espacios" subtitle="Reservas temporales, confirmadas y su historial.">

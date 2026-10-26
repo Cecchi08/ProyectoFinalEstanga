@@ -1,4 +1,5 @@
 import { Redirect, Slot, router, usePathname } from "expo-router";
+import type { PropsWithChildren } from "react";
 import {
   Pressable,
   ScrollView,
@@ -11,12 +12,26 @@ import { useAuth } from "../../contexts/AuthContext";
 import { PreferencesProvider } from "../../contexts/PreferencesContext";
 import { NotificationsProvider, NotificationBadge } from "../../contexts/NotificationsContext";
 import { useResource } from "../../hooks/useResource";
-import { hasRoles, type Concert, type Role } from "../../types/api";
+import { ADMIN_PERMISSIONS, P, can, type Permission } from "../../constants/access";
+import type { Concert } from "../../types/api";
 import { colors, Copy, Page, ResourceState } from "../ui";
-export function Guard({ roles }: { roles: Role[] }) {
+// Waits for GET /auth/me before deciding, so a reload never flashes "Sin permiso" nor shows a forbidden screen.
+export function Guard({ permissions, children }: PropsWithChildren<{ permissions: readonly Permission[] }>) {
   const auth = useAuth();
-  return hasRoles(auth.roles, roles) ? (
-    <Slot />
+  if (auth.accessError)
+    return (
+      <Page title="VENTI">
+        <ResourceState loading={false} error={auth.accessError} retry={auth.refreshAccess} />
+      </Page>
+    );
+  if (auth.accessLoading)
+    return (
+      <Page title="VENTI">
+        <ResourceState loading error="" retry={() => {}} />
+      </Page>
+    );
+  return can(auth.permissions, permissions) ? (
+    <>{children ?? <Slot />}</>
   ) : (
     <Page title="Sin permiso">
       <Copy>Tu cuenta no tiene acceso a esta sección.</Copy>
@@ -27,10 +42,10 @@ export default function Shell() {
   const auth = useAuth();
   const { width } = useWindowDimensions();
   const path = usePathname();
-  // Staff is a per-concert assignment: show the tab only to admins or users with at least one assignment.
-  const admin = auth.roles.includes("ADMIN");
-  const assignments = useResource<Concert[]>(auth.user && !admin ? "/staff/assignments?limit=1" : null);
-  const staff = admin || Boolean(assignments.result?.pagination?.total);
+  // Staff is a per-concert assignment: the tab shows for global validators or users with at least one assignment.
+  const validator = can(auth.permissions, P.ticketsValidate);
+  const assignments = useResource<Concert[]>(auth.user && !auth.accessLoading && !validator ? "/staff/assignments?limit=1" : null);
+  const staff = validator || Boolean(assignments.result?.pagination?.total);
   if (auth.loading)
     return (
       <Page title="VENTI">
@@ -46,13 +61,16 @@ export default function Shell() {
     { path: "/marketplace", label: "Espacios" },
     { path: "/notifications", label: "Notificaciones" },
     { path: "/profile", label: "Mi cuenta" },
-    ...(hasRoles(auth.roles, ["ORGANIZER", "ADMIN"])
+    ...(can(auth.permissions, [P.artistProfileManage, P.artistsAdmin])
+      ? [{ path: "/artists", label: "Artistas" }]
+      : []),
+    ...(can(auth.permissions, [P.concertsManage, P.concertsManageAll])
       ? [{ path: "/organizer", label: "Organizer" }]
       : []),
     ...(staff
       ? [{ path: "/staff", label: "Staff" }]
       : []),
-    ...(auth.roles.includes("ADMIN")
+    ...(can(auth.permissions, ADMIN_PERMISSIONS)
       ? [{ path: "/admin", label: "Admin" }]
       : []),
   ];

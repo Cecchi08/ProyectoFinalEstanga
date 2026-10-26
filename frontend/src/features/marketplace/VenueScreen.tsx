@@ -5,7 +5,8 @@ import { useAuth } from "../../contexts/AuthContext";
 import { useResource } from "../../hooks/useResource";
 import { api } from "../../services/api";
 import { query } from "../../services/http";
-import { hasRoles, type Availability, type OccupancyMode, type Quote, type Reservation, type VenueDetail } from "../../types/api";
+import type { Availability, OccupancyMode, Quote, Reservation, VenueDetail } from "../../types/api";
+import { P, can } from "../../constants/access";
 import { ActionFeedback, Button, Card, Copy, Field, Notice, Page, ResourceState, money, styles, useAction } from "../../components/ui";
 import { capacityLabel } from "./MarketplaceScreen";
 import { days, isDate, range, slot } from "./time";
@@ -13,7 +14,7 @@ import { days, isDate, range, slot } from "./time";
 const modes: [OccupancyMode, string][] = [["VENUE", "Solo el espacio"], ["ESTABLISHMENT", "Establecimiento completo"]];
 export default function VenueScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
-  const { roles } = useAuth();
+  const { permissions } = useAuth();
   const resource = useResource<VenueDetail>(`/marketplace/venues/${id}`);
   const venue = resource.result?.data;
   const [form, setForm] = useState<Record<string, string>>({});
@@ -22,7 +23,10 @@ export default function VenueScreen() {
   const check = useAction();
   const book = useAction();
   const set = (key: string, value: string) => setForm((current) => ({ ...current, [key]: value }));
-  const requester = hasRoles(roles, ["CUSTOMER", "ORGANIZER", "ADMIN"]);
+  // Booking and quoting are separate grants (marketplace.reservations.create / marketplace.quotes.request).
+  const booking = can(permissions, [P.reservationsCreate, P.marketplaceAdmin]);
+  const quoting = can(permissions, [P.quotesRequest, P.marketplaceAdmin]);
+  const requester = booking || quoting;
   // Whole day (no times) or the exact requested slot.
   const lookup = () => check.run(async () => {
     if (!isDate(form.date ?? "")) throw new Error("Ingresá la fecha como AAAA-MM-DD.");
@@ -116,8 +120,8 @@ export default function VenueScreen() {
               <Field label="Notas (opcional)" multiline value={form.notes ?? ""} onChangeText={(v) => set("notes", v)} />
               <ActionFeedback action={book} />
               <View style={styles.row}>
-                <Button title="Reservar al precio de lista" disabled={book.busy || mode !== "VENUE"} onPress={() => void reserve()} />
-                <Button title="Pedir presupuesto" secondary disabled={book.busy} onPress={() => void requestQuote()} />
+                {booking && <Button title="Reservar al precio de lista" disabled={book.busy || mode !== "VENUE"} onPress={() => void reserve()} />}
+                {quoting && <Button title="Pedir presupuesto" secondary disabled={book.busy} onPress={() => void requestQuote()} />}
               </View>
               <Copy muted>
                 {mode === "VENUE"
@@ -126,7 +130,7 @@ export default function VenueScreen() {
               </Copy>
             </Card>
           ) : (
-            <Copy muted>Ingresá con una cuenta registrada para reservar o pedir presupuesto.</Copy>
+            <Copy muted>Reservar y pedir presupuesto requieren el perfil Artista u Organizador. Podés activar Artista desde Mi cuenta → Mis perfiles.</Copy>
           )}
         </>
       )}
