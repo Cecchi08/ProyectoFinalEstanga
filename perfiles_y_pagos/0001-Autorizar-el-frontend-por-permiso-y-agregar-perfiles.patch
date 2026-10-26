@@ -1,0 +1,1738 @@
+From 1956b3e9bab29fb8bdf9232748f0103011eff62d Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Mon, 26 Oct 2026 14:16:45 +0000
+Subject: [PATCH 1/2] Autorizar el frontend por permiso y agregar perfiles y
+ artistas
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+La API autoriza por permiso, así que el frontend hace lo mismo: se reemplaza
+hasRoles por can(permissions, codes) y se incorporan los 7 perfiles nuevos.
+AuthContext carga GET /auth/me, porque login y refresh devuelven los perfiles
+pero no los permisos, y expone can(). Los guards esperan esa carga en lugar de
+negar el acceso mientras está en vuelo.
+
+Pantallas nuevas: autoservicio de COMPRADOR y ARTISTA sobre /me/profiles,
+administración de perfiles con auditoría sobre /admin/users y /admin/audit, y
+perfiles de artista propios con integrantes, publicación y archivado.
+
+Co-Authored-By: Claude Opus 5.5 (1M context) <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_019T7p4Gs4ZaEtQmA3Yi6tLz
+---
+ frontend/app/(app)/admin/_layout.tsx          |   2 +-
+ frontend/app/(app)/admin/audit.tsx            |   9 +
+ frontend/app/(app)/admin/concerts.tsx         |   7 +-
+ frontend/app/(app)/admin/statistics.tsx       |   9 +-
+ frontend/app/(app)/admin/users/[id].tsx       |   2 +
+ frontend/app/(app)/admin/users/_layout.tsx    |   4 +
+ frontend/app/(app)/admin/users/index.tsx      |   1 +
+ frontend/app/(app)/artists/[id].tsx           |   2 +
+ frontend/app/(app)/artists/_layout.tsx        |   4 +
+ frontend/app/(app)/artists/index.tsx          |   1 +
+ .../app/(app)/marketplace/manage/_layout.tsx  |   2 +-
+ frontend/app/(app)/organizer/_layout.tsx      |   2 +-
+ frontend/app/(app)/organizer/statistics.tsx   |   5 +-
+ frontend/app/(app)/profiles.tsx               |   1 +
+ frontend/src/components/layout/Shell.tsx      |  58 ++-
+ frontend/src/contexts/AuthContext.tsx         |  68 +++-
+ frontend/src/features/admin/AdminScreen.tsx   |  30 +-
+ frontend/src/features/admin/UsersScreen.tsx   | 316 +++++++++++++++
+ .../src/features/artists/ArtistsScreen.tsx    | 377 ++++++++++++++++++
+ frontend/src/features/auth/ProfileScreen.tsx  |  21 +-
+ frontend/src/features/auth/ProfilesScreen.tsx | 103 +++++
+ .../src/features/concerts/ConcertList.tsx     |   8 +-
+ .../marketplace/MarketplaceScreen.tsx         |   9 +-
+ .../src/features/marketplace/QuotesScreen.tsx |  15 +-
+ .../marketplace/ReservationsScreen.tsx        |   2 +-
+ .../src/features/marketplace/VenueScreen.tsx  |   6 +-
+ .../src/features/organizer/ConcertEditor.tsx  |   2 +-
+ frontend/src/features/staff/StaffScreen.tsx   |   4 +-
+ frontend/src/types/api.ts                     | 133 +++++-
+ frontend/tests/http.test.ts                   |  14 +-
+ 30 files changed, 1155 insertions(+), 62 deletions(-)
+ create mode 100644 frontend/app/(app)/admin/audit.tsx
+ create mode 100644 frontend/app/(app)/admin/users/[id].tsx
+ create mode 100644 frontend/app/(app)/admin/users/_layout.tsx
+ create mode 100644 frontend/app/(app)/admin/users/index.tsx
+ create mode 100644 frontend/app/(app)/artists/[id].tsx
+ create mode 100644 frontend/app/(app)/artists/_layout.tsx
+ create mode 100644 frontend/app/(app)/artists/index.tsx
+ create mode 100644 frontend/app/(app)/profiles.tsx
+ create mode 100644 frontend/src/features/admin/UsersScreen.tsx
+ create mode 100644 frontend/src/features/artists/ArtistsScreen.tsx
+ create mode 100644 frontend/src/features/auth/ProfilesScreen.tsx
+
+diff --git a/frontend/app/(app)/admin/_layout.tsx b/frontend/app/(app)/admin/_layout.tsx
+index 48d6ac1..e2b97a2 100644
+--- a/frontend/app/(app)/admin/_layout.tsx
++++ b/frontend/app/(app)/admin/_layout.tsx
+@@ -1,4 +1,4 @@
+ import { Guard } from "../../../src/components/layout/Shell";
+ export default function Layout() {
+-  return <Guard roles={["ADMIN"]} />;
++  return <Guard permissions={["users.manage", "catalogs.manage", "statistics.global"]} />;
+ }
+diff --git a/frontend/app/(app)/admin/audit.tsx b/frontend/app/(app)/admin/audit.tsx
+new file mode 100644
+index 0000000..fdbf66b
+--- /dev/null
++++ b/frontend/app/(app)/admin/audit.tsx
+@@ -0,0 +1,9 @@
++import { Require } from "../../../src/components/layout/Shell";
++import { AuditScreen } from "../../../src/features/admin/UsersScreen";
++export default function Screen() {
++  return (
++    <Require permissions={["users.manage"]}>
++      <AuditScreen />
++    </Require>
++  );
++}
+diff --git a/frontend/app/(app)/admin/concerts.tsx b/frontend/app/(app)/admin/concerts.tsx
+index 43b2e3d..0b010f5 100644
+--- a/frontend/app/(app)/admin/concerts.tsx
++++ b/frontend/app/(app)/admin/concerts.tsx
+@@ -1,4 +1,9 @@
++import { Require } from "../../../src/components/layout/Shell";
+ import ConcertList from "../../../src/features/concerts/ConcertList";
+ export default function Screen() {
+-  return <ConcertList mode="admin" />;
++  return (
++    <Require permissions={["concerts.manage_all"]}>
++      <ConcertList mode="admin" />
++    </Require>
++  );
+ }
+diff --git a/frontend/app/(app)/admin/statistics.tsx b/frontend/app/(app)/admin/statistics.tsx
+index b9a8d93..108b45b 100644
+--- a/frontend/app/(app)/admin/statistics.tsx
++++ b/frontend/app/(app)/admin/statistics.tsx
+@@ -1,2 +1,9 @@
++import { Require } from '../../../src/components/layout/Shell';
+ import StatisticsScreen from '../../../src/features/statistics/StatisticsScreen';
+-export default function Screen() { return <StatisticsScreen global />; }
++export default function Screen() {
++  return (
++    <Require permissions={['statistics.global']}>
++      <StatisticsScreen global />
++    </Require>
++  );
++}
+diff --git a/frontend/app/(app)/admin/users/[id].tsx b/frontend/app/(app)/admin/users/[id].tsx
+new file mode 100644
+index 0000000..49f038a
+--- /dev/null
++++ b/frontend/app/(app)/admin/users/[id].tsx
+@@ -0,0 +1,2 @@
++import { UserScreen } from "../../../../src/features/admin/UsersScreen";
++export default UserScreen;
+diff --git a/frontend/app/(app)/admin/users/_layout.tsx b/frontend/app/(app)/admin/users/_layout.tsx
+new file mode 100644
+index 0000000..bddde6b
+--- /dev/null
++++ b/frontend/app/(app)/admin/users/_layout.tsx
+@@ -0,0 +1,4 @@
++import { Guard } from "../../../../src/components/layout/Shell";
++export default function Layout() {
++  return <Guard permissions={["users.manage"]} />;
++}
+diff --git a/frontend/app/(app)/admin/users/index.tsx b/frontend/app/(app)/admin/users/index.tsx
+new file mode 100644
+index 0000000..7cca1e5
+--- /dev/null
++++ b/frontend/app/(app)/admin/users/index.tsx
+@@ -0,0 +1 @@
++export { default } from "../../../../src/features/admin/UsersScreen";
+diff --git a/frontend/app/(app)/artists/[id].tsx b/frontend/app/(app)/artists/[id].tsx
+new file mode 100644
+index 0000000..38965d5
+--- /dev/null
++++ b/frontend/app/(app)/artists/[id].tsx
+@@ -0,0 +1,2 @@
++import { ArtistScreen } from "../../../src/features/artists/ArtistsScreen";
++export default ArtistScreen;
+diff --git a/frontend/app/(app)/artists/_layout.tsx b/frontend/app/(app)/artists/_layout.tsx
+new file mode 100644
+index 0000000..3f5f900
+--- /dev/null
++++ b/frontend/app/(app)/artists/_layout.tsx
+@@ -0,0 +1,4 @@
++import { Guard } from "../../../src/components/layout/Shell";
++export default function Layout() {
++  return <Guard permissions={["artist.profile.manage", "artists.admin"]} />;
++}
+diff --git a/frontend/app/(app)/artists/index.tsx b/frontend/app/(app)/artists/index.tsx
+new file mode 100644
+index 0000000..9e553fd
+--- /dev/null
++++ b/frontend/app/(app)/artists/index.tsx
+@@ -0,0 +1 @@
++export { default } from "../../../src/features/artists/ArtistsScreen";
+diff --git a/frontend/app/(app)/marketplace/manage/_layout.tsx b/frontend/app/(app)/marketplace/manage/_layout.tsx
+index 10f5f73..a54d4ad 100644
+--- a/frontend/app/(app)/marketplace/manage/_layout.tsx
++++ b/frontend/app/(app)/marketplace/manage/_layout.tsx
+@@ -1,4 +1,4 @@
+ import { Guard } from "../../../../src/components/layout/Shell";
+ export default function Layout() {
+-  return <Guard roles={["ORGANIZER", "ADMIN"]} />;
++  return <Guard permissions={["marketplace.establishments.manage", "marketplace.admin"]} />;
+ }
+diff --git a/frontend/app/(app)/organizer/_layout.tsx b/frontend/app/(app)/organizer/_layout.tsx
+index 06c2114..824aad8 100644
+--- a/frontend/app/(app)/organizer/_layout.tsx
++++ b/frontend/app/(app)/organizer/_layout.tsx
+@@ -1,4 +1,4 @@
+ import { Guard } from "../../../src/components/layout/Shell";
+ export default function Layout() {
+-  return <Guard roles={["ORGANIZER", "ADMIN"]} />;
++  return <Guard permissions={["concerts.manage", "concerts.manage_all"]} />;
+ }
+diff --git a/frontend/app/(app)/organizer/statistics.tsx b/frontend/app/(app)/organizer/statistics.tsx
+index 3012f88..214b7ae 100644
+--- a/frontend/app/(app)/organizer/statistics.tsx
++++ b/frontend/app/(app)/organizer/statistics.tsx
+@@ -1,7 +1,8 @@
+ import { useAuth } from '../../../src/contexts/AuthContext';
+ import { Page, Copy } from '../../../src/components/ui';
+ import StatisticsScreen from '../../../src/features/statistics/StatisticsScreen';
++// GET /organizer/statistics requires statistics.own and always filters by the signed-in organizer.
+ export default function Screen() {
+-  const { roles } = useAuth();
+-  return roles.includes('ORGANIZER') ? <StatisticsScreen /> : <Page title="Sin permiso"><Copy>Se requiere el rol Organizer.</Copy></Page>;
++  const { can } = useAuth();
++  return can('statistics.own') ? <StatisticsScreen /> : <Page title="Sin permiso"><Copy>Necesitás el perfil ORGANIZADOR para ver estadísticas de tus conciertos.</Copy></Page>;
+ }
+diff --git a/frontend/app/(app)/profiles.tsx b/frontend/app/(app)/profiles.tsx
+new file mode 100644
+index 0000000..8c75618
+--- /dev/null
++++ b/frontend/app/(app)/profiles.tsx
+@@ -0,0 +1 @@
++export { default } from "../../src/features/auth/ProfilesScreen";
+diff --git a/frontend/src/components/layout/Shell.tsx b/frontend/src/components/layout/Shell.tsx
+index ef105f6..59e10f9 100644
+--- a/frontend/src/components/layout/Shell.tsx
++++ b/frontend/src/components/layout/Shell.tsx
+@@ -1,4 +1,5 @@
+ import { Redirect, Slot, router, usePathname } from "expo-router";
++import { type PropsWithChildren } from "react";
+ import {
+   Pressable,
+   ScrollView,
+@@ -11,26 +12,58 @@ import { useAuth } from "../../contexts/AuthContext";
+ import { PreferencesProvider } from "../../contexts/PreferencesContext";
+ import { NotificationsProvider, NotificationBadge } from "../../contexts/NotificationsContext";
+ import { useResource } from "../../hooks/useResource";
+-import { hasRoles, type Concert, type Role } from "../../types/api";
++import type { Concert, Permission } from "../../types/api";
+ import { colors, Copy, Page, ResourceState } from "../ui";
+-export function Guard({ roles }: { roles: Role[] }) {
++// Sections are gated by permission, like the API. While /auth/me is in flight the decision
++// is not known yet, so the guard waits instead of denying.
++export function Require({
++  permissions,
++  children,
++}: PropsWithChildren<{ permissions: Permission[] }>) {
+   const auth = useAuth();
+-  return hasRoles(auth.roles, roles) ? (
+-    <Slot />
++  if (auth.accessLoading)
++    return (
++      <Page title="VENTI">
++        <ResourceState loading error="" retry={() => {}} />
++      </Page>
++    );
++  if (auth.accessError)
++    return (
++      <Page title="VENTI">
++        <ResourceState
++          loading={false}
++          error={auth.accessError}
++          retry={() => void auth.reloadAccess()}
++        />
++      </Page>
++    );
++  return auth.can(...permissions) ? (
++    children
+   ) : (
+     <Page title="Sin permiso">
+       <Copy>Tu cuenta no tiene acceso a esta sección.</Copy>
+     </Page>
+   );
+ }
++// Layout version: guards every route under the folder.
++export function Guard({ permissions }: { permissions: Permission[] }) {
++  return (
++    <Require permissions={permissions}>
++      <Slot />
++    </Require>
++  );
++}
+ export default function Shell() {
+   const auth = useAuth();
+   const { width } = useWindowDimensions();
+   const path = usePathname();
+-  // Staff is a per-concert assignment: show the tab only to admins or users with at least one assignment.
+-  const admin = auth.roles.includes("ADMIN");
+-  const assignments = useResource<Concert[]>(auth.user && !admin ? "/staff/assignments?limit=1" : null);
+-  const staff = admin || Boolean(assignments.result?.pagination?.total);
++  // Staff is a per-concert assignment: show the tab to anyone who can validate any ticket
++  // (tickets.validate) or who has at least one assignment.
++  const validator = auth.can("tickets.validate");
++  const assignments = useResource<Concert[]>(
++    auth.user && !auth.accessLoading && !validator ? "/staff/assignments?limit=1" : null,
++  );
++  const staff = validator || Boolean(assignments.result?.pagination?.total);
+   if (auth.loading)
+     return (
+       <Page title="VENTI">
+@@ -46,13 +79,16 @@ export default function Shell() {
+     { path: "/marketplace", label: "Espacios" },
+     { path: "/notifications", label: "Notificaciones" },
+     { path: "/profile", label: "Mi cuenta" },
+-    ...(hasRoles(auth.roles, ["ORGANIZER", "ADMIN"])
+-      ? [{ path: "/organizer", label: "Organizer" }]
++    ...(auth.can("artist.profile.manage", "artists.admin")
++      ? [{ path: "/artists", label: "Mi artista" }]
++      : []),
++    ...(auth.can("concerts.manage", "concerts.manage_all")
++      ? [{ path: "/organizer", label: "Organizador" }]
+       : []),
+     ...(staff
+       ? [{ path: "/staff", label: "Staff" }]
+       : []),
+-    ...(auth.roles.includes("ADMIN")
++    ...(auth.can("users.manage", "catalogs.manage", "statistics.global")
+       ? [{ path: "/admin", label: "Admin" }]
+       : []),
+   ];
+diff --git a/frontend/src/contexts/AuthContext.tsx b/frontend/src/contexts/AuthContext.tsx
+index 17b4cd0..d10af55 100644
+--- a/frontend/src/contexts/AuthContext.tsx
++++ b/frontend/src/contexts/AuthContext.tsx
+@@ -1,17 +1,30 @@
+ import {
+   createContext,
++  useCallback,
+   useContext,
+   useEffect,
++  useRef,
+   useState,
+   type PropsWithChildren,
+ } from "react";
+ import { api } from "../services/api";
+-import type { Role, Session, User } from "../types/api";
++import type { Access, Me, Permission, Role, Session, User } from "../types/api";
++import { can as allows } from "../types/api";
+ interface Auth {
+   user: User | null;
+   roles: Role[];
++  permissions: Permission[];
+   loading: boolean;
+   error: string;
++  // GET /auth/me: login and refresh return the profiles but not the permissions,
++  // so screens wait for this before deciding what to show.
++  accessLoading: boolean;
++  accessError: string;
++  can(...codes: Permission[]): boolean;
++  reloadAccess(): Promise<void>;
++  // Replaces the known profiles and permissions with what a write already returned
++  // (POST /me/profiles answers with the rebuilt access).
++  applyAccess(access: Access): void;
+   login(email: string, password: string): Promise<void>;
+   accept(session: Session): Promise<void>;
+   logout(): Promise<void>;
+@@ -21,6 +34,38 @@ export function AuthProvider({ children }: PropsWithChildren) {
+   const [session, setSession] = useState<Session | null>(null);
+   const [loading, setLoading] = useState(true);
+   const [error, setError] = useState("");
++  const [access, setAccess] = useState<Access | null>(null);
++  const [accessLoading, setAccessLoading] = useState(false);
++  const [accessError, setAccessError] = useState("");
++  const sequence = useRef(0);
++  const userId = session?.user.id ?? null;
++  const loadAccess = useCallback(async () => {
++    const request = ++sequence.current;
++    if (!userId) {
++      setAccess(null);
++      setAccessLoading(false);
++      setAccessError("");
++      return;
++    }
++    setAccessLoading(true);
++    setAccessError("");
++    try {
++      const { data } = await api.request<Me>("/auth/me");
++      if (request === sequence.current)
++        setAccess({ roles: data.roles, permissions: data.permissions ?? [] });
++    } catch (e) {
++      if (request === sequence.current) {
++        setAccess(null);
++        setAccessError(
++          e instanceof Error
++            ? e.message
++            : "No se pudieron cargar tus permisos.",
++        );
++      }
++    } finally {
++      if (request === sequence.current) setAccessLoading(false);
++    }
++  }, [userId]);
+   useEffect(() => {
+     api.onSession = setSession;
+     api
+@@ -35,13 +80,32 @@ export function AuthProvider({ children }: PropsWithChildren) {
+       api.onSession = () => {};
+     };
+   }, []);
++  useEffect(() => {
++    void loadAccess();
++    return () => {
++      sequence.current++;
++    };
++  }, [loadAccess]);
++  const permissions = access?.permissions ?? [];
+   return (
+     <Context.Provider
+       value={{
+         user: session?.user ?? null,
+-        roles: session?.roles ?? [],
++        // /auth/me is authoritative: a profile granted after login shows up on the next load.
++        roles: access?.roles ?? session?.roles ?? [],
++        permissions,
+         loading,
+         error,
++        accessLoading,
++        accessError,
++        can: (...codes) => allows(permissions, codes),
++        reloadAccess: loadAccess,
++        applyAccess: (next) => {
++          sequence.current++;
++          setAccess({ roles: next.roles, permissions: next.permissions ?? [] });
++          setAccessError("");
++          setAccessLoading(false);
++        },
+         login: async (email, password) => {
+           const result = await api.request<Session>("/auth/login", {
+             method: "POST",
+diff --git a/frontend/src/features/admin/AdminScreen.tsx b/frontend/src/features/admin/AdminScreen.tsx
+index 53b2701..8908ef9 100644
+--- a/frontend/src/features/admin/AdminScreen.tsx
++++ b/frontend/src/features/admin/AdminScreen.tsx
+@@ -1,6 +1,7 @@
+ import { useEffect, useState } from "react";
+ import { View } from "react-native";
+ import { router } from "expo-router";
++import { useAuth } from "../../contexts/AuthContext";
+ import { useResource } from "../../hooks/useResource";
+ import { api } from "../../services/api";
+ import { query } from "../../services/http";
+@@ -35,16 +36,31 @@ export default function AdminScreen() {
+   const [selected, setSelected] = useState<CatalogItem | null | undefined>(
+     undefined,
+   );
++  // Each button needs the same permission the endpoint behind it requires.
++  const { can } = useAuth();
++  const catalogs = can("catalogs.manage");
+   const resource = useResource<CatalogItem[]>(
+-    `/${kind}${query({ page, q: search.trim() })}`,
++    catalogs ? `/${kind}${query({ page, q: search.trim() })}` : null,
+   );
+   return (
+     <Page title="Administración">
+-      <Button title="Estadísticas globales" onPress={() => router.push('/admin/statistics')} />
+-      <Button
+-        title="Gestionar todos los conciertos"
+-        onPress={() => router.push("/admin/concerts")}
+-      />
++      {can("users.manage") && (
++        <>
++          <Button title="Perfiles de usuarios" onPress={() => router.push("/admin/users")} />
++          <Button title="Auditoría de perfiles" secondary onPress={() => router.push("/admin/audit")} />
++        </>
++      )}
++      {can("statistics.global") && (
++        <Button title="Estadísticas globales" onPress={() => router.push('/admin/statistics')} />
++      )}
++      {can("concerts.manage_all") && (
++        <Button
++          title="Gestionar todos los conciertos"
++          onPress={() => router.push("/admin/concerts")}
++        />
++      )}
++      {!catalogs ? null : (
++      <>
+       <View style={styles.row}>
+         {(Object.keys(names) as Catalog[]).map((key) => (
+           <Button
+@@ -100,6 +116,8 @@ export default function AdminScreen() {
+         </Card>
+       ))}
+       <Pager pagination={resource.result?.pagination} onPage={setPage} />
++      </>
++      )}
+     </Page>
+   );
+ }
+diff --git a/frontend/src/features/admin/UsersScreen.tsx b/frontend/src/features/admin/UsersScreen.tsx
+new file mode 100644
+index 0000000..c324eda
+--- /dev/null
++++ b/frontend/src/features/admin/UsersScreen.tsx
+@@ -0,0 +1,316 @@
++import { useState } from "react";
++import { View } from "react-native";
++import { router, useLocalSearchParams } from "expo-router";
++import { useResource } from "../../hooks/useResource";
++import { api } from "../../services/api";
++import { query } from "../../services/http";
++import {
++  ASSIGNABLE_ROLES,
++  ROLE_LABELS,
++  ROLES,
++  type AdminUser,
++  type AuditEntry,
++  type Role,
++  type RoleChange,
++} from "../../types/api";
++import {
++  ActionFeedback,
++  Button,
++  Card,
++  Copy,
++  Field,
++  Page,
++  Pager,
++  ResourceState,
++  dateLabel,
++  styles,
++  useAction,
++} from "../../components/ui";
++const fullName = (user: {
++  first_name: string | null;
++  last_name: string | null;
++  email: string | null;
++}) =>
++  [user.first_name, user.last_name].filter(Boolean).join(" ") ||
++  user.email ||
++  "Cuenta sin nombre";
++const profiles = (roles: Role[]) =>
++  roles.length ? roles.map((role) => ROLE_LABELS[role]).join(" · ") : "Sin perfiles";
++// GET /admin/users (users.manage). Search covers email and name; the filter uses role codes.
++export default function UsersScreen() {
++  const [page, setPage] = useState(1);
++  const [search, setSearch] = useState("");
++  const [role, setRole] = useState<Role | "">("");
++  const resource = useResource<AdminUser[]>(
++    `/admin/users${query({ page, q: search.trim(), role: role || undefined })}`,
++  );
++  return (
++    <Page
++      title="Perfiles de usuarios"
++      subtitle="Asigná y quitá perfiles. Cada cambio queda registrado en la auditoría."
++    >
++      <View style={styles.row}>
++        <Button title="Ver auditoría" secondary onPress={() => router.push("/admin/audit")} />
++        <Button title="Volver a administración" secondary onPress={() => router.push("/admin")} />
++      </View>
++      <Field
++        label="Buscar por nombre o email"
++        value={search}
++        onChangeText={(value) => {
++          setSearch(value);
++          setPage(1);
++        }}
++      />
++      <View style={styles.row}>
++        {["", ...ROLES].map((value) => (
++          <Button
++            key={value || "all"}
++            title={value ? ROLE_LABELS[value as Role] : "Todos"}
++            secondary={role !== value}
++            onPress={() => {
++              setRole(value as Role | "");
++              setPage(1);
++            }}
++          />
++        ))}
++      </View>
++      <ResourceState
++        {...resource}
++        empty={resource.result?.data.length === 0}
++        retry={() => void resource.reload()}
++      />
++      {resource.result?.data.map((user) => (
++        <Card key={user.id}>
++          <Copy>{fullName(user)}</Copy>
++          <Copy muted>
++            #{user.id} · {user.email ?? "sin email"} · {user.status}
++            {user.is_guest ? " · invitado" : ""}
++          </Copy>
++          <Copy muted>{profiles(user.roles)}</Copy>
++          <Button
++            title={`Gestionar perfiles de ${fullName(user)}`}
++            onPress={() => router.push(`/admin/users/${user.id}`)}
++          />
++        </Card>
++      ))}
++      <Pager pagination={resource.result?.pagination} onPage={setPage} />
++    </Page>
++  );
++}
++// POST /admin/users/:id/roles and DELETE /admin/users/:id/roles/:role. The API refuses to
++// leave an account without profiles (LAST_ROLE) or the platform without an active ADMIN (LAST_ADMIN).
++export function UserScreen() {
++  const { id } = useLocalSearchParams<{ id: string }>();
++  const resource = useResource<AdminUser>(`/admin/users/${id}`);
++  const audit = useResource<AuditEntry[]>(
++    `/admin/audit${query({ target_user_id: id, limit: 10 })}`,
++  );
++  const user = resource.result?.data;
++  const action = useAction();
++  const [reason, setReason] = useState("");
++  const [confirm, setConfirm] = useState<Role | null>(null);
++  const apply = (role: Role, grant: boolean) =>
++    action.run(async () => {
++      const { data } = await api.request<RoleChange>(
++        grant
++          ? `/admin/users/${id}/roles`
++          : `/admin/users/${id}/roles/${role}`,
++        grant
++          ? { method: "POST", body: { role, reason: reason.trim() || null } }
++          : { method: "DELETE", body: { reason: reason.trim() || null } },
++      );
++      setConfirm(null);
++      setReason("");
++      await resource.reload();
++      await audit.reload();
++      action.setMessage(
++        data.changed
++          ? `Perfil ${ROLE_LABELS[role]} ${grant ? "asignado" : "quitado"}.`
++          : `La cuenta ya tenía el perfil ${ROLE_LABELS[role]}.`,
++      );
++    });
++  return (
++    <Page title={user ? fullName(user) : "Cuenta"}>
++      <ResourceState {...resource} retry={() => void resource.reload()} />
++      <ActionFeedback action={action} />
++      {user && (
++        <>
++          <Card>
++            <Copy>
++              #{user.id} · {user.email ?? "sin email"}
++            </Copy>
++            <Copy muted>
++              Estado {user.status}
++              {user.is_guest ? " · cuenta de invitado" : ""} ·{" "}
++              {user.email_verified_at
++                ? `email verificado ${dateLabel(user.email_verified_at)}`
++                : "email sin verificar"}
++            </Copy>
++            <Copy muted>
++              Alta {dateLabel(user.created_at)}
++              {user.last_login_at
++                ? ` · último ingreso ${dateLabel(user.last_login_at)}`
++                : " · nunca ingresó"}
++            </Copy>
++            <Copy muted>{profiles(user.roles)}</Copy>
++          </Card>
++          {(user.is_guest || user.status !== "ACTIVE") && (
++            <Card>
++              <Copy muted>
++                Solo se asignan perfiles a cuentas registradas y activas.
++              </Copy>
++            </Card>
++          )}
++          <Card>
++            <Copy>Perfiles</Copy>
++            <Copy muted>
++              GUEST no se asigna ni se quita a mano: es parte del flujo de invitado.
++            </Copy>
++            <Field
++              label="Motivo (opcional, queda en la auditoría)"
++              value={reason}
++              onChangeText={setReason}
++            />
++            {ASSIGNABLE_ROLES.map((role) => {
++              const held = user.roles.includes(role);
++              return (
++                <View key={role} style={styles.row}>
++                  <Copy>
++                    {ROLE_LABELS[role]} · {held ? "asignado" : "no asignado"}
++                  </Copy>
++                  {held ? (
++                    <Button
++                      title={
++                        confirm === role
++                          ? `Confirmar quitar ${ROLE_LABELS[role]}`
++                          : `Quitar ${ROLE_LABELS[role]}`
++                      }
++                      secondary
++                      danger
++                      disabled={action.busy}
++                      onPress={() =>
++                        confirm === role
++                          ? void apply(role, false)
++                          : setConfirm(role)
++                      }
++                    />
++                  ) : (
++                    <Button
++                      title={`Asignar ${ROLE_LABELS[role]}`}
++                      secondary
++                      disabled={action.busy || user.is_guest || user.status !== "ACTIVE"}
++                      onPress={() => void apply(role, true)}
++                    />
++                  )}
++                </View>
++              );
++            })}
++          </Card>
++          <Card>
++            <Copy>Últimos cambios de esta cuenta</Copy>
++            <ResourceState
++              {...audit}
++              empty={audit.result?.data.length === 0}
++              retry={() => void audit.reload()}
++            />
++            {audit.result?.data.map((entry) => (
++              <Copy key={entry.id} muted>
++                {dateLabel(entry.created_at)} · {ACTIONS[entry.action]} ·{" "}
++                {entry.role ? ROLE_LABELS[entry.role] : "—"} · por #
++                {entry.actor_user_id}
++              </Copy>
++            ))}
++          </Card>
++        </>
++      )}
++      <Button title="Volver al listado" secondary onPress={() => router.push("/admin/users")} />
++    </Page>
++  );
++}
++export const ACTIONS: Record<AuditEntry["action"], string> = {
++  ROLE_GRANTED: "Perfil asignado",
++  ROLE_REVOKED: "Perfil quitado",
++  ROLE_SELF_ACTIVATED: "Perfil activado por el usuario",
++};
++// GET /admin/audit (users.manage), newest first, filterable by target or actor.
++export function AuditScreen() {
++  const [page, setPage] = useState(1);
++  const [target, setTarget] = useState("");
++  const [actor, setActor] = useState("");
++  const resource = useResource<AuditEntry[]>(
++    `/admin/audit${query({
++      page,
++      target_user_id: target.trim() || undefined,
++      actor_user_id: actor.trim() || undefined,
++    })}`,
++  );
++  // MySQL JSON arrives parsed, but a driver that hands it back as text must not break the list.
++  const detail = (entry: AuditEntry) => {
++    let details: Record<string, unknown> | null;
++    try {
++      details =
++        typeof entry.details === "string"
++          ? (JSON.parse(entry.details) as Record<string, unknown>)
++          : entry.details;
++    } catch {
++      details = null;
++    }
++    const parts = [
++      details?.target_email ? String(details.target_email) : "",
++      details?.reason ? `Motivo: ${String(details.reason)}` : "",
++    ];
++    return parts.filter(Boolean).join(" · ");
++  };
++  return (
++    <Page
++      title="Auditoría de perfiles"
++      subtitle="Cada asignación, baja y autoservicio, de lo más nuevo a lo más viejo."
++    >
++      <View style={styles.row}>
++        <Button title="Ver usuarios" secondary onPress={() => router.push("/admin/users")} />
++      </View>
++      <Field
++        label="ID de la cuenta afectada (opcional)"
++        value={target}
++        keyboardType="numeric"
++        onChangeText={(value) => {
++          setTarget(value.replace(/\D/g, ""));
++          setPage(1);
++        }}
++      />
++      <Field
++        label="ID de quien hizo el cambio (opcional)"
++        value={actor}
++        keyboardType="numeric"
++        onChangeText={(value) => {
++          setActor(value.replace(/\D/g, ""));
++          setPage(1);
++        }}
++      />
++      <ResourceState
++        {...resource}
++        empty={resource.result?.data.length === 0}
++        retry={() => void resource.reload()}
++      />
++      {resource.result?.data.map((entry) => (
++        <Card key={entry.id}>
++          <Copy>
++            {ACTIONS[entry.action]} ·{" "}
++            {entry.role ? ROLE_LABELS[entry.role] : "perfil eliminado"}
++          </Copy>
++          <Copy muted>
++            {dateLabel(entry.created_at)} · cuenta #{entry.target_user_id} · por #
++            {entry.actor_user_id}
++          </Copy>
++          {detail(entry) ? <Copy muted>{detail(entry)}</Copy> : null}
++          <Button
++            title={`Ver cuenta #${entry.target_user_id}`}
++            secondary
++            onPress={() => router.push(`/admin/users/${entry.target_user_id}`)}
++          />
++        </Card>
++      ))}
++      <Pager pagination={resource.result?.pagination} onPage={setPage} />
++    </Page>
++  );
++}
+diff --git a/frontend/src/features/artists/ArtistsScreen.tsx b/frontend/src/features/artists/ArtistsScreen.tsx
+new file mode 100644
+index 0000000..71fa34d
+--- /dev/null
++++ b/frontend/src/features/artists/ArtistsScreen.tsx
+@@ -0,0 +1,377 @@
++import { useEffect, useState } from "react";
++import { View } from "react-native";
++import { router, useLocalSearchParams } from "expo-router";
++import { useAuth } from "../../contexts/AuthContext";
++import { useResource } from "../../hooks/useResource";
++import { api } from "../../services/api";
++import type {
++  Artist,
++  ArtistDetail,
++  ArtistMember,
++  MemberRole,
++} from "../../types/api";
++import {
++  ActionFeedback,
++  Button,
++  Card,
++  Copy,
++  Field,
++  Page,
++  ResourceState,
++  dateLabel,
++  styles,
++  useAction,
++} from "../../components/ui";
++import { Select } from "../../components/ui/Select";
++const STATUS: Record<Artist["status"], string> = {
++  DRAFT: "Borrador",
++  PUBLISHED: "Publicado",
++  ARCHIVED: "Archivado",
++};
++const memberName = (member: ArtistMember) =>
++  [member.first_name, member.last_name].filter(Boolean).join(" ") ||
++  member.email ||
++  `Cuenta #${member.user_id}`;
++// GET /artists/mine returns every profile the account belongs to, in any state, without pagination.
++export default function ArtistsScreen() {
++  const resource = useResource<Artist[]>("/artists/mine");
++  const [creating, setCreating] = useState(false);
++  return (
++    <Page
++      title="Mis perfiles de artista"
++      subtitle="Tu perfil o el de tu banda. Con él pedís presupuestos y reservás espacios."
++    >
++      <Button
++        title={creating ? "Cancelar creación" : "Crear perfil de artista"}
++        onPress={() => setCreating(!creating)}
++      />
++      {creating && (
++        <ArtistEditor
++          done={async (id) => {
++            setCreating(false);
++            await resource.reload();
++            if (id) router.push(`/artists/${id}`);
++          }}
++        />
++      )}
++      <ResourceState
++        {...resource}
++        empty={resource.result?.data.length === 0}
++        retry={() => void resource.reload()}
++      />
++      {resource.result?.data.map((artist) => (
++        <Card key={artist.id}>
++          <Copy>
++            {artist.stage_name} · {STATUS[artist.status]}
++          </Copy>
++          <Copy muted>
++            {[artist.city_name, artist.genres.map((genre) => genre.name).join(", ")]
++              .filter(Boolean)
++              .join(" · ") || "Sin ciudad ni géneros"}
++          </Copy>
++          <Button
++            title={`Gestionar ${artist.stage_name}`}
++            onPress={() => router.push(`/artists/${artist.id}`)}
++          />
++        </Card>
++      ))}
++    </Page>
++  );
++}
++// POST /artists (the creator becomes OWNER) and PATCH /artists/:id. An archived profile
++// is not editable until it is published again.
++function ArtistEditor({
++  artist,
++  done,
++}: {
++  artist?: ArtistDetail;
++  done(id?: string): Promise<void>;
++}) {
++  const [form, setForm] = useState<Record<string, string>>({});
++  const [city, setCity] = useState<string[]>([]);
++  const [genres, setGenres] = useState<string[]>([]);
++  const action = useAction();
++  useEffect(() => {
++    setForm({
++      stage_name: artist?.stage_name ?? "",
++      bio: artist?.bio ?? "",
++      image_url: artist?.image_url ?? "",
++      website: artist?.website ?? "",
++    });
++    setCity(artist?.city_id ? [artist.city_id] : []);
++    setGenres(artist?.genres.map((genre) => genre.id) ?? []);
++  }, [artist]);
++  const set = (key: string, value: string) =>
++    setForm((current) => ({ ...current, [key]: value }));
++  const save = () =>
++    action.run(async () => {
++      if (!form.stage_name?.trim())
++        throw new Error("Poné el nombre artístico.");
++      const body = {
++        stage_name: form.stage_name.trim(),
++        bio: form.bio?.trim() || null,
++        city_id: city[0] ?? null,
++        image_url: form.image_url?.trim() || null,
++        website: form.website?.trim() || null,
++        genre_ids: genres,
++      };
++      const { data } = await api.request<ArtistDetail>(
++        artist ? `/artists/${artist.id}` : "/artists",
++        { method: artist ? "PATCH" : "POST", body },
++      );
++      await done(data.id);
++    });
++  return (
++    <Card>
++      <Copy>{artist ? `Editar ${artist.stage_name}` : "Nuevo perfil de artista"}</Copy>
++      <Field
++        label="Nombre artístico"
++        value={form.stage_name ?? ""}
++        autoCapitalize="words"
++        onChangeText={(value) => set("stage_name", value)}
++      />
++      <Field
++        label="Biografía (opcional)"
++        value={form.bio ?? ""}
++        multiline
++        autoCapitalize="sentences"
++        onChangeText={(value) => set("bio", value)}
++      />
++      <Select
++        label="Ciudad"
++        path="/cities"
++        values={city}
++        onChange={setCity}
++      />
++      <Select
++        label="Géneros"
++        path="/genres"
++        multiple
++        values={genres}
++        onChange={setGenres}
++      />
++      <Field
++        label="Imagen (URL, opcional)"
++        value={form.image_url ?? ""}
++        onChangeText={(value) => set("image_url", value)}
++      />
++      <Field
++        label="Sitio web (http o https, opcional)"
++        value={form.website ?? ""}
++        onChangeText={(value) => set("website", value)}
++      />
++      <ActionFeedback action={action} />
++      <Button
++        title={artist ? "Guardar cambios" : "Crear perfil"}
++        disabled={action.busy}
++        onPress={() => void save()}
++      />
++      <Button title="Cerrar edición" secondary onPress={() => void done()} />
++    </Card>
++  );
++}
++export function ArtistScreen() {
++  const { id } = useLocalSearchParams<{ id: string }>();
++  const { user, can } = useAuth();
++  const resource = useResource<ArtistDetail>(`/artists/${id}`);
++  const artist = resource.result?.data;
++  const action = useAction();
++  const [editing, setEditing] = useState(false);
++  const [email, setEmail] = useState("");
++  const [role, setRole] = useState<MemberRole>("MEMBER");
++  const [confirm, setConfirm] = useState<string | null>(null);
++  // Status and membership are for an OWNER, and artists.admin overrides membership.
++  // The API decides either way; this only chooses what is worth showing.
++  const owner =
++    can("artists.admin") ||
++    artist?.members.find((member) => member.user_id === user?.id)?.member_role ===
++      "OWNER";
++  const status = (next: "publish" | "archive") =>
++    action.run(async () => {
++      await api.request(`/artists/${id}/${next}`, { method: "POST", body: {} });
++      await resource.reload();
++      action.setMessage(
++        next === "publish" ? "Perfil publicado." : "Perfil archivado.",
++      );
++    });
++  const addMember = () =>
++    action.run(async () => {
++      if (!email.trim()) throw new Error("Poné el email de la cuenta.");
++      await api.request(`/artists/${id}/members`, {
++        method: "POST",
++        body: { email: email.trim(), member_role: role },
++      });
++      setEmail("");
++      await resource.reload();
++      action.setMessage("Integrante agregado.");
++    });
++  const setMemberRole = (member: ArtistMember, next: MemberRole) =>
++    action.run(async () => {
++      await api.request(`/artists/${id}/members/${member.user_id}`, {
++        method: "PATCH",
++        body: { member_role: next },
++      });
++      await resource.reload();
++      action.setMessage("Rol del integrante actualizado.");
++    });
++  const removeMember = (member: ArtistMember) =>
++    action.run(async () => {
++      await api.request(`/artists/${id}/members/${member.user_id}`, {
++        method: "DELETE",
++      });
++      setConfirm(null);
++      await resource.reload();
++      action.setMessage(
++        member.user_id === user?.id
++          ? "Saliste del perfil."
++          : "Integrante quitado.",
++      );
++    });
++  return (
++    <Page title={artist ? artist.stage_name : "Perfil de artista"}>
++      <ResourceState {...resource} retry={() => void resource.reload()} />
++      <ActionFeedback action={action} />
++      {artist && (
++        <>
++          <Card>
++            <Copy>
++              {artist.stage_name} · {STATUS[artist.status]}
++            </Copy>
++            <Copy muted>
++              {[artist.city_name, artist.genres.map((genre) => genre.name).join(", ")]
++                .filter(Boolean)
++                .join(" · ") || "Sin ciudad ni géneros"}
++            </Copy>
++            {artist.bio && <Copy>{artist.bio}</Copy>}
++            {artist.website && <Copy muted>{artist.website}</Copy>}
++            <Copy muted>
++              {artist.published_at
++                ? `Publicado ${dateLabel(artist.published_at)}`
++                : "Sin publicar"}
++            </Copy>
++          </Card>
++          {artist.status === "ARCHIVED" && (
++            <Card>
++              <Copy muted>
++                Un perfil archivado no se edita. Publicalo de nuevo para seguir
++                cambiándolo.
++              </Copy>
++            </Card>
++          )}
++          <View style={styles.row}>
++            {artist.status !== "ARCHIVED" && (
++              <Button
++                title={editing ? "Cancelar edición" : "Editar perfil"}
++                secondary
++                onPress={() => setEditing(!editing)}
++              />
++            )}
++            {owner && artist.status !== "PUBLISHED" && (
++              <Button
++                title="Publicar perfil"
++                disabled={action.busy}
++                onPress={() => void status("publish")}
++              />
++            )}
++            {owner && artist.status !== "ARCHIVED" && (
++              <Button
++                title="Archivar perfil"
++                secondary
++                disabled={action.busy}
++                onPress={() => void status("archive")}
++              />
++            )}
++          </View>
++          {editing && artist.status !== "ARCHIVED" && (
++            <ArtistEditor
++              artist={artist}
++              done={async () => {
++                setEditing(false);
++                await resource.reload();
++              }}
++            />
++          )}
++          <Card>
++            <Copy>Integrantes</Copy>
++            <Copy muted>
++              Solo se suman cuentas con el perfil ARTISTA. El perfil conserva
++              siempre un OWNER.
++            </Copy>
++            {artist.members.map((member) => (
++              <View key={member.user_id} style={styles.row}>
++                <Copy>
++                  {memberName(member)} · {member.member_role}
++                </Copy>
++                {owner && member.member_role === "MEMBER" && (
++                  <Button
++                    title={`Hacer OWNER a ${memberName(member)}`}
++                    secondary
++                    disabled={action.busy}
++                    onPress={() => void setMemberRole(member, "OWNER")}
++                  />
++                )}
++                {owner && member.member_role === "OWNER" && member.user_id !== user?.id && (
++                  <Button
++                    title={`Pasar a MEMBER a ${memberName(member)}`}
++                    secondary
++                    disabled={action.busy}
++                    onPress={() => void setMemberRole(member, "MEMBER")}
++                  />
++                )}
++                {(owner || member.user_id === user?.id) && (
++                  <Button
++                    title={
++                      confirm === member.user_id
++                        ? "Confirmar"
++                        : member.user_id === user?.id
++                          ? "Salir del perfil"
++                          : `Quitar a ${memberName(member)}`
++                    }
++                    secondary
++                    danger
++                    disabled={action.busy}
++                    onPress={() =>
++                      confirm === member.user_id
++                        ? void removeMember(member)
++                        : setConfirm(member.user_id)
++                    }
++                  />
++                )}
++              </View>
++            ))}
++            {owner && (
++              <>
++                <Field
++                  label="Email de la cuenta a sumar"
++                  value={email}
++                  keyboardType="email-address"
++                  onChangeText={setEmail}
++                />
++                <View style={styles.row}>
++                  {(["MEMBER", "OWNER"] as MemberRole[]).map((value) => (
++                    <Button
++                      key={value}
++                      title={value}
++                      secondary={role !== value}
++                      onPress={() => setRole(value)}
++                    />
++                  ))}
++                </View>
++                <Button
++                  title="Agregar integrante"
++                  disabled={action.busy}
++                  onPress={() => void addMember()}
++                />
++              </>
++            )}
++          </Card>
++        </>
++      )}
++      <Button
++        title="Volver a mis perfiles"
++        secondary
++        onPress={() => router.push("/artists")}
++      />
++    </Page>
++  );
++}
+diff --git a/frontend/src/features/auth/ProfileScreen.tsx b/frontend/src/features/auth/ProfileScreen.tsx
+index 9d5817b..b85d681 100644
+--- a/frontend/src/features/auth/ProfileScreen.tsx
++++ b/frontend/src/features/auth/ProfileScreen.tsx
+@@ -4,7 +4,7 @@ import { usePreferences } from "../../contexts/PreferencesContext";
+ import NotificationPreference from '../notifications/NotificationPreference';
+ import { useAuth } from "../../contexts/AuthContext";
+ import { useResource } from "../../hooks/useResource";
+-import type { Role, User } from "../../types/api";
++import { ROLE_LABELS, type Me } from "../../types/api";
+ import {
+   ActionFeedback,
+   Button,
+@@ -18,7 +18,8 @@ export default function ProfileScreen() {
+   const auth = useAuth();
+   const preferences = usePreferences();
+   const action = useAction();
+-  const resource = useResource<{ user: User; roles: Role[] }>("/auth/me");
++  // /auth/me also carries the permissions; the context keeps them for the whole app.
++  const resource = useResource<Me>("/auth/me");
+   const profile = resource.result?.data;
+   return (
+     <Page title="Mi cuenta">
+@@ -29,9 +30,23 @@ export default function ProfileScreen() {
+             {profile.user.first_name} {profile.user.last_name}
+           </Copy>
+           <Copy>{profile.user.email}</Copy>
+-          <Copy muted>{profile.roles.join(" · ")}</Copy>
++          <Copy muted>
++            {profile.roles.map((role) => ROLE_LABELS[role]).join(" · ")}
++          </Copy>
++          <Button
++            title="Mis perfiles"
++            secondary
++            onPress={() => router.push("/profiles")}
++          />
+         </Card>
+       )}
++      {auth.can("artist.profile.manage", "artists.admin") && (
++        <Button
++          title="Mis perfiles de artista"
++          secondary
++          onPress={() => router.push("/artists")}
++        />
++      )}
+       <Card>
+         <Copy>Recomendaciones personalizadas</Copy>
+         <ResourceState
+diff --git a/frontend/src/features/auth/ProfilesScreen.tsx b/frontend/src/features/auth/ProfilesScreen.tsx
+new file mode 100644
+index 0000000..d80c2d8
+--- /dev/null
++++ b/frontend/src/features/auth/ProfilesScreen.tsx
+@@ -0,0 +1,103 @@
++import { router } from "expo-router";
++import { useAuth } from "../../contexts/AuthContext";
++import { useResource } from "../../hooks/useResource";
++import { api } from "../../services/api";
++import { ROLE_LABELS, type Access, type Role, type SelfProfiles } from "../../types/api";
++import {
++  ActionFeedback,
++  Button,
++  Card,
++  Copy,
++  Page,
++  ResourceState,
++  useAction,
++} from "../../components/ui";
++// GET /me/profiles lists the profiles the account holds and which ones it can activate alone.
++// ORGANIZADOR, VENUE and EMPRESA_SERVICIOS involve a business, so an ADMIN grants them
++// (POST /me/profiles answers 403 ADMIN_APPROVAL_REQUIRED for those).
++const BY_ADMIN: Role[] = ["ORGANIZADOR", "VENUE", "EMPRESA_SERVICIOS"];
++export default function ProfilesScreen() {
++  const auth = useAuth();
++  const action = useAction();
++  const resource = useResource<SelfProfiles>("/me/profiles");
++  const profiles = resource.result?.data;
++  const activate = (role: Role) =>
++    action.run(async () => {
++      const { data } = await api.request<Access & { changed: boolean }>(
++        "/me/profiles",
++        { method: "POST", body: { role } },
++      );
++      // The response already carries the rebuilt profiles and permissions.
++      auth.applyAccess(data);
++      await resource.reload();
++      action.setMessage(
++        data.changed
++          ? `Perfil ${ROLE_LABELS[role]} activado.`
++          : `Ya tenías el perfil ${ROLE_LABELS[role]}.`,
++      );
++    });
++  return (
++    <Page
++      title="Mis perfiles"
++      subtitle="Un perfil define qué podés hacer en Venti. Podés tener varios a la vez."
++    >
++      <ResourceState {...resource} retry={() => void resource.reload()} />
++      <ActionFeedback action={action} />
++      {profiles && (
++        <>
++          <Card>
++            <Copy>Perfiles activos</Copy>
++            <Copy muted>
++              {profiles.roles.map((role) => ROLE_LABELS[role]).join(" · ")}
++            </Copy>
++          </Card>
++          {profiles.self_service.map((profile) => (
++            <Card key={profile.code}>
++              <Copy>
++                {profile.name} · {profile.active ? "Activo" : "Disponible"}
++              </Copy>
++              {profile.description && <Copy muted>{profile.description}</Copy>}
++              {profile.active ? (
++                <Copy muted>
++                  Ya lo tenés. Para darlo de baja escribile a un administrador.
++                </Copy>
++              ) : (
++                <Button
++                  title={`Activar ${profile.name}`}
++                  disabled={action.busy}
++                  onPress={() => void activate(profile.code)}
++                />
++              )}
++              {profile.code === "ARTISTA" && profile.active && (
++                <Button
++                  title="Gestionar mis perfiles de artista"
++                  secondary
++                  onPress={() => router.push("/artists")}
++                />
++              )}
++            </Card>
++          ))}
++          <Card>
++            <Copy>Perfiles que asigna un administrador</Copy>
++            <Copy muted>
++              {BY_ADMIN.map((role) => ROLE_LABELS[role]).join(" · ")}
++            </Copy>
++            <Copy muted>
++              Implican una organización o un negocio que hay que revisar. Pedilos
++              por los canales de contacto de Venti.
++            </Copy>
++          </Card>
++          <Card>
++            <Copy>Permisos de tu cuenta</Copy>
++            <Copy muted>
++              {profiles.permissions.length
++                ? profiles.permissions.join(" · ")
++                : "Sin permisos."}
++            </Copy>
++          </Card>
++        </>
++      )}
++      <Button title="Volver a mi cuenta" secondary onPress={() => router.back()} />
++    </Page>
++  );
++}
+diff --git a/frontend/src/features/concerts/ConcertList.tsx b/frontend/src/features/concerts/ConcertList.tsx
+index 9b1217e..f6b08ab 100644
+--- a/frontend/src/features/concerts/ConcertList.tsx
++++ b/frontend/src/features/concerts/ConcertList.tsx
+@@ -27,7 +27,7 @@ export function ConcertCard({
+   manage?: boolean;
+   reason?: string;
+ }) {
+-  const { roles } = useAuth();
++  const { can } = useAuth();
+   return (
+     <View style={{ flexGrow: 1, flexBasis: 300, maxWidth: 560 }}>
+       <Card>
+@@ -53,7 +53,7 @@ export function ConcertCard({
+             )
+           }
+         />
+-        {manage && <Button title={`Estadísticas de ${concert.name}`} secondary onPress={() => router.push(`${roles.includes('ADMIN') ? '/admin' : '/organizer'}/statistics?concert_id=${concert.id}`)} />}
++        {manage && <Button title={`Estadísticas de ${concert.name}`} secondary onPress={() => router.push(`${can('statistics.global') ? '/admin' : '/organizer'}/statistics?concert_id=${concert.id}`)} />}
+       </Card>
+     </View>
+   );
+@@ -64,7 +64,7 @@ export default function ConcertList({
+   mode?: "discover" | "organizer" | "admin";
+ }) {
+   const [page, setPage] = useState(1);
+-  const { roles } = useAuth();
++  const { can } = useAuth();
+   const [draft, setDraft] = useState<Record<string, string>>({});
+   const [filters, setFilters] = useState<Record<string, string>>({});
+   const [expanded, setExpanded] = useState(false);
+@@ -94,7 +94,7 @@ export default function ConcertList({
+       }
+       subtitle="Música en vivo. Experiencias que quedan."
+     >
+-      {mode !== 'discover' && <Button title="Ver estadísticas" onPress={() => router.push(roles.includes('ADMIN') ? '/admin/statistics' : '/organizer/statistics')} />}
++      {mode !== 'discover' && <Button title="Ver estadísticas" onPress={() => router.push(can('statistics.global') ? '/admin/statistics' : '/organizer/statistics')} />}
+       {mode !== "discover" && (
+         <Button
+           title="Crear concierto"
+diff --git a/frontend/src/features/marketplace/MarketplaceScreen.tsx b/frontend/src/features/marketplace/MarketplaceScreen.tsx
+index da16ef1..1a4cd71 100644
+--- a/frontend/src/features/marketplace/MarketplaceScreen.tsx
++++ b/frontend/src/features/marketplace/MarketplaceScreen.tsx
+@@ -4,7 +4,7 @@ import { router } from "expo-router";
+ import { useAuth } from "../../contexts/AuthContext";
+ import { useResource } from "../../hooks/useResource";
+ import { query } from "../../services/http";
+-import { hasRoles, type MarketplaceCatalogs, type Named, type OccupancyMode, type Venue } from "../../types/api";
++import type { MarketplaceCatalogs, Named, OccupancyMode, Venue } from "../../types/api";
+ import { Button, Card, Copy, Field, Notice, Page, Pager, ResourceState, money, styles } from "../../components/ui";
+ import { at, isDate } from "./time";
+ 
+@@ -49,7 +49,7 @@ export function Codes({ items, values, onChange, multiple = false, label }: {
+ }
+ 
+ export default function MarketplaceScreen() {
+-  const { roles } = useAuth();
++  const { can } = useAuth();
+   const catalogs = useResource<MarketplaceCatalogs>("/marketplace/catalogs");
+   const cities = useResource<Named[]>("/marketplace/cities");
+   const [draft, setDraft] = useState<Record<string, string>>({});
+@@ -77,13 +77,14 @@ export default function MarketplaceScreen() {
+       setInvalid(e instanceof Error ? e.message : "Filtros inválidos.");
+     }
+   };
+-  const requester = hasRoles(roles, ["CUSTOMER", "ORGANIZER", "ADMIN"]);
++  // Asking for a quote and booking are separate permissions; either one gets the lists.
++  const requester = can("marketplace.quotes.request", "marketplace.reservations.create", "marketplace.admin");
+   return (
+     <Page title="Espacios para tu evento" subtitle="Salas de ensayo, estudios y escenarios. Reservá o pedí presupuesto.">
+       <View style={styles.row}>
+         {requester && <Button title="Mis presupuestos" secondary onPress={() => router.push("/marketplace/quotes")} />}
+         {requester && <Button title="Mis reservas de espacios" secondary onPress={() => router.push("/marketplace/reservations")} />}
+-        {hasRoles(roles, ["ORGANIZER", "ADMIN"]) && (
++        {can("marketplace.establishments.manage", "marketplace.admin") && (
+           <Button title="Gestionar establecimientos" secondary onPress={() => router.push("/marketplace/manage")} />
+         )}
+       </View>
+diff --git a/frontend/src/features/marketplace/QuotesScreen.tsx b/frontend/src/features/marketplace/QuotesScreen.tsx
+index 7f18af9..aa89497 100644
+--- a/frontend/src/features/marketplace/QuotesScreen.tsx
++++ b/frontend/src/features/marketplace/QuotesScreen.tsx
+@@ -5,14 +5,15 @@ import { useAuth } from "../../contexts/AuthContext";
+ import { useResource } from "../../hooks/useResource";
+ import { api } from "../../services/api";
+ import { query } from "../../services/http";
+-import { hasRoles, type Quote, type Reservation } from "../../types/api";
++import type { Permission, Quote, Reservation } from "../../types/api";
+ import { ActionFeedback, Button, Card, Copy, Field, Page, Pager, ResourceState, dateLabel, money, styles, useAction } from "../../components/ui";
+ import { at, isDate, range } from "./time";
+ 
+ // Shared by quotes and reservations: requester view by default, provider view for organization members.
+-export function useListView(statuses: string[]) {
+-  const { roles } = useAuth();
+-  const provider = hasRoles(roles, ["ORGANIZER", "ADMIN"]);
++// `as=provider` is authorized by a different permission on each list, so the caller passes it.
++export function useListView(statuses: string[], providerPermissions: Permission[]) {
++  const { can } = useAuth();
++  const provider = can(...providerPermissions);
+   const [as, setAs] = useState<"requester" | "provider">("requester");
+   const [status, setStatus] = useState("");
+   const [page, setPage] = useState(1);
+@@ -37,7 +38,7 @@ export function useListView(statuses: string[]) {
+ }
+ 
+ export default function QuotesScreen() {
+-  const view = useListView(["REQUESTED", "SENT", "ACCEPTED", "REJECTED", "EXPIRED", "CANCELLED"]);
++  const view = useListView(["REQUESTED", "SENT", "ACCEPTED", "REJECTED", "EXPIRED", "CANCELLED"], ["marketplace.quotes.respond", "marketplace.admin"]);
+   const resource = useResource<Quote[]>(`/marketplace/quotes${view.params}`);
+   return (
+     <Page title="Presupuestos" subtitle="Pedidos de presupuesto para espacios del marketplace.">
+@@ -60,7 +61,7 @@ export default function QuotesScreen() {
+ type Line = { description: string; quantity: string; unit_price: string };
+ export function QuoteScreen() {
+   const { id } = useLocalSearchParams<{ id: string }>();
+-  const { user, roles } = useAuth();
++  const { user, can } = useAuth();
+   const resource = useResource<Quote>(`/marketplace/quotes/${id}`);
+   const quote = resource.result?.data;
+   const action = useAction();
+@@ -69,7 +70,7 @@ export function QuoteScreen() {
+   const set = (key: string, value: string) => setForm((current) => ({ ...current, [key]: value }));
+   const mine = quote?.requester_user_id === user?.id;
+   // The backend decides membership; organizers only see the provider form for quotes they did not request.
+-  const provider = !mine && hasRoles(roles, ["ORGANIZER", "ADMIN"]);
++  const provider = !mine && can("marketplace.quotes.respond", "marketplace.admin");
+   const open = quote && ["REQUESTED", "SENT"].includes(quote.status);
+   // The body is built inside run() so validation errors are shown like API errors.
+   const post = (path: string, body: () => unknown = () => ({})) => action.run(async () => {
+diff --git a/frontend/src/features/marketplace/ReservationsScreen.tsx b/frontend/src/features/marketplace/ReservationsScreen.tsx
+index 4a499b8..9d611c0 100644
+--- a/frontend/src/features/marketplace/ReservationsScreen.tsx
++++ b/frontend/src/features/marketplace/ReservationsScreen.tsx
+@@ -11,7 +11,7 @@ import { range } from "./time";
+ 
+ const phases: Record<string, string> = { SETUP: "Armado", EVENT: "Evento", TEARDOWN: "Desarme" };
+ export default function ReservationsScreen() {
+-  const view = useListView(["HOLD", "CONFIRMED", "COMPLETED", "CANCELLED", "EXPIRED"]);
++  const view = useListView(["HOLD", "CONFIRMED", "COMPLETED", "CANCELLED", "EXPIRED"], ["marketplace.reservations.manage", "marketplace.admin"]);
+   const resource = useResource<Reservation[]>(`/marketplace/reservations${view.params}`);
+   return (
+     <Page title="Reservas de espacios" subtitle="Reservas temporales, confirmadas y su historial.">
+diff --git a/frontend/src/features/marketplace/VenueScreen.tsx b/frontend/src/features/marketplace/VenueScreen.tsx
+index 4f3029d..dc504ef 100644
+--- a/frontend/src/features/marketplace/VenueScreen.tsx
++++ b/frontend/src/features/marketplace/VenueScreen.tsx
+@@ -5,7 +5,7 @@ import { useAuth } from "../../contexts/AuthContext";
+ import { useResource } from "../../hooks/useResource";
+ import { api } from "../../services/api";
+ import { query } from "../../services/http";
+-import { hasRoles, type Availability, type OccupancyMode, type Quote, type Reservation, type VenueDetail } from "../../types/api";
++import type { Availability, OccupancyMode, Quote, Reservation, VenueDetail } from "../../types/api";
+ import { ActionFeedback, Button, Card, Copy, Field, Notice, Page, ResourceState, money, styles, useAction } from "../../components/ui";
+ import { capacityLabel } from "./MarketplaceScreen";
+ import { days, isDate, range, slot } from "./time";
+@@ -13,7 +13,7 @@ import { days, isDate, range, slot } from "./time";
+ const modes: [OccupancyMode, string][] = [["VENUE", "Solo el espacio"], ["ESTABLISHMENT", "Establecimiento completo"]];
+ export default function VenueScreen() {
+   const { id } = useLocalSearchParams<{ id: string }>();
+-  const { roles } = useAuth();
++  const { can } = useAuth();
+   const resource = useResource<VenueDetail>(`/marketplace/venues/${id}`);
+   const venue = resource.result?.data;
+   const [form, setForm] = useState<Record<string, string>>({});
+@@ -22,7 +22,7 @@ export default function VenueScreen() {
+   const check = useAction();
+   const book = useAction();
+   const set = (key: string, value: string) => setForm((current) => ({ ...current, [key]: value }));
+-  const requester = hasRoles(roles, ["CUSTOMER", "ORGANIZER", "ADMIN"]);
++  const requester = can("marketplace.quotes.request", "marketplace.reservations.create", "marketplace.admin");
+   // Whole day (no times) or the exact requested slot.
+   const lookup = () => check.run(async () => {
+     if (!isDate(form.date ?? "")) throw new Error("Ingresá la fecha como AAAA-MM-DD.");
+diff --git a/frontend/src/features/organizer/ConcertEditor.tsx b/frontend/src/features/organizer/ConcertEditor.tsx
+index 5ae8769..0d334f3 100644
+--- a/frontend/src/features/organizer/ConcertEditor.tsx
++++ b/frontend/src/features/organizer/ConcertEditor.tsx
+@@ -195,7 +195,7 @@ export default function ConcertEditor() {
+                 values={genres}
+                 onChange={setGenres}
+               />
+-              {!editing && auth.roles.includes("ADMIN") && (
++              {!editing && auth.can("concerts.manage_all") && (
+                 <Field
+                   label="ID del organizador (opcional)"
+                   value={form.organizer_id ?? ""}
+diff --git a/frontend/src/features/staff/StaffScreen.tsx b/frontend/src/features/staff/StaffScreen.tsx
+index 394b7cd..64c894a 100644
+--- a/frontend/src/features/staff/StaffScreen.tsx
++++ b/frontend/src/features/staff/StaffScreen.tsx
+@@ -19,7 +19,7 @@ import { useAuth } from "../../contexts/AuthContext";
+ import type { Concert, Attendee } from "../../types/api";
+ import { scanMessage } from "./validation";
+ export default function StaffScreen() {
+-  const { roles } = useAuth();
++  const { can } = useAuth();
+   const [page, setPage] = useState(1);
+   const [selected, setSelected] = useState<Concert | null>(null);
+   const [attendeePage, setAttendeePage] = useState(1);
+@@ -33,7 +33,7 @@ export default function StaffScreen() {
+     <Page
+       title="Control de acceso"
+       subtitle={
+-        roles.includes("ADMIN")
++        can("tickets.validate")
+           ? "Seleccioná un concierto para gestionar el ingreso."
+           : "Seleccioná uno de tus conciertos asignados."
+       }
+diff --git a/frontend/src/types/api.ts b/frontend/src/types/api.ts
+index 04940a7..3ae2468 100644
+--- a/frontend/src/types/api.ts
++++ b/frontend/src/types/api.ts
+@@ -1,5 +1,31 @@
+-// Staff is not a role: it is a per-concert assignment (GET /staff/assignments).
+-export type Role = "ADMIN" | "ORGANIZER" | "CUSTOMER" | "GUEST";
++// Global profiles (user_roles). A user may hold several; what each one allows comes from
++// role_permissions, so screens gate on permissions, never on these codes.
++// Staff is not a profile: it is a per-concert assignment (GET /staff/assignments).
++export const ROLES = [
++  "ADMIN",
++  "COMPRADOR",
++  "ARTISTA",
++  "ORGANIZADOR",
++  "VENUE",
++  "EMPRESA_SERVICIOS",
++  "GUEST",
++] as const;
++export type Role = (typeof ROLES)[number];
++// GUEST belongs to the guest flow: it is never granted or revoked by hand.
++export const ASSIGNABLE_ROLES = ROLES.filter(
++  (role) => role !== "GUEST",
++) as Exclude<Role, "GUEST">[];
++// Profiles a registered person activates alone (POST /me/profiles).
++export const SELF_SERVICE_ROLES = ["COMPRADOR", "ARTISTA"] as const;
++export const ROLE_LABELS: Record<Role, string> = {
++  ADMIN: "Administración",
++  COMPRADOR: "Comprador",
++  ARTISTA: "Artista",
++  ORGANIZADOR: "Organizador",
++  VENUE: "Espacios",
++  EMPRESA_SERVICIOS: "Empresa de servicios",
++  GUEST: "Invitado",
++};
+ export interface User {
+   id: string;
+   first_name: string;
+@@ -115,8 +141,107 @@ export interface Attendee {
+   purchase_status: string;
+   used_at: string | null;
+ }
+-export const hasRoles = (roles: readonly Role[], allowed: readonly Role[]) =>
+-  allowed.some((role) => roles.includes(role));
++// Permission codes the API authorizes with (backend/src/utils/access.util.js plus the codes
++// seeded in database/venti_shema2.sql). GET /auth/me returns the union of the user's profiles.
++export type Permission =
++  | "concerts.browse"
++  | "concerts.manage"
++  | "concerts.manage_all"
++  | "concerts.staff.manage"
++  | "tickets.purchase"
++  | "tickets.validate"
++  | "orders.read_all"
++  | "statistics.own"
++  | "statistics.global"
++  | "catalogs.manage"
++  | "users.manage"
++  | "marketplace.venues.browse"
++  | "marketplace.quotes.request"
++  | "marketplace.reservations.create"
++  | "marketplace.establishments.manage"
++  | "marketplace.quotes.respond"
++  | "marketplace.reservations.manage"
++  | "marketplace.admin"
++  | "artist.profile.manage"
++  | "artists.admin"
++  | "services.manage"
++  | "services.quotes.respond";
++// True when the user holds at least one of the codes, like `can` in the backend.
++export const can = (
++  permissions: readonly Permission[],
++  allowed: readonly Permission[],
++) => allowed.some((code) => permissions.includes(code));
++// ---- Profiles and permissions ----
++export interface Access {
++  roles: Role[];
++  permissions: Permission[];
++}
++export interface Me extends Access {
++  user: User;
++}
++export interface RoleInfo {
++  code: Role;
++  name: string;
++  description: string | null;
++}
++export interface SelfProfiles extends Access {
++  self_service: (RoleInfo & { active: boolean })[];
++}
++export interface AdminUser {
++  id: string;
++  email: string | null;
++  first_name: string | null;
++  last_name: string | null;
++  status: string;
++  is_guest: boolean;
++  email_verified_at: string | null;
++  last_login_at: string | null;
++  created_at: string;
++  roles: Role[];
++}
++export interface RoleChange {
++  changed: boolean;
++  user: AdminUser;
++}
++export interface AuditEntry {
++  id: string;
++  action: "ROLE_GRANTED" | "ROLE_REVOKED" | "ROLE_SELF_ACTIVATED";
++  actor_user_id: string;
++  target_user_id: string;
++  role: Role | null;
++  details: Record<string, unknown> | string | null;
++  created_at: string;
++}
++// ---- Artist profiles ----
++export type ArtistStatus = "DRAFT" | "PUBLISHED" | "ARCHIVED";
++export type MemberRole = "OWNER" | "MEMBER";
++export interface ArtistMember {
++  user_id: string;
++  first_name: string | null;
++  last_name: string | null;
++  // Only members and artists.admin receive the email.
++  email?: string;
++  member_role: MemberRole;
++  created_at: string;
++}
++export interface Artist {
++  id: string;
++  stage_name: string;
++  slug: string;
++  bio: string | null;
++  city_id: string | null;
++  city_name: string | null;
++  image_url: string | null;
++  website: string | null;
++  status: ArtistStatus;
++  published_at: string | null;
++  created_at: string;
++  updated_at: string;
++  genres: Named[];
++}
++export interface ArtistDetail extends Artist {
++  members: ArtistMember[];
++}
+ // ---- Marketplace ----
+ export type OccupancyMode = "VENUE" | "ESTABLISHMENT";
+ export interface Venue extends Named {
+diff --git a/frontend/tests/http.test.ts b/frontend/tests/http.test.ts
+index 3b08bcb..784b5a1 100644
+--- a/frontend/tests/http.test.ts
++++ b/frontend/tests/http.test.ts
+@@ -6,7 +6,7 @@ import {
+   query,
+   type TokenStorage,
+ } from "../src/services/http";
+-import { hasRoles, type Session } from "../src/types/api";
++import { can, type Session } from "../src/types/api";
+ import { scanMessage } from "../src/features/staff/validation";
+ test('storage failure during rotation also logs the user out', async () => {
+   let failWrites = false;
+@@ -28,7 +28,7 @@ const session: Session = {
+     email: "ana@example.com",
+     email_verified_at: null,
+   },
+-  roles: ["CUSTOMER", "ORGANIZER"],
++  roles: ["COMPRADOR", "ORGANIZADOR"],
+   accessToken: "old",
+   refreshToken: "refresh",
+   expiresIn: 900,
+@@ -174,11 +174,11 @@ test("204, network errors and query encoding", async () => {
+     "?q=rock+%26+pop&page=2",
+   );
+ });
+-test("multi-role access uses membership, admin and ordinary user stay distinct", () => {
+-  assert.equal(hasRoles(["CUSTOMER", "GUEST"], ["GUEST", "ADMIN"]), true);
+-  assert.equal(hasRoles(["CUSTOMER", "ORGANIZER"], ["ORGANIZER", "ADMIN"]), true);
+-  assert.equal(hasRoles(["CUSTOMER"], ["ADMIN"]), false);
+-  assert.equal(hasRoles([], ["CUSTOMER"]), false);
++test("screens gate on the permissions of every profile, not on the profile codes", () => {
++  assert.equal(can(["tickets.purchase", "artist.profile.manage"], ["artist.profile.manage", "artists.admin"]), true);
++  assert.equal(can(["concerts.manage", "statistics.own"], ["concerts.manage", "concerts.manage_all"]), true);
++  assert.equal(can(["tickets.purchase"], ["users.manage"]), false);
++  assert.equal(can([], ["tickets.purchase"]), false);
+ });
+ test("scanner has separate human-readable results for every backend outcome", () => {
+   const codes = [
+-- 
+2.43.0
+

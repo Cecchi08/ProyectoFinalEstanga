@@ -1,0 +1,2392 @@
+From 26d78f43e64f5210308ec9098370549cc83d8517 Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Mon, 26 Oct 2026 20:29:37 +0000
+Subject: [PATCH 2/2] Backend: empresas de servicios, suspension de cuentas,
+ aceptacion de reservas, pagos y reembolsos de compras, artistas en conciertos
+
+Co-Authored-By: Claude Opus 5.5 (1M context) <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01H1E4xi2bwRY2kHfxSPzfoc
+---
+ backend/scripts/db-migrate.mjs                |  31 ++
+ backend/src/app.js                            |   2 +
+ backend/src/controllers/admin.controller.ts   |   9 +-
+ backend/src/controllers/artists.controller.ts |   1 +
+ .../src/controllers/commerce.controller.ts    |   5 +-
+ .../src/controllers/marketplace.controller.ts |   6 +-
+ .../src/controllers/services.controller.ts    |  39 +++
+ backend/src/repositories/admin.repository.ts  |  42 ++-
+ .../src/repositories/artists.repository.ts    |   9 +
+ backend/src/repositories/audit.repository.ts  |  15 +
+ .../src/repositories/commerce.repository.ts   |  27 +-
+ .../src/repositories/management.repository.ts |  43 ++-
+ .../repositories/marketplace.repository.ts    |  21 +-
+ backend/src/repositories/mysql.repository.js  |  12 +-
+ .../repositories/participation.repository.ts  |   2 +-
+ .../src/repositories/services.repository.ts   | 185 +++++++++++
+ backend/src/routes/admin.routes.ts            |   8 +-
+ backend/src/routes/artists.routes.ts          |   1 +
+ backend/src/routes/commerce.routes.ts         |  11 +-
+ backend/src/routes/marketplace.routes.ts      |   4 +
+ backend/src/routes/services.routes.ts         |  52 +++
+ backend/src/services/admin.service.ts         |  27 +-
+ backend/src/services/artists.service.ts       |  11 +
+ backend/src/services/commerce.service.ts      |  33 +-
+ backend/src/services/management.service.ts    |  13 +-
+ backend/src/services/marketplace.service.ts   |  57 +++-
+ backend/src/services/permissions.service.js   |   2 +-
+ backend/src/services/services.service.ts      | 250 +++++++++++++++
+ backend/src/utils/access.util.js              |   8 +-
+ backend/src/utils/money.util.ts               |  13 +
+ backend/src/validators/admin.schemas.ts       |  12 +-
+ backend/src/validators/commerce.schemas.ts    |   2 +
+ backend/src/validators/management.schemas.ts  |  10 +-
+ backend/src/validators/marketplace.schemas.ts |   2 +
+ backend/src/validators/services.schemas.ts    |  63 ++++
+ .../migrations/20261026_perfiles_y_pagos.sql  | 300 ++++++++++++++++++
+ database/venti_shema2.sql                     | 233 +++++++++++++-
+ 37 files changed, 1491 insertions(+), 70 deletions(-)
+ create mode 100644 backend/scripts/db-migrate.mjs
+ create mode 100644 backend/src/controllers/services.controller.ts
+ create mode 100644 backend/src/repositories/audit.repository.ts
+ create mode 100644 backend/src/repositories/services.repository.ts
+ create mode 100644 backend/src/routes/services.routes.ts
+ create mode 100644 backend/src/services/services.service.ts
+ create mode 100644 backend/src/utils/money.util.ts
+ create mode 100644 backend/src/validators/services.schemas.ts
+ create mode 100644 database/migrations/20261026_perfiles_y_pagos.sql
+
+diff --git a/backend/scripts/db-migrate.mjs b/backend/scripts/db-migrate.mjs
+new file mode 100644
+index 0000000..b376d23
+--- /dev/null
++++ b/backend/scripts/db-migrate.mjs
+@@ -0,0 +1,31 @@
++// Applies one migration file from database/migrations to the configured database (backend/.env). Does not drop data.
++// Usage: node scripts/db-migrate.mjs --file <migration.sql> --backup <file.sql> --confirm <database-name>
++// Guards: the backup file must exist and not be empty, --confirm must match the database name and the
++// migration must select that database. Statements run in order and stop at the first failure.
++import { readFile, stat } from 'node:fs/promises';
++import { parse } from 'dotenv';
++import mysql from 'mysql2/promise';
++import { databaseConfig } from '../src/config/db.config.js';
++import { schemaStatements } from './schema-statements.js';
++
++const arg = name => { const index = process.argv.indexOf(name); return index > 0 ? process.argv[index + 1] : undefined; };
++const file = arg('--file'), backup = arg('--backup'), confirm = arg('--confirm');
++const fail = message => { console.error(message); process.exit(2); };
++if (!file || !backup || !confirm) fail('Uso: node scripts/db-migrate.mjs --file <migracion.sql> --backup <archivo.sql> --confirm <nombre-de-la-base>');
++if (!(await stat(backup).catch(() => null))?.size) fail('El respaldo no existe o está vacío: generalo antes con scripts/db-backup.mjs.');
++const config = databaseConfig(parse(await readFile(new URL('../.env', import.meta.url))));
++if (confirm !== config.database) fail(`--confirm no coincide con la base configurada (${config.database}).`);
++const script = await readFile(file, 'utf8');
++if (!script.includes(`USE ${config.database};`)) fail(`La migración no selecciona la base ${config.database}; no la aplico sobre otra.`);
++const connection = await mysql.createConnection({ ...config, multipleStatements: false, connectTimeout: 15000 });
++try {
++    await connection.query("SET time_zone = '+00:00'");
++    const statements = schemaStatements(script);
++    for (const [index, statement] of statements.entries()) {
++        try { await connection.query(statement); }
++        catch (error) { console.error(`Falló la sentencia ${index + 1}/${statements.length} (${error.code}): ${statement.split('\n').find(line => line.trim() && !line.startsWith('--'))?.slice(0, 100)}`); throw error; }
++    }
++    console.log(`Migración aplicada en ${config.database}: ${statements.length} sentencias.`);
++} finally {
++    await connection.end();
++}
+diff --git a/backend/src/app.js b/backend/src/app.js
+index b09c4f5..f9a2292 100644
+--- a/backend/src/app.js
++++ b/backend/src/app.js
+@@ -20,6 +20,7 @@ import { statisticsRoutes } from './routes/statistics.routes.ts';
+ import { marketplaceRoutes } from './routes/marketplace.routes.ts';
+ import { adminRoutes } from './routes/admin.routes.ts';
+ import { artistsRoutes } from './routes/artists.routes.ts';
++import { servicesRoutes } from './routes/services.routes.ts';
+ export function createApp({ env, database, mailer, oauthClient }) {
+     const app = express();
+     app.disable('x-powered-by');
+@@ -46,6 +47,7 @@ export function createApp({ env, database, mailer, oauthClient }) {
+     app.use(marketplaceRoutes(database, authenticate(tokens, auth)));
+     app.use(adminRoutes(database, authenticate(tokens, auth)));
+     app.use(artistsRoutes(database, authenticate(tokens, auth)));
++    app.use(servicesRoutes(database, authenticate(tokens, auth)));
+     app.use(notFound);
+     app.use(errorHandler());
+     return app;
+diff --git a/backend/src/controllers/admin.controller.ts b/backend/src/controllers/admin.controller.ts
+index 5c51d78..62cb4c3 100644
+--- a/backend/src/controllers/admin.controller.ts
++++ b/backend/src/controllers/admin.controller.ts
+@@ -2,7 +2,7 @@ import type { Request, Response } from 'express';
+ import { unauthorized } from '../utils/app-error.util.js';
+ import { AdminService } from '../services/admin.service.ts';
+ import { idSchema } from '../validators/management.schemas.ts';
+-import { auditQuerySchema, revokeSchema, roleCodeSchema, userQuerySchema } from '../validators/admin.schemas.ts';
++import { auditQuerySchema, organizationQuerySchema, reactivateSchema, revokeSchema, roleCodeSchema, userQuerySchema } from '../validators/admin.schemas.ts';
+ 
+ const principal = (req: Request) => { if (!req.user) throw unauthorized(); return req.user; };
+ const id = (req: Request) => idSchema.parse(req.params.id);
+@@ -27,4 +27,11 @@ export class AdminController {
+         res.status(result.changed ? 201 : 200).json({ success: true, data: result });
+     };
+     audit = async (req: Request, res: Response) => { const query = auditQuerySchema.parse(req.query); page(res, await this.service.auditLog(query), query); };
++    suspend = async (req: Request, res: Response) => { res.json({ success: true, data: await this.service.suspend(id(req), req.body.reason, principal(req)) }); };
++    reactivate = async (req: Request, res: Response) => {
++        res.json({ success: true, data: await this.service.reactivate(id(req), reactivateSchema.parse(req.body ?? {}).reason, principal(req)) });
++    };
++    organizations = async (req: Request, res: Response) => {
++        const query = organizationQuerySchema.parse(req.query); page(res, await this.service.organizations(query), query);
++    };
+ }
+diff --git a/backend/src/controllers/artists.controller.ts b/backend/src/controllers/artists.controller.ts
+index 78e8eda..9e24286 100644
+--- a/backend/src/controllers/artists.controller.ts
++++ b/backend/src/controllers/artists.controller.ts
+@@ -15,6 +15,7 @@ export class ArtistsController {
+         res.json({ success: true, data: result.data, pagination: { page: query.page, limit: query.limit, total: result.total, total_pages: Math.ceil(result.total / query.limit) } });
+     };
+     mine = async (req: Request, res: Response) => { ok(res, await this.service.mine(principal(req))); };
++    concerts = async (req: Request, res: Response) => { ok(res, await this.service.concerts(id(req), req.user)); };
+     get = async (req: Request, res: Response) => { ok(res, await this.service.get(id(req), req.user)); };
+     create = async (req: Request, res: Response) => { ok(res, await this.service.create(req.body, principal(req)), 201); };
+     update = async (req: Request, res: Response) => { ok(res, await this.service.update(id(req), req.body, principal(req))); };
+diff --git a/backend/src/controllers/commerce.controller.ts b/backend/src/controllers/commerce.controller.ts
+index e33caa2..7f51c08 100644
+--- a/backend/src/controllers/commerce.controller.ts
++++ b/backend/src/controllers/commerce.controller.ts
+@@ -2,7 +2,7 @@ import type { Request, Response } from 'express';
+ import { unauthorized } from '../utils/app-error.util.js';
+ import { CommerceService } from '../services/commerce.service.ts';
+ import { idSchema } from '../validators/management.schemas.ts';
+-import { pageSchema } from '../validators/commerce.schemas.ts';
++import { pageSchema, purchasePaymentSchema } from '../validators/commerce.schemas.ts';
+ 
+ const principal = (req: Request) => { if (!req.user) throw unauthorized(); return req.user; };
+ const id = (req: Request) => idSchema.parse(req.params.id);
+@@ -14,7 +14,8 @@ export class CommerceController {
+     purchase = async (req: Request, res: Response) => { ok(res, await this.service.purchase(id(req), principal(req))); };
+     ticket = async (req: Request, res: Response) => { ok(res, await this.service.ticket(id(req), principal(req))); };
+     transition = (action: 'confirm' | 'cancel') => async (req: Request, res: Response) => {
+-        ok(res, await this.service.transition(id(req), action, principal(req)));
++        const outcome = action === 'confirm' ? purchasePaymentSchema.parse(req.body ?? {}).outcome : undefined;
++        ok(res, await this.service.transition(id(req), action, principal(req), outcome));
+     };
+     list = (kind: 'purchases' | 'tickets') => async (req: Request, res: Response) => {
+         const query = pageSchema.parse(req.query);
+diff --git a/backend/src/controllers/marketplace.controller.ts b/backend/src/controllers/marketplace.controller.ts
+index 0c40e6e..862f6e2 100644
+--- a/backend/src/controllers/marketplace.controller.ts
++++ b/backend/src/controllers/marketplace.controller.ts
+@@ -2,7 +2,7 @@ import type { Request, Response } from 'express';
+ import { unauthorized } from '../utils/app-error.util.js';
+ import { MarketplaceService } from '../services/marketplace.service.ts';
+ import { idSchema } from '../validators/management.schemas.ts';
+-import { availabilityQuerySchema, cancelSchema, listQuerySchema, memberPatchSchema, notesSchema, paymentSchema, venueQuerySchema } from '../validators/marketplace.schemas.ts';
++import { availabilityQuerySchema, cancelSchema, listQuerySchema, memberPatchSchema, notesSchema, paymentSchema, rejectSchema, venueQuerySchema } from '../validators/marketplace.schemas.ts';
+ 
+ const principal = (req: Request) => { if (!req.user) throw unauthorized(); return req.user; };
+ const id = (req: Request) => idSchema.parse(req.params.id);
+@@ -64,5 +64,9 @@ export class MarketplaceController {
+     cancelReservation = async (req: Request, res: Response) => {
+         ok(res, await this.service.cancelReservation(id(req), cancelSchema.parse(req.body).reason, principal(req)));
+     };
++    acceptReservation = async (req: Request, res: Response) => { ok(res, await this.service.acceptReservation(id(req), principal(req))); };
++    rejectReservation = async (req: Request, res: Response) => {
++        ok(res, await this.service.rejectReservation(id(req), rejectSchema.parse(req.body).reason, principal(req)));
++    };
+     pay = async (req: Request, res: Response) => { ok(res, await this.service.pay(id(req), paymentSchema.parse(req.body).outcome, principal(req)), 201); };
+ }
+diff --git a/backend/src/controllers/services.controller.ts b/backend/src/controllers/services.controller.ts
+new file mode 100644
+index 0000000..837c760
+--- /dev/null
++++ b/backend/src/controllers/services.controller.ts
+@@ -0,0 +1,39 @@
++import type { Request, Response } from 'express';
++import { unauthorized } from '../utils/app-error.util.js';
++import { ServicesService } from '../services/services.service.ts';
++import { idSchema } from '../validators/management.schemas.ts';
++import { offeringQuerySchema, providerQuerySchema, serviceCancelSchema, serviceNotesSchema, serviceQuoteListSchema } from '../validators/services.schemas.ts';
++
++const principal = (req: Request) => { if (!req.user) throw unauthorized(); return req.user; };
++const id = (req: Request) => idSchema.parse(req.params.id);
++const ok = (res: Response, data: unknown, status = 200) => res.status(status).json({ success: true, data });
++const page = (res: Response, result: { data: unknown; total: number }, query: { page: number; limit: number }) =>
++    res.json({ success: true, data: result.data, pagination: { page: query.page, limit: query.limit, total: result.total, total_pages: Math.ceil(result.total / query.limit) } });
++
++export class ServicesController {
++    constructor(private readonly service: ServicesService) {}
++    categories = async (_req: Request, res: Response) => { ok(res, await this.service.categories()); };
++    providers = async (req: Request, res: Response) => { const query = providerQuerySchema.parse(req.query); page(res, await this.service.providers(query), query); };
++    offerings = async (req: Request, res: Response) => { const query = offeringQuerySchema.parse(req.query); page(res, await this.service.offerings(query), query); };
++    provider = async (req: Request, res: Response) => { ok(res, await this.service.provider(id(req), req.user)); };
++    offering = async (req: Request, res: Response) => { ok(res, await this.service.offering(id(req), req.user)); };
++    mine = async (req: Request, res: Response) => { ok(res, await this.service.mine(principal(req))); };
++    createProvider = async (req: Request, res: Response) => { ok(res, await this.service.createProvider(req.body, principal(req)), 201); };
++    updateProvider = async (req: Request, res: Response) => { ok(res, await this.service.updateProvider(id(req), req.body, principal(req))); };
++    providerStatus = (status: 'PUBLISHED' | 'ARCHIVED') => async (req: Request, res: Response) => { ok(res, await this.service.providerStatus(id(req), status, principal(req))); };
++    verify = (verified: boolean) => async (req: Request, res: Response) => { ok(res, await this.service.verify(id(req), verified, principal(req))); };
++    createOffering = async (req: Request, res: Response) => { ok(res, await this.service.createOffering(id(req), req.body, principal(req)), 201); };
++    updateOffering = async (req: Request, res: Response) => { ok(res, await this.service.updateOffering(id(req), req.body, principal(req))); };
++    offeringStatus = (status: 'PUBLISHED' | 'ARCHIVED') => async (req: Request, res: Response) => { ok(res, await this.service.offeringStatus(id(req), status, principal(req))); };
++    requestQuote = async (req: Request, res: Response) => { ok(res, await this.service.requestQuote(req.body, principal(req)), 201); };
++    quotes = async (req: Request, res: Response) => { const query = serviceQuoteListSchema.parse(req.query); page(res, await this.service.quotes(principal(req), query), query); };
++    quote = async (req: Request, res: Response) => { ok(res, await this.service.quote(id(req), principal(req))); };
++    respondQuote = async (req: Request, res: Response) => { ok(res, await this.service.respondQuote(id(req), req.body, principal(req))); };
++    rejectQuote = async (req: Request, res: Response) => {
++        ok(res, await this.service.closeQuote(id(req), 'reject', serviceNotesSchema.parse(req.body ?? {}).provider_notes, principal(req)));
++    };
++    cancelQuote = async (req: Request, res: Response) => {
++        ok(res, await this.service.closeQuote(id(req), 'cancel', serviceCancelSchema.parse(req.body ?? {}).reason, principal(req)));
++    };
++    acceptQuote = async (req: Request, res: Response) => { ok(res, await this.service.acceptQuote(id(req), principal(req))); };
++}
+diff --git a/backend/src/repositories/admin.repository.ts b/backend/src/repositories/admin.repository.ts
+index de96b9f..3104d05 100644
+--- a/backend/src/repositories/admin.repository.ts
++++ b/backend/src/repositories/admin.repository.ts
+@@ -1,6 +1,7 @@
+ import type { PoolConnection, ResultSetHeader, RowDataPacket } from 'mysql2/promise';
+ import type { Row, Value } from '../types/management.types.ts';
+-import type { AuditQuery, UserQuery } from '../validators/admin.schemas.ts';
++import type { AuditQuery, OrganizationQuery, UserQuery } from '../validators/admin.schemas.ts';
++import { audit, type AuditEntry } from './audit.repository.ts';
+ 
+ const normalize = <T extends Row>(row: T): T => Object.fromEntries(Object.entries(row).map(([key, value]) =>
+     [key, value !== null && (key === 'id' || key.endsWith('_id')) ? String(value) : value])) as T;
+@@ -23,6 +24,7 @@ export class AdminRepository {
+         const where: string[] = []; const values: Value[] = [];
+         if (query.q) { where.push("(u.email LIKE ? OR CONCAT_WS(' ', u.first_name, u.last_name) LIKE ?)"); values.push(`%${query.q}%`, `%${query.q}%`); }
+         if (query.role) { where.push('EXISTS (SELECT 1 FROM user_roles ur JOIN roles r ON r.id = ur.role_id WHERE ur.user_id = u.id AND r.code = ?)'); values.push(query.role); }
++        if (query.status) { where.push('u.status = ?'); values.push(query.status); }
+         const clause = where.length ? ` WHERE ${where.join(' AND ')}` : '';
+         const total = Number((await this.rows(`SELECT COUNT(*) AS total FROM users u${clause}`, values))[0].total);
+         const data = (await this.rows(`${userSelect}${clause} ORDER BY u.id LIMIT ? OFFSET ?`, [...values, ...page(query)])).map(shape);
+@@ -56,17 +58,47 @@ export class AdminRepository {
+         return Number((await this.rows(`SELECT COUNT(*) AS total FROM user_roles ur JOIN users u ON u.id = ur.user_id
+             WHERE ur.role_id = ? AND u.status = 'ACTIVE'`, [roleId]))[0].total);
+     }
+-    async audit(entry: { actor: string; action: 'ROLE_GRANTED' | 'ROLE_REVOKED' | 'ROLE_SELF_ACTIVATED'; target: string; roleId: string; details: Record<string, unknown> }) {
+-        await this.execute('INSERT INTO admin_audit_log (actor_user_id, action, target_user_id, role_id, details) VALUES (?, ?, ?, ?, ?)',
+-            [entry.actor, entry.action, entry.target, entry.roleId, JSON.stringify(entry.details)]);
++    audit(entry: AuditEntry) { return audit(this.connection, entry); }
++    setStatus(userId: string, status: 'ACTIVE' | 'BLOCKED') { return this.execute('UPDATE users SET status = ? WHERE id = ?', [status, userId]); }
++    // A suspended account loses its sessions at once; access tokens already stop working because every request rebuilds the principal.
++    revokeSessions(userId: string) {
++        return this.execute('UPDATE auth_refresh_tokens SET revoked_at = UTC_TIMESTAMP() WHERE user_id = ? AND revoked_at IS NULL', [userId]);
++    }
++    async isAdmin(userId: string): Promise<boolean> {
++        return (await this.rows("SELECT 1 FROM user_roles ur JOIN roles r ON r.id = ur.role_id WHERE ur.user_id = ? AND r.code = 'ADMIN'", [userId])).length > 0;
++    }
++    // Every organization with what it operates: venue establishments, a service provider profile, or both.
++    async organizations(query: OrganizationQuery) {
++        const where: string[] = []; const values: Value[] = [];
++        if (query.q) { where.push('(o.name LIKE ? OR o.slug LIKE ? OR o.email LIKE ?)'); values.push(`%${query.q}%`, `%${query.q}%`, `%${query.q}%`); }
++        if (query.status) { where.push('o.status = ?'); values.push(query.status); }
++        if (query.kind === 'VENUE') where.push('EXISTS (SELECT 1 FROM establishments e WHERE e.organization_id = o.id)');
++        if (query.kind === 'SERVICES') where.push('sp.organization_id IS NOT NULL');
++        const clause = where.length ? ` WHERE ${where.join(' AND ')}` : '';
++        const from = 'FROM organizations o LEFT JOIN service_providers sp ON sp.organization_id = o.id';
++        const total = Number((await this.rows(`SELECT COUNT(*) AS total ${from}${clause}`, values))[0].total);
++        const data = (await this.rows(`SELECT o.id, o.name, o.legal_name, o.tax_id, o.slug, o.email, o.phone, o.status, o.created_by_user_id, o.created_at,
++            (SELECT COUNT(*) FROM organization_members m WHERE m.organization_id = o.id) AS members,
++            (SELECT COUNT(*) FROM establishments e WHERE e.organization_id = o.id) AS establishments,
++            (SELECT GROUP_CONCAT(u.email ORDER BY u.id) FROM organization_members m JOIN users u ON u.id = m.user_id
++                WHERE m.organization_id = o.id AND m.member_role = 'OWNER') AS owners,
++            sp.status AS service_status, sp.is_verified AS service_verified
++            ${from}${clause} ORDER BY o.name, o.id LIMIT ? OFFSET ?`, [...values, ...page(query)]))
++            .map(({ service_status, service_verified, ...row }) => ({ ...row, members: Number(row.members), establishments: Number(row.establishments),
++                owners: String(row.owners ?? '').split(',').filter(Boolean),
++                service_provider: service_status === null ? null : { status: service_status, is_verified: Boolean(service_verified) } }));
++        return { data, total };
+     }
+     async auditLog(query: AuditQuery) {
+         const where: string[] = []; const values: Value[] = [];
+         if (query.target_user_id) { where.push('a.target_user_id = ?'); values.push(query.target_user_id); }
+         if (query.actor_user_id) { where.push('a.actor_user_id = ?'); values.push(query.actor_user_id); }
++        if (query.action) { where.push('a.action = ?'); values.push(query.action); }
++        if (query.entity_type) { where.push('a.entity_type = ?'); values.push(query.entity_type); }
++        if (query.entity_id) { where.push('a.entity_id = ?'); values.push(query.entity_id); }
+         const clause = where.length ? ` WHERE ${where.join(' AND ')}` : '';
+         const total = Number((await this.rows(`SELECT COUNT(*) AS total FROM admin_audit_log a${clause}`, values))[0].total);
+-        const data = await this.rows(`SELECT a.id, a.action, a.actor_user_id, a.target_user_id, r.code AS role, a.details, a.created_at
++        const data = await this.rows(`SELECT a.id, a.action, a.actor_user_id, a.target_user_id, r.code AS role, a.entity_type, a.entity_id, a.details, a.created_at
+             FROM admin_audit_log a LEFT JOIN roles r ON r.id = a.role_id${clause} ORDER BY a.id DESC LIMIT ? OFFSET ?`, [...values, ...page(query)]);
+         return { data, total };
+     }
+diff --git a/backend/src/repositories/artists.repository.ts b/backend/src/repositories/artists.repository.ts
+index bd068d6..e04fe9c 100644
+--- a/backend/src/repositories/artists.repository.ts
++++ b/backend/src/repositories/artists.repository.ts
+@@ -2,6 +2,8 @@ import type { PoolConnection, ResultSetHeader, RowDataPacket } from 'mysql2/prom
+ import type { Fields, Row, Value } from '../types/management.types.ts';
+ import type { ArtistQuery } from '../validators/artists.schemas.ts';
+ import { PERMISSIONS as P } from '../utils/access.util.js';
++import { ManagementRepository, concertSelect } from './management.repository.ts';
++import type { ConcertRow } from '../types/management.types.ts';
+ 
+ const normalize = <T extends Row>(row: T): T => Object.fromEntries(Object.entries(row).map(([key, value]) =>
+     [key, value !== null && (key === 'id' || key.endsWith('_id')) ? String(value) : value])) as T;
+@@ -82,6 +84,13 @@ export class ArtistsRepository {
+         return this.execute('UPDATE artist_members SET member_role = ? WHERE artist_profile_id = ? AND user_id = ?', [role, id, userId]);
+     }
+     removeMember(id: string, userId: string) { return this.execute('DELETE FROM artist_members WHERE artist_profile_id = ? AND user_id = ?', [id, userId]); }
++    // Performances: concerts that bill this profile. Drafts stay private to their organizer.
++    async concerts(id: string) {
++        const management = new ManagementRepository(this.connection);
++        const rows = await management.rows<ConcertRow>(`${concertSelect} JOIN concert_artists ca ON ca.concert_id = c.id
++            WHERE ca.artist_profile_id = ? AND c.status <> 'DRAFT' ORDER BY c.starts_at DESC, c.id DESC LIMIT 200`, [id]);
++        return management.concertDetails(rows);
++    }
+     async owners(id: string): Promise<number> {
+         return Number((await this.rows("SELECT COUNT(*) AS total FROM artist_members WHERE artist_profile_id = ? AND member_role = 'OWNER'", [id]))[0].total);
+     }
+diff --git a/backend/src/repositories/audit.repository.ts b/backend/src/repositories/audit.repository.ts
+new file mode 100644
+index 0000000..5cbce45
+--- /dev/null
++++ b/backend/src/repositories/audit.repository.ts
+@@ -0,0 +1,15 @@
++import type { PoolConnection } from 'mysql2/promise';
++
++export type AuditAction = 'ROLE_GRANTED' | 'ROLE_REVOKED' | 'ROLE_SELF_ACTIVATED' | 'USER_SUSPENDED' | 'USER_REACTIVATED'
++    | 'ORDER_PAYMENT_APPROVED' | 'ORDER_PAYMENT_REJECTED' | 'ORDER_REFUNDED' | 'SERVICE_PROVIDER_VERIFIED' | 'SERVICE_PROVIDER_UNVERIFIED';
++export interface AuditEntry {
++    actor: string; action: AuditAction; target?: string | null; roleId?: string | null;
++    entity?: { type: 'USER' | 'ORDER' | 'SERVICE_PROVIDER'; id: string }; details: Record<string, unknown>;
++}
++
++// Written in the caller's transaction: the audited change and its row commit (or roll back) together.
++export async function audit(connection: PoolConnection, entry: AuditEntry): Promise<void> {
++    await connection.execute(`INSERT INTO admin_audit_log (actor_user_id, action, target_user_id, role_id, entity_type, entity_id, details)
++        VALUES (?, ?, ?, ?, ?, ?, ?)`, [entry.actor, entry.action, entry.target ?? null, entry.roleId ?? null,
++        entry.entity?.type ?? null, entry.entity?.id ?? null, JSON.stringify(entry.details)]);
++}
+diff --git a/backend/src/repositories/commerce.repository.ts b/backend/src/repositories/commerce.repository.ts
+index ee50e04..3c361d5 100644
+--- a/backend/src/repositories/commerce.repository.ts
++++ b/backend/src/repositories/commerce.repository.ts
+@@ -4,8 +4,9 @@ import type { Row, Value, TicketRow, ConcertRow } from '../types/management.type
+ import type { PageQuery } from '../validators/commerce.schemas.ts';
+ import { NotificationsRepository } from './notifications.repository.ts';
+ import { ticketTypeSelect } from './management.repository.ts';
++import { audit, type AuditEntry } from './audit.repository.ts';
+ 
+-export interface PurchaseRow extends Row { id: string; user_id: string; status: string; expires_at: Date | null }
++export interface PurchaseRow extends Row { id: string; user_id: string; status: string; expires_at: Date | null; total: string; currency: string }
+ export interface ItemRow extends Row { id: string; ticket_type_id: string; concert_id: string; quantity: number; unit_price: string }
+ export interface ScanRow extends Row { id: string; purchase_id: string; concert_id: string; status: string; used_at: Date | null }
+ export type ScanResult = 'ACCEPTED' | 'ALREADY_USED' | 'CANCELLED' | 'WRONG_CONCERT' | 'NOT_FOUND';
+@@ -13,7 +14,7 @@ export type ScanResult = 'ACCEPTED' | 'ALREADY_USED' | 'CANCELLED' | 'WRONG_CONC
+ const effectiveStatus = `CASE WHEN o.status = 'PENDING' AND (o.expires_at IS NULL OR o.expires_at <= NOW())
+     THEN 'EXPIRED' ELSE o.status END`;
+ const purchaseSelect = `SELECT o.id, o.public_code, o.user_id, ${effectiveStatus} AS status, o.expires_at, o.confirmed_at, o.cancelled_at,
+-    o.created_at, o.total_amount AS total, o.currency FROM orders o`;
++    o.refund_status, o.refunded_at, o.created_at, o.total_amount AS total, o.currency FROM orders o`;
+ const ticketJoins = `FROM tickets t JOIN order_items oi ON oi.id = t.order_item_id JOIN orders o ON o.id = oi.order_id
+     JOIN ticket_types tt ON tt.id = t.ticket_type_id JOIN concerts c ON c.id = t.concert_id`;
+ const ticketSelect = `SELECT t.id, t.order_item_id AS purchase_item_id, t.qr_token, t.status, t.used_at, t.created_at,
+@@ -67,8 +68,28 @@ export class CommerceRepository {
+         return (await this.rows<PurchaseRow>(`${purchaseSelect} WHERE o.id = ?${ownerId ? ' AND o.user_id = ?' : ''}`, ownerId ? [id, ownerId] : [id]))[0];
+     }
+     async lockPurchase(id: string): Promise<PurchaseRow | undefined> {
+-        return (await this.rows<PurchaseRow>('SELECT id, user_id, status, expires_at FROM orders WHERE id = ? FOR UPDATE', [id]))[0];
++        return (await this.rows<PurchaseRow>(`SELECT id, user_id, status, expires_at, total_amount AS total, currency
++            FROM orders WHERE id = ? FOR UPDATE`, [id]))[0];
++    }
++    // Simulated payments only: an outcome and a reference, never card or bank data.
++    async addPayment(purchase: PurchaseRow, payerId: string, status: 'APPROVED' | 'REJECTED'): Promise<string> {
++        await this.execute(`INSERT INTO order_payments (order_id, payer_user_id, amount, currency, status, simulated_reference, processed_at)
++            VALUES (?, ?, ?, ?, ?, ?, UTC_TIMESTAMP())`, [purchase.id, payerId, purchase.total, purchase.currency, status,
++            `SIM-${randomBytes(8).toString('hex').toUpperCase()}`]);
++        return String((await this.rows('SELECT CAST(LAST_INSERT_ID() AS CHAR) AS id'))[0].id);
++    }
++    async payments(purchaseId: string) {
++        return (await this.rows(`SELECT id, amount, currency, status, provider, is_simulated, simulated_reference, processed_at, refunded_at, created_at
++            FROM order_payments WHERE order_id = ? ORDER BY id`, [purchaseId])).map(payment => ({ ...payment, is_simulated: Boolean(payment.is_simulated) }));
++    }
++    // Cancelling a confirmed purchase returns its approved simulated payment. The order must already be CANCELLED (chk_orders_refunded).
++    async refund(purchaseId: string): Promise<number> {
++        const payments = await this.execute(`UPDATE order_payments SET status = 'REFUNDED', refunded_at = UTC_TIMESTAMP()
++            WHERE order_id = ? AND status = 'APPROVED'`, [purchaseId]);
++        await this.execute(`UPDATE orders SET refund_status = 'REFUNDED', refunded_at = UTC_TIMESTAMP() WHERE id = ? AND status = 'CANCELLED'`, [purchaseId]);
++        return payments;
+     }
++    audit(entry: AuditEntry) { return audit(this.connection, entry); }
+     async items(id: string): Promise<ItemRow[]> {
+         return this.rows<ItemRow>(`SELECT oi.id, oi.ticket_type_id, oi.quantity, oi.unit_price, oi.line_total, oi.concert_id,
+             tt.name AS ticket_type_name FROM order_items oi JOIN ticket_types tt ON tt.id = oi.ticket_type_id
+diff --git a/backend/src/repositories/management.repository.ts b/backend/src/repositories/management.repository.ts
+index 66d9d96..9352f7f 100644
+--- a/backend/src/repositories/management.repository.ts
++++ b/backend/src/repositories/management.repository.ts
+@@ -76,6 +76,16 @@ export class ManagementRepository {
+         await this.connection.execute('DELETE FROM concert_genres WHERE concert_id = ?', [id]);
+         if (ids.length) await this.connection.execute(`INSERT INTO concert_genres (concert_id, genre_id) VALUES ${ids.map(() => '(?, ?)').join(',')}`, ids.flatMap(value => [id, value]));
+     }
++    async replaceArtists(id: string, artistIds: string[]): Promise<void> {
++        await this.connection.execute('DELETE FROM concert_artists WHERE concert_id = ?', [id]);
++        if (artistIds.length) await this.connection.execute(`INSERT INTO concert_artists (concert_id, artist_profile_id, billing_order) VALUES
++            ${artistIds.map(() => '(?, ?, ?)').join(',')}`, artistIds.flatMap((artist, index) => [id, artist, index]));
++    }
++    // Only published profiles can be billed; returns how many of the ids qualify.
++    async publishedArtists(ids: string[]): Promise<number> {
++        if (!ids.length) return 0;
++        return Number((await this.rows(`SELECT COUNT(*) AS total FROM artist_profiles WHERE status = 'PUBLISHED' AND id IN (${placeholders(ids)})`, ids))[0].total);
++    }
+     async genreReferenced(id: string): Promise<boolean> {
+         // concert_genres cascades on delete: refuse instead of silently untagging concerts.
+         return (await this.rows('SELECT genre_id FROM concert_genres WHERE genre_id = ? LIMIT 1', [id])).length > 0;
+@@ -110,7 +120,17 @@ export class ManagementRepository {
+             if (query[key]) { where.push(`${column} = ?`); values.push(query[key]); }
+         }
+         if (query.genre_id) { where.push('EXISTS (SELECT 1 FROM concert_genres rel WHERE rel.concert_id = c.id AND rel.genre_id = ?)'); values.push(query.genre_id); }
+-        if (query.artist) { where.push('c.artist_name LIKE ?'); values.push(`%${query.artist}%`); }
++        if (query.artist) {
++            where.push(`(c.artist_name LIKE ? OR EXISTS (SELECT 1 FROM concert_artists ca JOIN artist_profiles ap ON ap.id = ca.artist_profile_id
++                WHERE ca.concert_id = c.id AND ap.stage_name LIKE ?))`);
++            values.push(`%${query.artist}%`, `%${query.artist}%`);
++        }
++        if (query.artist_profile_id) { where.push('EXISTS (SELECT 1 FROM concert_artists ca WHERE ca.concert_id = c.id AND ca.artist_profile_id = ?)'); values.push(query.artist_profile_id); }
++        // Price: at least one active ticket type inside the range, so "from $X" listings and the filter agree.
++        if (query.min_price !== undefined || query.max_price !== undefined) {
++            where.push('EXISTS (SELECT 1 FROM ticket_types pt WHERE pt.concert_id = c.id AND pt.is_active = 1 AND pt.price >= ? AND pt.price <= ?)');
++            values.push(query.min_price ?? 0, query.max_price ?? 9999999999.99);
++        }
+         for (const key of ['q', 'name'] as const) if (query[key]) { where.push('c.title LIKE ?'); values.push(`%${query[key]}%`); }
+         if (query.date_from) { where.push('c.starts_at >= ?'); values.push(query.date_from); }
+         if (query.date_to) { where.push('c.starts_at <= ?'); values.push(query.date_to); }
+@@ -126,12 +146,21 @@ export class ManagementRepository {
+         const ids = rows.map(row => row.id); const marks = placeholders(ids);
+         const genres = await this.rows(`SELECT cg.concert_id, g.* FROM concert_genres cg JOIN genres g ON g.id = cg.genre_id WHERE cg.concert_id IN (${marks}) ORDER BY g.name, g.id`, ids);
+         const tickets = await this.rows<TicketRow>(`${ticketTypeSelect} WHERE concert_id IN (${marks}) ORDER BY id`, ids);
+-        return rows.map(row => ({ ...row,
+-            // The schema stores a single artist name; the list shape is kept for existing clients.
+-            artists: [{ name: row.artist_name }],
+-            genres: genres.filter(g => g.concert_id === row.id).map(({ concert_id: _id, ...genre }) => genre),
+-            ticket_types: tickets.filter(t => t.concert_id === row.id),
+-        }));
++        const artists = await this.rows(`SELECT ca.concert_id, a.id, a.stage_name AS name, a.slug, a.image_url, ca.billing_order
++            FROM concert_artists ca JOIN artist_profiles a ON a.id = ca.artist_profile_id WHERE ca.concert_id IN (${marks})
++            ORDER BY ca.billing_order, a.id`, ids);
++        return rows.map(row => {
++            const linked = artists.filter(a => a.concert_id === row.id).map(({ concert_id: _id, billing_order: _order, ...artist }) => artist);
++            const types = tickets.filter(t => t.concert_id === row.id);
++            const prices = types.filter(t => Number(t.is_active)).map(t => Number(t.price));
++            return { ...row,
++                // Linked artist profiles when there are any; otherwise the billing text, in the same list shape.
++                artists: linked.length ? linked : [{ name: row.artist_name }],
++                genres: genres.filter(g => g.concert_id === row.id).map(({ concert_id: _id, ...genre }) => genre),
++                ticket_types: types,
++                price_from: prices.length ? Math.min(...prices) : null,
++            };
++        });
+     }
+     async ticketHistory(id: string): Promise<boolean> {
+         return (await this.rows('SELECT id FROM order_items WHERE ticket_type_id = ? LIMIT 1', [id])).length > 0;
+diff --git a/backend/src/repositories/marketplace.repository.ts b/backend/src/repositories/marketplace.repository.ts
+index c807f3f..1b92eff 100644
+--- a/backend/src/repositories/marketplace.repository.ts
++++ b/backend/src/repositories/marketplace.repository.ts
+@@ -20,8 +20,12 @@ const venueSelect = `SELECT v.id, v.establishment_id, e.organization_id, v.name,
+ // Effective status: the maintenance event may be disabled, so expired holds and finished bookings are derived on read.
+ const reservationStatus = `CASE WHEN r.status_code = 'HOLD' AND r.hold_expires_at <= UTC_TIMESTAMP() THEN 'EXPIRED'
+     WHEN r.status_code = 'CONFIRMED' AND r.teardown_end_at <= UTC_TIMESTAMP() THEN 'COMPLETED' ELSE r.status_code END`;
++// A direct booking (no quote) is confirmed by the venue, not by the payment: once paid it waits for the venue's answer.
++const paid = "EXISTS (SELECT 1 FROM payments p WHERE p.reservation_id = r.id AND p.status = 'APPROVED')";
+ const reservationSelect = `SELECT r.id, r.public_code, r.venue_id, v.name AS venue_name, r.establishment_id, e.name AS establishment_name,
+     e.organization_id, r.user_id, r.quote_id, ${reservationStatus} AS status, r.occupancy_mode_code AS occupancy_mode, r.event_name,
++    (r.quote_id IS NULL) AS requires_venue_acceptance, ${paid} AS paid,
++    (${reservationStatus} = 'HOLD' AND r.quote_id IS NULL AND ${paid}) AS awaiting_venue,
+     r.expected_attendance, r.setup_start_at, r.event_start_at, r.event_end_at, r.teardown_end_at, r.hold_expires_at, r.total_amount, r.currency,
+     r.notes, r.confirmed_at, r.completed_at, r.cancelled_at, r.cancelled_by_user_id, r.cancellation_reason, r.expired_at, r.created_at
+     FROM reservations r JOIN venues v ON v.id = r.venue_id JOIN establishments e ON e.id = r.establishment_id`;
+@@ -32,6 +36,8 @@ const quoteSelect = `SELECT q.id, q.public_code, q.venue_id, v.name AS venue_nam
+     q.total_amount, q.currency, q.valid_until, q.requester_notes, q.provider_notes, q.responded_by_user_id, q.responded_at, q.accepted_at,
+     q.created_at, (SELECT r.id FROM reservations r WHERE r.quote_id = q.id ORDER BY r.id DESC LIMIT 1) AS reservation_id
+     FROM quotes q JOIN venues v ON v.id = q.venue_id JOIN establishments e ON e.id = v.establishment_id`;
++const flags = (row: Row) => ({ ...row, requires_venue_acceptance: Boolean(Number(row.requires_venue_acceptance)), paid: Boolean(Number(row.paid)),
++    awaiting_venue: Boolean(Number(row.awaiting_venue)) });
+ const member = (organization: string) => `EXISTS (SELECT 1 FROM organization_members m WHERE m.organization_id = ${organization} AND m.user_id = ?)`;
+ 
+ export class MarketplaceRepository {
+@@ -247,9 +253,18 @@ export class MarketplaceRepository {
+     }
+     async reservation(id: string): Promise<Row | undefined> { return (await this.rows(`${reservationSelect} WHERE r.id = ?`, [id]))[0]; }
+     async lockReservation(id: string): Promise<Row | undefined> {
+-        return (await this.rows(`SELECT r.id, r.user_id, r.status_code, r.hold_expires_at, r.event_start_at, ${reservationStatus} AS status
++        return (await this.rows(`SELECT r.id, r.user_id, r.quote_id, r.status_code, r.hold_expires_at, r.event_start_at, ${reservationStatus} AS status
+             FROM reservations r WHERE r.id = ? FOR UPDATE`, [id]))[0];
+     }
++    async approvedPayments(reservationId: string): Promise<number> {
++        return Number((await this.rows("SELECT COUNT(*) AS total FROM payments WHERE reservation_id = ? AND status = 'APPROVED'", [reservationId]))[0].total);
++    }
++    // The venue accepts a direct booking: HOLD -> CONFIRMED through the trigger (it rejects an expired HOLD).
++    async confirmReservation(id: string, actorId: string): Promise<void> {
++        await this.connection.query('SET @venti_user_id = ?', [actorId]);
++        try { await this.execute("UPDATE reservations SET status_code = 'CONFIRMED' WHERE id = ?", [id]); }
++        finally { await this.connection.query('SET @venti_user_id = NULL'); }
++    }
+     // Status changes go through the triggers; @venti_user_id attributes the history row to the actor.
+     async setReservationStatus(id: string, actorId: string, status: 'CANCELLED' | 'EXPIRED', reason?: string | null): Promise<void> {
+         await this.connection.query('SET @venti_user_id = ?', [actorId]);
+@@ -267,7 +282,7 @@ export class MarketplaceRepository {
+     }
+     async reservationDetails(reservation: Row) {
+         const id = String(reservation.id);
+-        return { ...reservation,
++        return { ...flags(reservation),
+             occupancies: await this.rows('SELECT phase, starts_at, ends_at FROM reservation_occupancies WHERE reservation_id = ? ORDER BY starts_at', [id]),
+             history: await this.rows('SELECT from_status, to_status, changed_by_user_id, changed_at FROM reservation_status_history WHERE reservation_id = ? ORDER BY changed_at, id', [id]),
+             payments: (await this.payments(id)) };
+@@ -286,7 +301,7 @@ export class MarketplaceRepository {
+         const clause = where.length ? ` WHERE ${where.join(' AND ')}` : '';
+         const from = reservationSelect.slice(reservationSelect.indexOf('FROM reservations'));
+         const total = Number((await this.rows(`SELECT COUNT(*) AS total ${from}${clause}`, values))[0].total);
+-        return { data: await this.rows(`${reservationSelect}${clause} ORDER BY r.event_start_at DESC, r.id DESC LIMIT ? OFFSET ?`, [...values, ...limit(query)]), total };
++        return { data: (await this.rows(`${reservationSelect}${clause} ORDER BY r.event_start_at DESC, r.id DESC LIMIT ? OFFSET ?`, [...values, ...limit(query)])).map(flags), total };
+     }
+ 
+     // ---- Notifications to the provider side (every member of the venue's organization) ----
+diff --git a/backend/src/repositories/mysql.repository.js b/backend/src/repositories/mysql.repository.js
+index b3ca4b5..df7bd3f 100644
+--- a/backend/src/repositories/mysql.repository.js
++++ b/backend/src/repositories/mysql.repository.js
+@@ -50,11 +50,17 @@ export class MysqlAuthRepository {
+         });
+     }
+     // Roles and the union of their permissions in a single query (one row per role/permission pair).
++    // tickets.validate comes from concert_staff, not from a role: it is present while the user is assigned
++    // to a concert that can still be validated. The service still checks the assignment for each concert.
+     async access(id) {
+-        const rows = await this.rows(`SELECT r.code AS role, p.code AS permission FROM user_roles ur JOIN roles r ON r.id = ur.role_id
++        const rows = await this.rows(`SELECT r.id AS role_order, r.code AS role, p.code AS permission FROM user_roles ur JOIN roles r ON r.id = ur.role_id
+             LEFT JOIN role_permissions rp ON rp.role_id = r.id LEFT JOIN permissions p ON p.id = rp.permission_id
+-            WHERE ur.user_id = ? ORDER BY r.id, p.code`, [id]);
+-        const roles = [...new Set(rows.map(row => row.role))];
++            WHERE ur.user_id = ?
++            UNION ALL
++            SELECT NULL, NULL, 'tickets.validate' FROM DUAL WHERE EXISTS (SELECT 1 FROM concert_staff cs JOIN concerts c ON c.id = cs.concert_id
++                WHERE cs.user_id = ? AND c.status = 'PUBLISHED')
++            ORDER BY role_order IS NULL, role_order, permission`, [id, id]);
++        const roles = [...new Set(rows.map(row => row.role).filter(Boolean))];
+         if (roles.find(role => !KNOWN_ROLES.has(role)) !== undefined)
+             throw new Error('Rol desconocido en la base de datos.');
+         return { roles, permissions: [...new Set(rows.map(row => row.permission).filter(Boolean))] };
+diff --git a/backend/src/repositories/participation.repository.ts b/backend/src/repositories/participation.repository.ts
+index 06c4bfb..4cb22fe 100644
+--- a/backend/src/repositories/participation.repository.ts
++++ b/backend/src/repositories/participation.repository.ts
+@@ -10,7 +10,7 @@ export class ParticipationRepository {
+ 
+     assignments(user: Principal, query: PageQuery) {
+         // Global QR validators see every concert; everybody else only their concert_staff assignments.
+-        const global = can(user, P.ticketsValidate);
++        const global = can(user, P.ticketsValidateAll);
+         return this.concerts(global ? 'TRUE' :
+             'EXISTS (SELECT 1 FROM concert_staff cs WHERE cs.concert_id = c.id AND cs.user_id = ?)',
+         global ? [] : [user.id], query);
+diff --git a/backend/src/repositories/services.repository.ts b/backend/src/repositories/services.repository.ts
+new file mode 100644
+index 0000000..a0fbac2
+--- /dev/null
++++ b/backend/src/repositories/services.repository.ts
+@@ -0,0 +1,185 @@
++import { randomBytes } from 'node:crypto';
++import type { PoolConnection, ResultSetHeader, RowDataPacket } from 'mysql2/promise';
++import type { Fields, Row, Value } from '../types/management.types.ts';
++import type { OfferingQuery, ProviderQuery, ServiceQuoteList } from '../validators/services.schemas.ts';
++
++const normalize = <T extends Row>(row: T): T => Object.fromEntries(Object.entries(row).map(([key, value]) =>
++    [key, value !== null && (key === 'id' || key.endsWith('_id')) ? String(value) : value])) as T;
++const limit = (query: { page: number; limit: number }) => [String(query.limit), String((query.page - 1) * query.limit)];
++// Column allowlists: API field -> column. SQL identifiers never come from the request.
++const organizationColumns = ['name', 'legal_name', 'tax_id', 'slug', 'email', 'phone', 'created_by_user_id'] as const;
++const providerColumns = ['description', 'city_id', 'coverage_area', 'status', 'published_at', 'is_verified', 'verified_at', 'verified_by_user_id'] as const;
++const offeringColumns = ['organization_id', 'category_id', 'name', 'slug', 'description', 'equipment', 'conditions', 'pricing_unit', 'base_price',
++    'status', 'published_at'] as const;
++const quoteColumns = ['public_code', 'offering_id', 'organization_id', 'requester_user_id', 'concert_id', 'reservation_id', 'event_name', 'event_start_at',
++    'event_end_at', 'location_text', 'requester_notes', 'status', 'subtotal', 'fees', 'discount', 'total_amount', 'currency', 'valid_until', 'provider_notes',
++    'responded_by_user_id', 'responded_at', 'accepted_at'] as const;
++const pick = (columns: readonly string[], data: Fields) => columns.filter(key => data[key] !== undefined);
++
++// Public: published company of an active organization; a public offering is also published.
++const publicProvider = "sp.status = 'PUBLISHED' AND o.status = 'ACTIVE'";
++const providerSelect = `SELECT o.id, o.name, o.legal_name, o.slug, o.email, o.phone, o.status AS organization_status, sp.description, sp.city_id,
++    ci.name AS city_name, sp.coverage_area, sp.status, sp.published_at, sp.is_verified, sp.verified_at, sp.created_at, sp.updated_at,
++    (SELECT COUNT(*) FROM service_offerings so WHERE so.organization_id = o.id AND so.status = 'PUBLISHED') AS published_offerings
++    FROM service_providers sp JOIN organizations o ON o.id = sp.organization_id LEFT JOIN cities ci ON ci.id = sp.city_id`;
++const offeringSelect = `SELECT so.id, so.organization_id AS provider_id, o.name AS provider_name, sp.is_verified AS provider_verified, sp.city_id,
++    ci.name AS city_name, sp.coverage_area, sc.code AS category_code, sc.name AS category_name, so.name, so.slug, so.description, so.equipment,
++    so.conditions, so.pricing_unit, so.base_price, so.currency, so.status, so.published_at, so.created_at, so.updated_at
++    FROM service_offerings so JOIN service_providers sp ON sp.organization_id = so.organization_id JOIN organizations o ON o.id = so.organization_id
++    JOIN service_categories sc ON sc.id = so.category_id LEFT JOIN cities ci ON ci.id = sp.city_id`;
++const quoteStatus = "CASE WHEN q.status = 'SENT' AND q.valid_until <= UTC_TIMESTAMP() THEN 'EXPIRED' ELSE q.status END";
++// The provider sees only what it needs to serve the request: the requester's name and email, and the event it is for.
++const quoteSelect = `SELECT q.id, q.public_code, q.offering_id, so.name AS offering_name, sc.code AS category_code, sc.name AS category_name,
++    q.organization_id AS provider_id, o.name AS provider_name, q.requester_user_id,
++    NULLIF(TRIM(CONCAT_WS(' ', u.first_name, u.last_name)), '') AS requester_name, u.email AS requester_email,
++    q.concert_id, c.title AS concert_name, q.reservation_id, r.public_code AS reservation_code,
++    q.event_name, q.event_start_at, q.event_end_at, q.location_text, q.requester_notes, ${quoteStatus} AS status,
++    q.subtotal, q.fees, q.discount, q.total_amount, q.currency, q.valid_until, q.provider_notes, q.responded_by_user_id, q.responded_at,
++    q.accepted_at, q.created_at, q.updated_at
++    FROM service_quotes q JOIN service_offerings so ON so.id = q.offering_id JOIN service_categories sc ON sc.id = so.category_id
++    JOIN organizations o ON o.id = q.organization_id JOIN users u ON u.id = q.requester_user_id
++    LEFT JOIN concerts c ON c.id = q.concert_id LEFT JOIN reservations r ON r.id = q.reservation_id`;
++const fromOf = (select: string, table: string) => select.slice(select.indexOf(`FROM ${table}`));
++// Booleans and counts for the API; the Row type keeps the repository signatures uniform.
++const flagged = (row: Row): Row => ({ ...row, ...('is_verified' in row ? { is_verified: Boolean(row.is_verified) } : {}),
++    ...('provider_verified' in row ? { provider_verified: Boolean(row.provider_verified) } : {}),
++    ...('published_offerings' in row ? { published_offerings: Number(row.published_offerings) } : {}) }) as unknown as Row;
++
++export class ServicesRepository {
++    constructor(readonly connection: PoolConnection) {}
++    async rows<T extends Row = Row>(sql: string, params: Value[] = []): Promise<T[]> {
++        const [rows] = await this.connection.execute<RowDataPacket[]>(sql, params);
++        return (rows as T[]).map(normalize);
++    }
++    async execute(sql: string, params: Value[] = []): Promise<number> {
++        return (await this.connection.execute<ResultSetHeader>(sql, params))[0].affectedRows;
++    }
++    private async lastId(): Promise<string> { return String((await this.rows('SELECT CAST(LAST_INSERT_ID() AS CHAR) AS id'))[0].id); }
++    private async insert(table: string, columns: readonly string[], data: Fields): Promise<string> {
++        const keys = pick(columns, data);
++        await this.execute(`INSERT INTO ${table} (${keys.join(',')}) VALUES (${keys.map(() => '?').join(',')})`, keys.map(key => data[key] ?? null));
++        return this.lastId();
++    }
++    private async patch(table: string, key: string, columns: readonly string[], id: string, data: Fields): Promise<void> {
++        const keys = pick(columns, data);
++        if (keys.length) await this.execute(`UPDATE ${table} SET ${keys.map(column => `${column} = ?`).join(',')} WHERE ${key} = ?`, [...keys.map(column => data[column] ?? null), id]);
++    }
++
++    categories() { return this.rows('SELECT id, code, name FROM service_categories ORDER BY name'); }
++    async category(code: string): Promise<string | undefined> {
++        return (await this.rows<{ id: string }>('SELECT id FROM service_categories WHERE code = ?', [code]))[0]?.id;
++    }
++    async cityExists(id: string): Promise<boolean> { return (await this.rows('SELECT id FROM cities WHERE id = ?', [id])).length > 0; }
++
++    // ---- Companies ----
++    async memberRole(organizationId: string, userId: string): Promise<string | undefined> {
++        return (await this.rows<{ member_role: string }>('SELECT member_role FROM organization_members WHERE organization_id = ? AND user_id = ?', [organizationId, userId]))[0]?.member_role;
++    }
++    async createProvider(organization: Fields, provider: Fields, userId: string): Promise<string> {
++        const id = await this.insert('organizations', organizationColumns, { ...organization, created_by_user_id: userId });
++        await this.execute("INSERT INTO organization_members (organization_id, user_id, member_role) VALUES (?, ?, 'OWNER')", [id, userId]);
++        await this.execute('INSERT INTO service_providers (organization_id) VALUES (?)', [id]);
++        await this.patch('service_providers', 'organization_id', providerColumns, id, provider);
++        return id;
++    }
++    updateOrganization(id: string, data: Fields) { return this.patch('organizations', 'id', organizationColumns, id, data); }
++    updateProvider(id: string, data: Fields) { return this.patch('service_providers', 'organization_id', providerColumns, id, data); }
++    async lockProvider(id: string): Promise<Row | undefined> {
++        return (await this.rows('SELECT organization_id AS id, status, published_at, is_verified FROM service_providers WHERE organization_id = ? FOR UPDATE', [id]))[0];
++    }
++    async provider(id: string) { return (await this.rows(`${providerSelect} WHERE o.id = ?`, [id])).map(flagged)[0]; }
++    async isPublicProvider(id: string): Promise<boolean> {
++        return (await this.rows(`SELECT o.id ${fromOf(providerSelect, 'service_providers')} WHERE o.id = ? AND ${publicProvider}`, [id])).length > 0;
++    }
++    async providers(query: ProviderQuery) {
++        const where = [publicProvider]; const values: Value[] = [];
++        if (query.q) { where.push('(o.name LIKE ? OR sp.description LIKE ?)'); values.push(`%${query.q}%`, `%${query.q}%`); }
++        if (query.city_id) { where.push('sp.city_id = ?'); values.push(query.city_id); }
++        if (query.verified !== undefined) { where.push('sp.is_verified = ?'); values.push(query.verified ? 1 : 0); }
++        if (query.category) {
++            where.push(`EXISTS (SELECT 1 FROM service_offerings so JOIN service_categories sc ON sc.id = so.category_id
++                WHERE so.organization_id = o.id AND so.status = 'PUBLISHED' AND sc.code = ?)`);
++            values.push(query.category);
++        }
++        const clause = where.join(' AND ');
++        const total = Number((await this.rows(`SELECT COUNT(*) AS total ${fromOf(providerSelect, 'service_providers')} WHERE ${clause}`, values))[0].total);
++        const data = await this.rows(`${providerSelect} WHERE ${clause} ORDER BY sp.is_verified DESC, o.name, o.id LIMIT ? OFFSET ?`, [...values, ...limit(query)]);
++        return { data: data.map(flagged), total };
++    }
++    async mine(userId: string) {
++        return (await this.rows(`${providerSelect} JOIN organization_members m ON m.organization_id = o.id AND m.user_id = ?
++            ORDER BY o.name, o.id`, [userId])).map(flagged);
++    }
++
++    // ---- Offerings ----
++    createOffering(data: Fields) { return this.insert('service_offerings', offeringColumns, data); }
++    updateOffering(id: string, data: Fields) { return this.patch('service_offerings', 'id', offeringColumns, id, data); }
++    async offering(id: string, lock = false) {
++        if (lock) await this.rows('SELECT id FROM service_offerings WHERE id = ? FOR UPDATE', [id]);
++        return (await this.rows(`${offeringSelect} WHERE so.id = ?`, [id])).map(flagged)[0];
++    }
++    async providerOfferings(providerId: string, all: boolean) {
++        return (await this.rows(`${offeringSelect} WHERE so.organization_id = ?${all ? '' : " AND so.status = 'PUBLISHED'"} ORDER BY sc.name, so.name, so.id`,
++            [providerId])).map(flagged);
++    }
++    async offerings(query: OfferingQuery) {
++        const where = [publicProvider, "so.status = 'PUBLISHED'"]; const values: Value[] = [];
++        if (query.q) { where.push('(so.name LIKE ? OR so.description LIKE ? OR o.name LIKE ?)'); values.push(`%${query.q}%`, `%${query.q}%`, `%${query.q}%`); }
++        if (query.city_id) { where.push('sp.city_id = ?'); values.push(query.city_id); }
++        if (query.category) { where.push('sc.code = ?'); values.push(query.category); }
++        if (query.provider_id) { where.push('so.organization_id = ?'); values.push(query.provider_id); }
++        if (query.max_price !== undefined) { where.push('so.base_price IS NOT NULL AND so.base_price <= ?'); values.push(query.max_price); }
++        const clause = where.join(' AND ');
++        const total = Number((await this.rows(`SELECT COUNT(*) AS total ${fromOf(offeringSelect, 'service_offerings')} WHERE ${clause}`, values))[0].total);
++        const data = await this.rows(`${offeringSelect} WHERE ${clause} ORDER BY sp.is_verified DESC, so.base_price IS NULL, so.base_price, so.id LIMIT ? OFFSET ?`,
++            [...values, ...limit(query)]);
++        return { data: data.map(flagged), total };
++    }
++
++    // ---- Quotes ----
++    async createQuote(data: Fields): Promise<string> {
++        return this.insert('service_quotes', quoteColumns, { ...data, public_code: `S-${randomBytes(6).toString('hex').toUpperCase()}` });
++    }
++    updateQuote(id: string, data: Fields) { return this.patch('service_quotes', 'id', quoteColumns, id, data); }
++    async quote(id: string): Promise<Row | undefined> { return (await this.rows(`${quoteSelect} WHERE q.id = ?`, [id]))[0]; }
++    async lockQuote(id: string): Promise<Row | undefined> {
++        return (await this.rows('SELECT id, organization_id, requester_user_id, status, valid_until, event_start_at FROM service_quotes WHERE id = ? FOR UPDATE', [id]))[0];
++    }
++    quoteItems(id: string) {
++        return this.rows('SELECT id, description, quantity, unit_price, line_total, sort_order FROM service_quote_items WHERE service_quote_id = ? ORDER BY sort_order, id', [id]);
++    }
++    async replaceQuoteItems(id: string, items: { description: string; quantity: number; unit_price: number; line_total: string }[]): Promise<void> {
++        await this.execute('DELETE FROM service_quote_items WHERE service_quote_id = ?', [id]);
++        for (const [index, item] of items.entries())
++            await this.execute('INSERT INTO service_quote_items (service_quote_id, description, quantity, unit_price, line_total, sort_order) VALUES (?, ?, ?, ?, ?, ?)',
++                [id, item.description, item.quantity, item.unit_price, item.line_total, index]);
++    }
++    async quotes(userId: string, query: ServiceQuoteList, admin: boolean) {
++        const where: string[] = []; const values: Value[] = [];
++        if (query.as === 'requester') { where.push('q.requester_user_id = ?'); values.push(userId); }
++        else if (!admin) { where.push('EXISTS (SELECT 1 FROM organization_members m WHERE m.organization_id = q.organization_id AND m.user_id = ?)'); values.push(userId); }
++        if (query.status) { where.push(`${quoteStatus} = ?`); values.push(query.status); }
++        if (query.concert_id) { where.push('q.concert_id = ?'); values.push(query.concert_id); }
++        const clause = where.length ? ` WHERE ${where.join(' AND ')}` : '';
++        const total = Number((await this.rows(`SELECT COUNT(*) AS total ${fromOf(quoteSelect, 'service_quotes')}${clause}`, values))[0].total);
++        return { data: await this.rows(`${quoteSelect}${clause} ORDER BY q.event_start_at DESC, q.id DESC LIMIT ? OFFSET ?`, [...values, ...limit(query)]), total };
++    }
++    async concertOwner(concertId: string): Promise<string | undefined> {
++        return (await this.rows<{ organizer_user_id: string }>('SELECT organizer_user_id FROM concerts WHERE id = ?', [concertId]))[0]?.organizer_user_id;
++    }
++    async reservationParties(reservationId: string): Promise<{ user_id: string; organization_id: string } | undefined> {
++        return (await this.rows<{ user_id: string; organization_id: string }>(`SELECT r.user_id, e.organization_id FROM reservations r
++            JOIN establishments e ON e.id = r.establishment_id WHERE r.id = ?`, [reservationId]))[0];
++    }
++
++    // ---- Notifications: QUOTE_UPDATE with the service quote id in data (notifications.quote_id points to venue quotes) ----
++    async notifyUser(userId: string, quoteId: string, title: string, body: string): Promise<void> {
++        await this.execute(`INSERT INTO notifications (user_id, type, title, body, data) VALUES (?, 'QUOTE_UPDATE', ?, ?, ?)`,
++            [userId, title.slice(0, 200), body.slice(0, 1000), JSON.stringify({ service_quote_id: quoteId })]);
++    }
++    async notifyProvider(organizationId: string, quoteId: string, title: string, body: string): Promise<void> {
++        await this.execute(`INSERT INTO notifications (user_id, type, title, body, data)
++            SELECT m.user_id, 'QUOTE_UPDATE', ?, ?, ? FROM organization_members m WHERE m.organization_id = ?`,
++        [title.slice(0, 200), body.slice(0, 1000), JSON.stringify({ service_quote_id: quoteId }), organizationId]);
++    }
++}
+diff --git a/backend/src/routes/admin.routes.ts b/backend/src/routes/admin.routes.ts
+index 81614cc..843ba2d 100644
+--- a/backend/src/routes/admin.routes.ts
++++ b/backend/src/routes/admin.routes.ts
+@@ -4,7 +4,7 @@ import { validateRequest } from '../middlewares/validation.middleware.js';
+ import { AdminController } from '../controllers/admin.controller.ts';
+ import { AdminService } from '../services/admin.service.ts';
+ import { PERMISSIONS as P } from '../utils/access.util.js';
+-import { grantSchema, selfProfileSchema } from '../validators/admin.schemas.ts';
++import { grantSchema, selfProfileSchema, suspendSchema } from '../validators/admin.schemas.ts';
+ import type { Database } from '../types/management.types.ts';
+ 
+ export function adminRoutes(database: Database, authenticate: RequestHandler): Router {
+@@ -21,6 +21,12 @@ export function adminRoutes(database: Database, authenticate: RequestHandler): R
+     router.get('/admin/users/:id', controller.user);
+     router.post('/admin/users/:id/roles', validateRequest(grantSchema), controller.grant);
+     router.delete('/admin/users/:id/roles/:role', controller.revoke);
++    router.post('/admin/users/:id/suspend', validateRequest(suspendSchema), controller.suspend);
++    router.post('/admin/users/:id/reactivate', controller.reactivate);
+     router.get('/admin/audit', controller.audit);
++    // Read-only list of every organization (venues and service companies); marketplace.admin also reaches it.
++    router.get('/admin/organizations', authenticate, requirePermission(P.usersManage, P.marketplaceAdmin), (_req, res, next) => {
++        res.setHeader('Cache-Control', 'no-store'); next();
++    }, controller.organizations);
+     return router;
+ }
+diff --git a/backend/src/routes/artists.routes.ts b/backend/src/routes/artists.routes.ts
+index ba11867..b7d25e9 100644
+--- a/backend/src/routes/artists.routes.ts
++++ b/backend/src/routes/artists.routes.ts
+@@ -19,6 +19,7 @@ export function artistsRoutes(database: Database, authenticate: RequestHandler):
+     router.get('/artists', controller.list);
+     router.get('/artists/mine', authenticate, manage, controller.mine);
+     router.get('/artists/:id', optionalAuth, controller.get);
++    router.get('/artists/:id/concerts', optionalAuth, controller.concerts);
+     router.post('/artists', authenticate, manage, validateRequest(artistSchema), controller.create);
+     router.patch('/artists/:id', authenticate, manage, validateRequest(artistPatchSchema), controller.update);
+     router.post('/artists/:id/publish', authenticate, manage, validateRequest(emptySchema.default({})), controller.status('PUBLISHED'));
+diff --git a/backend/src/routes/commerce.routes.ts b/backend/src/routes/commerce.routes.ts
+index dc7cb86..e9b9a4a 100644
+--- a/backend/src/routes/commerce.routes.ts
++++ b/backend/src/routes/commerce.routes.ts
+@@ -5,7 +5,7 @@ import { PERMISSIONS as P } from '../utils/access.util.js';
+ import { CommerceController } from '../controllers/commerce.controller.ts';
+ import { CommerceService } from '../services/commerce.service.ts';
+ import { emptySchema } from '../validators/management.schemas.ts';
+-import { purchaseSchema, validationSchema } from '../validators/commerce.schemas.ts';
++import { purchasePaymentSchema, purchaseSchema, validationSchema } from '../validators/commerce.schemas.ts';
+ import type { Database } from '../types/management.types.ts';
+ 
+ export function commerceRoutes(database: Database, authenticate: RequestHandler): Router {
+@@ -16,11 +16,12 @@ export function commerceRoutes(database: Database, authenticate: RequestHandler)
+     router.post('/purchases', requirePermission(P.ticketsPurchase), validateRequest(purchaseSchema), controller.create);
+     router.get('/purchases/me', controller.list('purchases'));
+     router.get('/purchases/:id', controller.purchase);
+-    for (const action of ['confirm', 'cancel'] as const)
+-        router.post(`/purchases/:id/${action}`, validateRequest(emptySchema.default({})), controller.transition(action));
++    router.post('/purchases/:id/confirm', validateRequest(purchasePaymentSchema), controller.transition('confirm'));
++    router.post('/purchases/:id/cancel', validateRequest(emptySchema.default({})), controller.transition('cancel'));
+     router.get('/tickets', controller.list('tickets'));
+-    // Staff permission is per concert (concert_staff); the service checks the assignment.
+-    router.post('/tickets/validate', validateRequest(validationSchema), controller.validate);
++    // tickets.validate comes from a concert_staff assignment (never from a profile); the service also checks that the
++    // assignment is for this concert. tickets.validate_all (ADMIN) validates any concert.
++    router.post('/tickets/validate', requirePermission(P.ticketsValidate, P.ticketsValidateAll), validateRequest(validationSchema), controller.validate);
+     router.get('/tickets/:id', controller.ticket);
+     return router;
+ }
+diff --git a/backend/src/routes/marketplace.routes.ts b/backend/src/routes/marketplace.routes.ts
+index 4513042..62f91b5 100644
+--- a/backend/src/routes/marketplace.routes.ts
++++ b/backend/src/routes/marketplace.routes.ts
+@@ -64,5 +64,9 @@ export function marketplaceRoutes(database: Database, authenticate: RequestHandl
+     router.get('/marketplace/reservations/:id', authenticate, reservationReaders, controller.reservation);
+     router.post('/marketplace/reservations/:id/cancel', authenticate, reservationReaders, controller.cancelReservation);
+     router.post('/marketplace/reservations/:id/payments', authenticate, booking, controller.pay);
++    // The venue side answers direct bookings; the service also requires membership in the venue's organization.
++    const venueSide = requirePermission(P.reservationsManage, P.marketplaceAdmin);
++    router.post('/marketplace/reservations/:id/accept', authenticate, venueSide, empty, controller.acceptReservation);
++    router.post('/marketplace/reservations/:id/reject', authenticate, venueSide, controller.rejectReservation);
+     return router;
+ }
+diff --git a/backend/src/routes/services.routes.ts b/backend/src/routes/services.routes.ts
+new file mode 100644
+index 0000000..ed73c05
+--- /dev/null
++++ b/backend/src/routes/services.routes.ts
+@@ -0,0 +1,52 @@
++import { Router, type RequestHandler } from 'express';
++import { requirePermission } from '../middlewares/auth.middleware.js';
++import { validateRequest } from '../middlewares/validation.middleware.js';
++import { PERMISSIONS as P } from '../utils/access.util.js';
++import { ServicesController } from '../controllers/services.controller.ts';
++import { ServicesService } from '../services/services.service.ts';
++import { emptySchema, idSchema } from '../validators/management.schemas.ts';
++import { offeringPatchSchema, offeringSchema, providerPatchSchema, providerSchema, serviceQuoteRequestSchema, serviceQuoteResponseSchema }
++    from '../validators/services.schemas.ts';
++import type { Database } from '../types/management.types.ts';
++
++// EMPRESA_SERVICIOS. Public: published companies and offerings. Route gates by permission; the service adds
++// organization membership (OWNER/ADMIN to edit) and requester ownership on top.
++export function servicesRoutes(database: Database, authenticate: RequestHandler): Router {
++    const router = Router();
++    const controller = new ServicesController(new ServicesService(database));
++    const optionalAuth: RequestHandler = (req, res, next) => req.headers.authorization !== undefined ? authenticate(req, res, next) : next();
++    const manage = requirePermission(P.servicesManage, P.servicesAdmin);
++    const requesting = requirePermission(P.serviceQuotesRequest, P.servicesAdmin);
++    const responding = requirePermission(P.serviceQuotesRespond, P.servicesAdmin);
++    const readers = requirePermission(P.serviceQuotesRequest, P.serviceQuotesRespond, P.servicesAdmin);
++    const empty = validateRequest(emptySchema.default({}));
++    router.use('/services', (_req, res, next) => { res.setHeader('Cache-Control', 'no-store'); next(); });
++    router.param('id', (_req, _res, next, value) => { idSchema.parse(value); next(); });
++
++    router.get('/services/categories', controller.categories);
++    router.get('/services/providers', controller.providers);
++    router.get('/services/providers/mine', authenticate, manage, controller.mine);
++    router.get('/services/providers/:id', optionalAuth, controller.provider);
++    router.get('/services/offerings', controller.offerings);
++    router.get('/services/offerings/:id', optionalAuth, controller.offering);
++
++    router.post('/services/providers', authenticate, manage, validateRequest(providerSchema), controller.createProvider);
++    router.patch('/services/providers/:id', authenticate, manage, validateRequest(providerPatchSchema), controller.updateProvider);
++    router.post('/services/providers/:id/publish', authenticate, manage, empty, controller.providerStatus('PUBLISHED'));
++    router.post('/services/providers/:id/archive', authenticate, manage, empty, controller.providerStatus('ARCHIVED'));
++    router.post('/services/providers/:id/verify', authenticate, requirePermission(P.servicesAdmin), empty, controller.verify(true));
++    router.post('/services/providers/:id/unverify', authenticate, requirePermission(P.servicesAdmin), empty, controller.verify(false));
++    router.post('/services/providers/:id/offerings', authenticate, manage, validateRequest(offeringSchema), controller.createOffering);
++    router.patch('/services/offerings/:id', authenticate, manage, validateRequest(offeringPatchSchema), controller.updateOffering);
++    router.post('/services/offerings/:id/publish', authenticate, manage, empty, controller.offeringStatus('PUBLISHED'));
++    router.post('/services/offerings/:id/archive', authenticate, manage, empty, controller.offeringStatus('ARCHIVED'));
++
++    router.post('/services/quotes', authenticate, requesting, validateRequest(serviceQuoteRequestSchema), controller.requestQuote);
++    router.get('/services/quotes', authenticate, readers, controller.quotes);
++    router.get('/services/quotes/:id', authenticate, readers, controller.quote);
++    router.post('/services/quotes/:id/respond', authenticate, responding, validateRequest(serviceQuoteResponseSchema), controller.respondQuote);
++    router.post('/services/quotes/:id/reject', authenticate, responding, controller.rejectQuote);
++    router.post('/services/quotes/:id/cancel', authenticate, requesting, controller.cancelQuote);
++    router.post('/services/quotes/:id/accept', authenticate, requesting, empty, controller.acceptQuote);
++    return router;
++}
+diff --git a/backend/src/services/admin.service.ts b/backend/src/services/admin.service.ts
+index 021bf0f..8cd5c69 100644
+--- a/backend/src/services/admin.service.ts
++++ b/backend/src/services/admin.service.ts
+@@ -3,7 +3,7 @@ import { AdminRepository } from '../repositories/admin.repository.ts';
+ import { MysqlAuthRepository } from '../repositories/mysql.repository.js';
+ import { SELF_SERVICE_ROLES } from '../types/auth.types.js';
+ import type { Database, Principal } from '../types/management.types.ts';
+-import type { AuditQuery, UserQuery } from '../validators/admin.schemas.ts';
++import type { AuditQuery, OrganizationQuery, UserQuery } from '../validators/admin.schemas.ts';
+ 
+ const fail = (status: number, code: string, message: string): never => { throw new AppError(status, code, message, undefined); };
+ const SELF_SERVICE = new Set(SELF_SERVICE_ROLES);
+@@ -18,6 +18,31 @@ export class AdminService {
+     users(query: UserQuery) { return this.run(false, repo => repo.users(query)); }
+     user(id: string) { return this.run(false, async repo => await repo.user(id) ?? fail(404, 'NOT_FOUND', 'Usuario inexistente.')); }
+     auditLog(query: AuditQuery) { return this.run(false, repo => repo.auditLog(query)); }
++    organizations(query: OrganizationQuery) { return this.run(false, repo => repo.organizations(query)); }
++    // Suspension uses users.status: login, refresh and every authenticated request already refuse non-ACTIVE accounts.
++    suspend(userId: string, reason: string, actor: Principal) {
++        return this.run(true, async repo => {
++            if (userId === actor.id) fail(409, 'SELF_SUSPEND', 'No podés suspender tu propia cuenta.');
++            const { role, user } = await this.lock(repo, 'ADMIN', userId);
++            if (user.status !== 'ACTIVE') fail(409, 'INVALID_STATE', 'Solo se suspende una cuenta activa.');
++            if (await repo.isAdmin(userId) && await repo.activeHolders(role.id) <= 1) fail(409, 'LAST_ADMIN', 'La plataforma necesita al menos un ADMIN activo.');
++            await repo.setStatus(userId, 'BLOCKED');
++            const sessions = await repo.revokeSessions(userId);
++            await repo.audit({ actor: actor.id, action: 'USER_SUSPENDED', target: userId, entity: { type: 'USER', id: userId },
++                details: { reason, target_email: user.email, revoked_sessions: sessions } });
++            return repo.user(userId);
++        });
++    }
++    reactivate(userId: string, reason: string | null | undefined, actor: Principal) {
++        return this.run(true, async repo => {
++            const { user } = await this.lock(repo, 'ADMIN', userId);
++            if (user.status !== 'BLOCKED') fail(409, 'INVALID_STATE', 'Solo se reactiva una cuenta suspendida.');
++            await repo.setStatus(userId, 'ACTIVE');
++            await repo.audit({ actor: actor.id, action: 'USER_REACTIVATED', target: userId, entity: { type: 'USER', id: userId },
++                details: { reason: reason ?? null, target_email: user.email } });
++            return repo.user(userId);
++        });
++    }
+     // The change and its audit row commit together: a role change is never left unrecorded.
+     grant(userId: string, role: string, reason: string | null | undefined, actor: Principal) {
+         return this.run(true, async repo => {
+diff --git a/backend/src/services/artists.service.ts b/backend/src/services/artists.service.ts
+index 0d7f323..2a8d69c 100644
+--- a/backend/src/services/artists.service.ts
++++ b/backend/src/services/artists.service.ts
+@@ -44,6 +44,17 @@ export class ArtistsService {
+             return this.detail(repo, id, insider);
+         });
+     }
++    // Upcoming and past performances; a non-published profile shows them only to its members and admins.
++    concerts(id: string, user?: Principal) {
++        return this.run(false, async repo => {
++            const profile = required(await repo.profile(id));
++            const insider = Boolean(user && (admin(user) || await repo.memberRole(id, user.id)));
++            if (profile.status !== 'PUBLISHED' && !insider) fail(404, 'NOT_FOUND', 'Perfil de artista inexistente.');
++            const now = Date.now();
++            const concerts = await repo.concerts(id);
++            return { upcoming: concerts.filter(c => c.start_datetime.getTime() >= now).reverse(), past: concerts.filter(c => c.start_datetime.getTime() < now) };
++        });
++    }
+     create(input: ArtistInput, user: Principal) {
+         return this.run(true, async repo => {
+             const { genre_ids = [], ...fields } = input;
+diff --git a/backend/src/services/commerce.service.ts b/backend/src/services/commerce.service.ts
+index b5cdf83..8ddbc5d 100644
+--- a/backend/src/services/commerce.service.ts
++++ b/backend/src/services/commerce.service.ts
+@@ -5,6 +5,9 @@ import { CommerceRepository, type PurchaseRow, type ScanResult } from '../reposi
+ import type { Database, Principal, ConcertRow, TicketRow } from '../types/management.types.ts';
+ import { purchaseSchema, validationSchema, type PurchaseInput, type PageQuery, type ValidationInput } from '../validators/commerce.schemas.ts';
+ 
++export const SIMULATED_PURCHASE_NOTICE = 'Pago simulado: no se cobró dinero real ni se guardaron datos de tarjeta.';
++export type PaymentOutcome = 'APPROVED' | 'REJECTED';
++
+ function fail(status: number, code: string, message: string): never { throw new AppError(status, code, message, undefined); }
+ const required = <T>(value: T | undefined): T => value ?? fail(404, 'NOT_FOUND', 'Recurso inexistente.');
+ const ownerFilter = (user: Principal) => can(user, P.ordersReadAll) ? undefined : user.id;
+@@ -57,9 +60,11 @@ export class CommerceService {
+     }
+     purchases(user: Principal, query: PageQuery) { return this.run(false, repo => repo.purchases(user.id, query)); }
+     async purchase(id: string, user: Principal) {
+-        return this.run(false, async repo => ({ ...required(await repo.purchase(id, ownerFilter(user))), items: await repo.items(id) }));
++        return this.run(false, async repo => ({ ...required(await repo.purchase(id, ownerFilter(user))), items: await repo.items(id), payments: await repo.payments(id) }));
+     }
+-    async transition(id: string, action: 'confirm' | 'cancel', user: Principal) {
++    // confirm = simulated payment: APPROVED confirms the purchase and issues tickets; REJECTED is recorded and the purchase stays PENDING.
++    // cancel of a CONFIRMED purchase is a refund: tickets are voided, stock returns and the approved payment becomes REFUNDED.
++    async transition(id: string, action: 'confirm' | 'cancel', user: Principal, outcome: PaymentOutcome = 'APPROVED') {
+         const initial = await this.purchase(id, user);
+         const result = await this.run(true, async repo => {
+             // All writers acquire concerts -> ticket types (numeric ascending) -> purchase -> tickets.
+@@ -81,6 +86,12 @@ export class CommerceService {
+                 if (purchase.status !== 'PENDING') fail(409, 'INVALID_STATE', 'La compra no puede confirmarse.');
+                 for (const type of types.values()) sale(required(concerts.get(type.concert_id)), type, now);
+                 if ((await repo.purchaseTickets(id)).length) fail(409, 'INVALID_STATE', 'La compra ya tiene entradas.');
++                if (outcome === 'REJECTED') {
++                    const paymentId = await repo.addPayment(purchase, user.id, 'REJECTED');
++                    await repo.audit({ actor: user.id, action: 'ORDER_PAYMENT_REJECTED', target: purchase.user_id, entity: { type: 'ORDER', id },
++                        details: { payment_id: paymentId, amount: purchase.total, currency: purchase.currency, simulated: true } });
++                    return { expired: false as const, data: await this.details(repo, id) };
++                }
+                 if (await repo.confirm(id) !== 1) {
+                     await repo.setPurchaseStatus(id, 'EXPIRED');
+                     return { expired: true as const };
+@@ -89,6 +100,9 @@ export class CommerceService {
+                     await repo.sold(item, 1);
+                     for (let index = 0; index < item.quantity; index++) await repo.addTicket(item, purchase.user_id, createQrToken());
+                 }
++                const paymentId = await repo.addPayment(purchase, user.id, 'APPROVED');
++                await repo.audit({ actor: user.id, action: 'ORDER_PAYMENT_APPROVED', target: purchase.user_id, entity: { type: 'ORDER', id },
++                    details: { payment_id: paymentId, amount: purchase.total, currency: purchase.currency, simulated: true } });
+                 await repo.notifications.purchase(purchase.user_id, id, initial.items[0].concert_id);
+             } else {
+                 if (!['PENDING', 'CONFIRMED'].includes(purchase.status)) fail(409, 'INVALID_STATE', 'La compra no puede cancelarse.');
+@@ -96,17 +110,26 @@ export class CommerceService {
+                 if (tickets.some(ticket => ticket.used_at !== null)) fail(409, 'TICKET_ALREADY_USED', 'La compra contiene entradas utilizadas.');
+                 if (purchase.status === 'CONFIRMED' && [...concerts.values()].some(concert => concert.status !== 'CANCELLED' && concert.start_datetime <= now))
+                     fail(409, 'CANCELLATION_CLOSED', 'El concierto ya comenzó.');
+-                // The schema has no REFUNDED state: a cancelled confirmed order frees its stock and voids its tickets.
++                // A cancelled confirmed order frees its stock, voids its tickets and refunds its simulated payment.
+                 if (purchase.status === 'CONFIRMED') for (const item of initial.items) await repo.sold(item, -1);
+                 await repo.invalidateTickets(id);
+                 await repo.setPurchaseStatus(id, 'CANCELLED');
++                if (purchase.status === 'CONFIRMED') {
++                    const refunded = await repo.refund(id);
++                    await repo.audit({ actor: user.id, action: 'ORDER_REFUNDED', target: purchase.user_id, entity: { type: 'ORDER', id },
++                        details: { amount: purchase.total, currency: purchase.currency, refunded_payments: refunded, simulated: true,
++                            by_owner: purchase.user_id === user.id } });
++                }
+             }
+-            return { expired: false as const, data: { ...required(await repo.purchase(id)), items: await repo.items(id) } };
++            return { expired: false as const, data: await this.details(repo, id) };
+         });
+         // Persist EXPIRED before returning the conflict; every other failure rolls back the transaction.
+         if (result.expired) fail(409, 'RESERVATION_EXPIRED', 'La reserva venció.');
+         return result.data;
+     }
++    private async details(repo: CommerceRepository, id: string) {
++        return { ...required(await repo.purchase(id)), items: await repo.items(id), payments: await repo.payments(id), simulated: true, notice: SIMULATED_PURCHASE_NOTICE };
++    }
+     tickets(user: Principal, query: PageQuery) { return this.run(false, repo => repo.tickets(user.id, query)); }
+     ticket(id: string, user: Principal) { return this.run(false, async repo => required(await repo.ticket(id, ownerFilter(user)))); }
+     async validate(input: ValidationInput, user: Principal) {
+@@ -114,7 +137,7 @@ export class CommerceService {
+         // Rejections are committed together with their ticket_validations row, then reported.
+         const outcome = await this.run(true, async repo => {
+             const concert = await repo.concert(parsed.concertId);
+-            if (!can(user, P.ticketsValidate) && !await repo.assigned(parsed.concertId, user.id))
++            if (!can(user, P.ticketsValidateAll) && !await repo.assigned(parsed.concertId, user.id))
+                 fail(403, 'STAFF_NOT_ASSIGNED', 'Staff no asignado al concierto.');
+             if (!concert) fail(404, 'INVALID', 'Entrada inválida.');
+             const ticket = await repo.scan(parsed.qrToken);
+diff --git a/backend/src/services/management.service.ts b/backend/src/services/management.service.ts
+index 170e80c..cdb23c7 100644
+--- a/backend/src/services/management.service.ts
++++ b/backend/src/services/management.service.ts
+@@ -130,18 +130,24 @@ export class ManagementService {
+             fail(422, 'INCOMPLETE_CONCERT', 'Publicar requiere al menos un género y un tipo de entrada.');
+         for (const ticket of detail.ticket_types) ticketValid(ticket, concert);
+     }
++    private async artists(repo: ManagementRepository, id: string, ids: string[] | undefined): Promise<void> {
++        if (ids === undefined) return;
++        if (await repo.publishedArtists(ids) !== ids.length) fail(422, 'INVALID_ARTIST', 'Solo se vinculan perfiles de artista publicados.');
++        await repo.replaceArtists(id, ids);
++    }
+     async concertCreate(input: ConcertInput, user: Principal) {
+         manager(user);
+         if (!can(user, P.concertsManageAll) && input.organizer_id !== undefined)
+             fail(403, 'FORBIDDEN_OWNER', 'El organizador se obtiene de la sesión.');
+         dates(input.start_datetime, input.end_datetime);
+         return this.run(true, async repo => {
+-            const { genre_ids = [], ticket_types = [], organizer_id, ...fields } = input;
++            const { genre_ids = [], ticket_types = [], organizer_id, artist_profile_ids, ...fields } = input;
+             const owner = can(user, P.concertsManageAll) ? organizer_id ?? user.id : user.id;
+             if (!(await repo.organizerExists(owner))) fail(422, 'INVALID_ORGANIZER', 'Se requiere una cuenta activa con permiso para gestionar conciertos.');
+             const location = await this.location(repo, fields, owner);
+             const id = await repo.insert('concerts', { ...fields, ...location, organizer_id: owner, slug: slugify(fields.name, 200), status: 'DRAFT' });
+             await repo.replaceGenres(id, genre_ids);
++            await this.artists(repo, id, artist_profile_ids);
+             const concert = required(await repo.concert(id));
+             await this.reservationFits(repo, concert);
+             for (const ticket of ticket_types) { ticketValid(ticket, concert); await repo.insert('ticket_types', { ...ticket, concert_id: id }); }
+@@ -153,9 +159,10 @@ export class ManagementService {
+             const concert = await this.owned(repo, id, user); editable(concert);
+             const before = (await repo.concertDetails([concert]))[0];
+             dates(input.start_datetime ?? concert.start_datetime, input.end_datetime === undefined ? concert.end_datetime : input.end_datetime);
+-            const { genre_ids, ...fields } = input;
++            const { genre_ids, artist_profile_ids, ...fields } = input;
+             await repo.update('concerts', id, { ...fields, ...await this.location(repo, fields, concert.organizer_id, concert) });
+             if (genre_ids !== undefined) await repo.replaceGenres(id, genre_ids);
++            await this.artists(repo, id, artist_profile_ids);
+             const updated = required(await repo.concert(id));
+             await this.reservationFits(repo, updated);
+             for (const ticket of await repo.tickets(id)) ticketValid(ticket, updated);
+@@ -164,7 +171,7 @@ export class ManagementService {
+             const schedule = concert.start_datetime.getTime() !== updated.start_datetime.getTime() || concert.end_datetime?.getTime() !== updated.end_datetime?.getTime();
+             const relations = (values: Row[]) => values.map(value => String(value.id)).sort().join(',');
+             const relevant = ['name', 'artist_name', 'description', 'venue_id', 'venue_name', 'address_line', 'city_id'].some(key => concert[key] !== updated[key]) ||
+-                relations(before.genres) !== relations(detail.genres);
++                relations(before.genres) !== relations(detail.genres) || relations(before.artists) !== relations(detail.artists);
+             if (concert.status === 'PUBLISHED' && (schedule || relevant)) {
+                 const when = updated.start_datetime.toISOString().replace('T', ' ').slice(0, 16);
+                 await notifications.concert(id, 'CONCERT_UPDATED', schedule ? 'Cambio de horario' : 'Información del concierto',
+diff --git a/backend/src/services/marketplace.service.ts b/backend/src/services/marketplace.service.ts
+index 30787bd..690ea48 100644
+--- a/backend/src/services/marketplace.service.ts
++++ b/backend/src/services/marketplace.service.ts
+@@ -3,6 +3,7 @@ import { PERMISSIONS as P, can } from '../utils/access.util.js';
+ import { MarketplaceRepository } from '../repositories/marketplace.repository.ts';
+ import { NotificationsRepository } from '../repositories/notifications.repository.ts';
+ import { slugify } from '../repositories/management.repository.ts';
++import { MAX_AMOUNT, cents, decimal } from '../utils/money.util.ts';
+ import type { Database, Principal, Row } from '../types/management.types.ts';
+ import type { AvailabilityQuery, BlockInput, EstablishmentInput, EstablishmentPatch, ListQuery, MemberInput, MemberRole, OrganizationInput, QuoteRequest,
+     QuoteResponse, ReservationInput, VenueInput, VenuePatch, VenueQuery } from '../validators/marketplace.schemas.ts';
+@@ -15,7 +16,7 @@ export const SIMULATED_PAYMENT_NOTICE = 'Pago simulado: no se cobró dinero real
+ const signals: Record<string, number> = {
+     SLOT_CONFLICT: 409, SLOT_BLOCKED: 409, VENUE_NOT_AVAILABLE: 409, VENUE_NOT_FOUND: 404, RESERVATION_NOT_FOUND: 404, HOLD_EXPIRED: 409,
+     INVALID_STATUS: 409, INVALID_TRANSITION: 409, IMMUTABLE_RESERVATION: 409, MISSING_OCCUPANCY: 409, INVALID_OCCUPANCY_RANGE: 422,
+-    OCCUPANCY_IN_USE: 409, IMMUTABLE_OCCUPANCY: 409,
++    OCCUPANCY_IN_USE: 409, IMMUTABLE_OCCUPANCY: 409, ALREADY_PAID: 409,
+ };
+ function translate(error: unknown): void {
+     if (typeof error !== 'object' || error === null || !('code' in error)) return;
+@@ -30,13 +31,6 @@ function translate(error: unknown): void {
+     if (code === 'ER_CHECK_CONSTRAINT_VIOLATED') fail(422, 'VALIDATION_ERROR', 'Los datos incumplen las restricciones del recurso.');
+ }
+ const deadlock = (error: unknown) => typeof error === 'object' && error !== null && 'code' in error && error.code === 'ER_LOCK_DEADLOCK';
+-// Money as integer cents: never accumulate binary floating point amounts.
+-const cents = (value: number | string) => {
+-    const [whole, fraction = ''] = String(value).split('.');
+-    return BigInt(whole) * 100n + BigInt((fraction + '00').slice(0, 2)) * (String(value).startsWith('-') ? -1n : 1n);
+-};
+-const decimal = (value: bigint) => `${value / 100n}.${String(value % 100n).padStart(2, '0')}`;
+-const MAX_AMOUNT = 999999999999n;
+ function window(input: { setup_start_at?: Date; event_start_at: Date; event_end_at: Date; teardown_end_at?: Date }) {
+     const slot = { setup_start_at: input.setup_start_at ?? input.event_start_at, event_start_at: input.event_start_at,
+         event_end_at: input.event_end_at, teardown_end_at: input.teardown_end_at ?? input.event_end_at };
+@@ -376,7 +370,8 @@ export class MarketplaceService {
+             event_name: input.event_name, expected_attendance: input.expected_attendance ?? null, ...slot, total: decimal(total) }));
+         return this.run(true, async repo => {
+             if (input.notes) await repo.setNotes(id, input.notes);
+-            await repo.notifyProviders(input.venue_id, 'RESERVATION_UPDATE', { reservation_id: id }, 'Nueva reserva temporal', `${input.event_name} en ${String(venue.name)}, pendiente de pago.`);
++            await repo.notifyProviders(input.venue_id, 'RESERVATION_UPDATE', { reservation_id: id }, 'Nueva solicitud de reserva',
++                `${input.event_name} en ${String(venue.name)}: pendiente de pago y de tu aceptación.`);
+             return repo.reservationDetails(required(await repo.reservation(id)));
+         });
+     }
+@@ -393,6 +388,7 @@ export class MarketplaceService {
+             const { reservation, provider } = await this.reservationAccess(repo, id, user);
+             if (locked.status === 'EXPIRED' && locked.status_code === 'HOLD') {
+                 await repo.setReservationStatus(id, user.id, 'EXPIRED');
++                await repo.refundPayments(id);
+                 return { expired: true as const };
+             }
+             if (!['HOLD', 'CONFIRMED'].includes(String(locked.status_code))) fail(409, 'INVALID_STATE', 'La reserva ya está cerrada.');
+@@ -409,22 +405,59 @@ export class MarketplaceService {
+         if (outcome.expired) fail(409, 'RESERVATION_EXPIRED', 'La reserva temporal venció.');
+         return outcome.data;
+     }
++    // The venue answers a direct booking (no quote). Accepting needs the simulated payment first: the payment
++    // confirms the purchase and the venue's acceptance confirms the reservation. Rejecting cancels and refunds.
++    async acceptReservation(id: string, user: Principal) {
++        const outcome = await this.run(true, async repo => {
++            const locked = required(await repo.lockReservation(id), 'Reserva inexistente.');
++            const { reservation, provider } = await this.reservationAccess(repo, id, user);
++            if (!provider) fail(403, 'FORBIDDEN', 'Solo el espacio acepta la reserva.');
++            if (locked.status === 'EXPIRED' && locked.status_code === 'HOLD') {
++                await repo.setReservationStatus(id, user.id, 'EXPIRED');
++                await repo.refundPayments(id);
++                return { expired: true as const };
++            }
++            if (locked.status_code !== 'HOLD') fail(409, 'INVALID_STATE', 'Solo se acepta una reserva pendiente.');
++            if (locked.quote_id) fail(409, 'QUOTE_RESERVATION', 'Las reservas con presupuesto aceptado se confirman con el pago.');
++            if (!await repo.approvedPayments(id)) fail(409, 'PAYMENT_REQUIRED', 'La reserva todavía no tiene el pago simulado aprobado.');
++            await repo.confirmReservation(id, user.id);
++            await new NotificationsRepository(repo.connection).marketplace(String(reservation.user_id), 'RESERVATION_UPDATE', { reservation_id: id },
++                'Reserva confirmada', `${String(reservation.event_name)}: el espacio aceptó tu reserva.`);
++            return { expired: false as const, data: await repo.reservationDetails(required(await repo.reservation(id))) };
++        });
++        if (outcome.expired) fail(409, 'RESERVATION_EXPIRED', 'La reserva temporal venció.');
++        return outcome.data;
++    }
++    async rejectReservation(id: string, reason: string, user: Principal) {
++        await this.run(false, async repo => {
++            const { reservation, provider } = await this.reservationAccess(repo, id, user);
++            if (!provider) fail(403, 'FORBIDDEN', 'Solo el espacio rechaza la reserva.');
++            if (reservation.status !== 'HOLD') fail(409, 'INVALID_STATE', 'Solo se rechaza una reserva pendiente.');
++        });
++        return this.cancelReservation(id, reason, user);
++    }
+     async pay(id: string, outcome: 'APPROVED' | 'REJECTED', user: Principal) {
+         const reservation = await this.run(false, async repo => (await this.reservationAccess(repo, id, user)).reservation);
+         if (reservation.user_id !== user.id) fail(403, 'FORBIDDEN', 'Solo quien reservó puede pagar.');
+         if (reservation.status === 'EXPIRED') {
+             await this.run(true, async repo => {
+                 const locked = await repo.lockReservation(id);
+-                if (locked?.status_code === 'HOLD' && locked.status === 'EXPIRED') await repo.setReservationStatus(id, user.id, 'EXPIRED');
++                if (locked?.status_code === 'HOLD' && locked.status === 'EXPIRED') {
++                    await repo.setReservationStatus(id, user.id, 'EXPIRED');
++                    await repo.refundPayments(id);
++                }
+             });
+             fail(409, 'HOLD_EXPIRED', 'La reserva temporal venció y no puede pagarse.');
+         }
+         if (reservation.status !== 'HOLD') fail(409, 'INVALID_STATUS', 'Solo se paga una reserva temporal (HOLD).');
+-        // sp_simulate_payment locks the reservation, records the payment and confirms it in one transaction.
++        // sp_simulate_payment locks the reservation and records the payment. With an accepted quote it also confirms the
++        // reservation; a direct booking stays in HOLD (extended up to 48 h) until the venue accepts it.
+         const paymentId = await this.procedure(repo => repo.simulatePayment(id, user.id, outcome === 'APPROVED'));
+         return this.run(true, async repo => {
+             if (outcome === 'APPROVED') await repo.notifyProviders(String(reservation.venue_id), 'RESERVATION_UPDATE', { reservation_id: id },
+-                'Reserva confirmada', `${String(reservation.event_name)}: pago simulado aprobado.`);
++                reservation.quote_id ? 'Reserva confirmada' : 'Reserva pagada: falta tu aceptación',
++                reservation.quote_id ? `${String(reservation.event_name)}: pago simulado aprobado.`
++                    : `${String(reservation.event_name)}: pago simulado aprobado. Aceptala o rechazala antes de que venza.`);
+             return { simulated: true, notice: SIMULATED_PAYMENT_NOTICE, payment: await repo.payment(paymentId),
+                 reservation: await repo.reservationDetails(required(await repo.reservation(id))) };
+         });
+diff --git a/backend/src/services/permissions.service.js b/backend/src/services/permissions.service.js
+index eddfe59..89da51f 100644
+--- a/backend/src/services/permissions.service.js
++++ b/backend/src/services/permissions.service.js
+@@ -18,7 +18,7 @@ export class PermissionsService {
+             if (can(principal, P.concertsManageAll))
+                 return;
+             // Global QR validation (ADMIN) also reaches the staff tools of any concert.
+-            if (scope === 'staff' && can(principal, P.ticketsValidate))
++            if (scope === 'staff' && can(principal, P.ticketsValidateAll))
+                 return;
+             if (scope === 'owner')
+                 return assertConcertOwner(principal, ownerId);
+diff --git a/backend/src/services/services.service.ts b/backend/src/services/services.service.ts
+new file mode 100644
+index 0000000..8bb56eb
+--- /dev/null
++++ b/backend/src/services/services.service.ts
+@@ -0,0 +1,250 @@
++import { AppError } from '../utils/app-error.util.js';
++import { PERMISSIONS as P, can } from '../utils/access.util.js';
++import { MAX_AMOUNT, decimal, quoteTotals } from '../utils/money.util.ts';
++import { ServicesRepository } from '../repositories/services.repository.ts';
++import { slugify } from '../repositories/management.repository.ts';
++import { audit } from '../repositories/audit.repository.ts';
++import { assertConcertOwner } from './permissions.service.js';
++import type { Database, Principal, Row } from '../types/management.types.ts';
++import type { OfferingInput, OfferingPatch, OfferingQuery, ProviderInput, ProviderPatch, ProviderQuery, ServiceQuoteList, ServiceQuoteRequest,
++    ServiceQuoteResponse } from '../validators/services.schemas.ts';
++
++const fail = (status: number, code: string, message: string): never => { throw new AppError(status, code, message, undefined); };
++const required = <T>(value: T | undefined, message = 'Recurso inexistente.'): T => value ?? fail(404, 'NOT_FOUND', message);
++const admin = (user?: Principal) => can(user, P.servicesAdmin);
++function translate(error: unknown): void {
++    const code = typeof error === 'object' && error !== null && 'code' in error ? error.code : undefined;
++    if (code === 'ER_DUP_ENTRY') fail(409, 'DUPLICATE_RESOURCE', 'Ya existe un recurso con esos datos.');
++    if (code === 'ER_NO_REFERENCED_ROW_2') fail(422, 'INVALID_REFERENCE', 'Uno de los recursos asociados no existe.');
++    if (code === 'ER_CHECK_CONSTRAINT_VIOLATED') fail(422, 'VALIDATION_ERROR', 'Los datos incumplen las restricciones del recurso.');
++}
++
++// EMPRESA_SERVICIOS: a company is an organization with a service_providers profile. Members (organization_members) operate it:
++// any member with the permission reads and answers quotes; OWNER/ADMIN edit the company and its catalog. services.admin overrides.
++// Requesters (ORGANIZADOR, VENUE) ask for quotes; only the requester accepts a SENT quote, which is what makes a service contracted.
++export class ServicesService {
++    constructor(private readonly db: Database) {}
++    private async run<T>(write: boolean, work: (repo: ServicesRepository) => Promise<T>): Promise<T> {
++        try {
++            const execute = (repo: { connection: ConstructorParameters<typeof ServicesRepository>[0] }) => work(new ServicesRepository(repo.connection));
++            return await (write ? this.db.transaction(execute) : this.db.read(execute));
++        } catch (error) {
++            translate(error);
++            throw error;
++        }
++    }
++    private async member(repo: ServicesRepository, user: Principal | undefined, providerId: string, permission: string, manage = false): Promise<boolean> {
++        if (!user) return false;
++        if (admin(user)) return true;
++        const role = can(user, permission) ? await repo.memberRole(providerId, user.id) : undefined;
++        return Boolean(role && (!manage || ['OWNER', 'ADMIN'].includes(role)));
++    }
++    private async operator(repo: ServicesRepository, user: Principal, providerId: string, manage = false, permission: string = P.servicesManage): Promise<void> {
++        if (!await this.member(repo, user, providerId, permission, manage)) fail(403, 'FORBIDDEN', 'No tenés permisos sobre esta empresa.');
++    }
++    private async visibleProvider(repo: ServicesRepository, id: string, user?: Principal) {
++        const provider = required(await repo.provider(id), 'Empresa inexistente.');
++        const insider = await this.member(repo, user, id, P.servicesManage) || await this.member(repo, user, id, P.serviceQuotesRespond);
++        if (!insider && !await repo.isPublicProvider(id)) fail(404, 'NOT_FOUND', 'Empresa inexistente.');
++        return { provider, insider };
++    }
++    private async city(repo: ServicesRepository, id: string | null | undefined): Promise<void> {
++        if (id && !await repo.cityExists(id)) fail(422, 'INVALID_REFERENCE', 'Ciudad inexistente.');
++    }
++
++    // ---- Public catalog ----
++    categories() { return this.run(false, repo => repo.categories()); }
++    providers(query: ProviderQuery) { return this.run(false, repo => repo.providers(query)); }
++    offerings(query: OfferingQuery) { return this.run(false, repo => repo.offerings(query)); }
++    provider(id: string, user?: Principal) {
++        return this.run(false, async repo => {
++            const { provider, insider } = await this.visibleProvider(repo, id, user);
++            return { ...provider, offerings: await repo.providerOfferings(id, insider) };
++        });
++    }
++    async offering(id: string, user?: Principal) {
++        return this.run(false, async repo => {
++            const offering = required(await repo.offering(id), 'Servicio inexistente.');
++            const { insider } = await this.visibleProvider(repo, String(offering.provider_id), user);
++            if (offering.status !== 'PUBLISHED' && !insider) fail(404, 'NOT_FOUND', 'Servicio inexistente.');
++            return offering;
++        });
++    }
++
++    // ---- Company (services.manage) ----
++    mine(user: Principal) { return this.run(false, repo => repo.mine(user.id)); }
++    createProvider(input: ProviderInput, user: Principal) {
++        return this.run(true, async repo => {
++            const { description, city_id, coverage_area, ...organization } = input;
++            await this.city(repo, city_id);
++            const id = await repo.createProvider({ ...organization, tax_id: organization.tax_id?.replaceAll('-', ''), slug: slugify(organization.name) },
++                { description, city_id, coverage_area }, user.id);
++            return { ...await repo.provider(id), member_role: 'OWNER', offerings: [] };
++        });
++    }
++    updateProvider(id: string, input: ProviderPatch, user: Principal) {
++        return this.run(true, async repo => {
++            required(await repo.lockProvider(id), 'Empresa inexistente.');
++            await this.operator(repo, user, id, true);
++            const { description, city_id, coverage_area, ...organization } = input;
++            await this.city(repo, city_id);
++            await repo.updateOrganization(id, { ...organization, tax_id: organization.tax_id === undefined ? undefined : organization.tax_id?.replaceAll('-', '') ?? null });
++            await repo.updateProvider(id, { description, city_id, coverage_area });
++            return { ...await repo.provider(id), offerings: await repo.providerOfferings(id, true) };
++        });
++    }
++    providerStatus(id: string, status: 'PUBLISHED' | 'ARCHIVED', user: Principal) {
++        return this.run(true, async repo => {
++            const provider = required(await repo.lockProvider(id), 'Empresa inexistente.');
++            await this.operator(repo, user, id, true);
++            await repo.updateProvider(id, { status, published_at: status === 'PUBLISHED' ? (provider.published_at as Date | null) ?? new Date() : undefined });
++            return { ...await repo.provider(id), offerings: await repo.providerOfferings(id, true) };
++        });
++    }
++    // Only Venti verifies a company; the change is audited.
++    verify(id: string, verified: boolean, user: Principal) {
++        return this.run(true, async repo => {
++            const provider = required(await repo.lockProvider(id), 'Empresa inexistente.');
++            if (Boolean(Number(provider.is_verified)) !== verified) {
++                await repo.updateProvider(id, verified ? { is_verified: 1, verified_at: new Date(), verified_by_user_id: user.id }
++                    : { is_verified: 0, verified_at: null, verified_by_user_id: null });
++                await audit(repo.connection, { actor: user.id, action: verified ? 'SERVICE_PROVIDER_VERIFIED' : 'SERVICE_PROVIDER_UNVERIFIED',
++                    entity: { type: 'SERVICE_PROVIDER', id }, details: { provider_id: id } });
++            }
++            return repo.provider(id);
++        });
++    }
++
++    // ---- Catalog of a company ----
++    createOffering(providerId: string, input: OfferingInput, user: Principal) {
++        return this.run(true, async repo => {
++            required(await repo.lockProvider(providerId), 'Empresa inexistente.');
++            await this.operator(repo, user, providerId, true);
++            const { category_code, ...fields } = input;
++            const category_id = await repo.category(category_code) ?? fail(422, 'UNKNOWN_CATEGORY', 'Categoría inexistente.');
++            const id = await repo.createOffering({ ...fields, base_price: fields.base_price ?? null, category_id, organization_id: providerId,
++                slug: slugify(fields.name), status: 'DRAFT' });
++            return repo.offering(id);
++        });
++    }
++    updateOffering(id: string, input: OfferingPatch, user: Principal) {
++        return this.run(true, async repo => {
++            const offering = required(await repo.offering(id, true), 'Servicio inexistente.');
++            await this.operator(repo, user, String(offering.provider_id), true);
++            const { category_code, ...fields } = input;
++            const category_id = category_code ? await repo.category(category_code) ?? fail(422, 'UNKNOWN_CATEGORY', 'Categoría inexistente.') : undefined;
++            const unit = fields.pricing_unit ?? String(offering.pricing_unit);
++            const price = fields.base_price === undefined ? offering.base_price : fields.base_price;
++            if (unit !== 'QUOTE' && price === null) fail(422, 'PRICE_REQUIRED', 'Indicar base_price o usar pricing_unit QUOTE.');
++            await repo.updateOffering(id, { ...fields, category_id });
++            return repo.offering(id);
++        });
++    }
++    offeringStatus(id: string, status: 'PUBLISHED' | 'ARCHIVED', user: Principal) {
++        return this.run(true, async repo => {
++            const offering = required(await repo.offering(id, true), 'Servicio inexistente.');
++            await this.operator(repo, user, String(offering.provider_id), true);
++            await repo.updateOffering(id, { status, published_at: status === 'PUBLISHED' ? (offering.published_at as Date | null) ?? new Date() : undefined });
++            return repo.offering(id);
++        });
++    }
++
++    // ---- Quotes ----
++    private async quoteAccess(repo: ServicesRepository, id: string, user: Principal): Promise<{ quote: Row; provider: boolean }> {
++        const quote = required(await repo.quote(id), 'Cotización inexistente.');
++        const provider = await this.member(repo, user, String(quote.provider_id), P.serviceQuotesRespond);
++        if (quote.requester_user_id !== user.id && !provider) fail(404, 'NOT_FOUND', 'Cotización inexistente.');
++        return { quote, provider };
++    }
++    private async quoteDetails(repo: ServicesRepository, id: string) {
++        return { ...required(await repo.quote(id)), items: await repo.quoteItems(id) };
++    }
++    requestQuote(input: ServiceQuoteRequest, user: Principal) {
++        if (input.event_start_at <= new Date()) fail(422, 'INVALID_DATE', 'El servicio debe empezar en el futuro.');
++        return this.run(true, async repo => {
++            const offering = required(await repo.offering(input.offering_id), 'Servicio inexistente.');
++            const providerId = String(offering.provider_id);
++            if (offering.status !== 'PUBLISHED' || !await repo.isPublicProvider(providerId)) fail(404, 'NOT_FOUND', 'Servicio inexistente.');
++            if (await repo.memberRole(providerId, user.id)) fail(422, 'OWN_PROVIDER', 'No podés pedir una cotización a tu propia empresa.');
++            // The service is linked only to an event the requester runs: their concert, or a reservation they made or host.
++            if (input.concert_id) assertConcertOwner(user, required(await repo.concertOwner(input.concert_id), 'Concierto inexistente.'));
++            if (input.reservation_id) {
++                const parties = required(await repo.reservationParties(input.reservation_id), 'Reserva inexistente.');
++                if (parties.user_id !== user.id && !await repo.memberRole(parties.organization_id, user.id))
++                    fail(403, 'FORBIDDEN', 'La reserva no es tuya ni de tu espacio.');
++            }
++            const id = await repo.createQuote({ offering_id: input.offering_id, organization_id: providerId, requester_user_id: user.id,
++                concert_id: input.concert_id ?? null, reservation_id: input.reservation_id ?? null, event_name: input.event_name,
++                event_start_at: input.event_start_at, event_end_at: input.event_end_at, location_text: input.location_text,
++                requester_notes: input.requester_notes, currency: String(offering.currency), status: 'REQUESTED' });
++            await repo.notifyProvider(providerId, id, 'Nueva solicitud de cotización', `${input.event_name}: ${String(offering.name)}.`);
++            return this.quoteDetails(repo, id);
++        });
++    }
++    quotes(user: Principal, query: ServiceQuoteList) {
++        if (query.as === 'provider' && !can(user, P.serviceQuotesRespond, P.servicesAdmin)) fail(403, 'FORBIDDEN', 'Permisos insuficientes.');
++        if (query.as === 'requester' && !can(user, P.serviceQuotesRequest, P.servicesAdmin)) fail(403, 'FORBIDDEN', 'Permisos insuficientes.');
++        return this.run(false, repo => repo.quotes(user.id, query, admin(user)));
++    }
++    quote(id: string, user: Principal) {
++        return this.run(false, async repo => { await this.quoteAccess(repo, id, user); return this.quoteDetails(repo, id); });
++    }
++    respondQuote(id: string, input: ServiceQuoteResponse, user: Principal) {
++        return this.run(true, async repo => {
++            const locked = required(await repo.lockQuote(id), 'Cotización inexistente.');
++            const { quote, provider } = await this.quoteAccess(repo, id, user);
++            if (!provider) fail(403, 'FORBIDDEN', 'Solo la empresa responde la cotización.');
++            if (!['REQUESTED', 'SENT'].includes(String(locked.status))) fail(409, 'INVALID_STATE', 'La cotización ya no admite respuesta.');
++            if (input.valid_until <= new Date() || input.valid_until > (locked.event_start_at as Date))
++                fail(422, 'INVALID_DATE', 'La validez debe vencer en el futuro y antes del servicio.');
++            const { lines, subtotal, total } = quoteTotals(input.items, input.fees, input.discount);
++            if (total < 0n) fail(422, 'INVALID_TOTAL', 'El descuento supera el subtotal.');
++            if (total > MAX_AMOUNT || lines.some(item => item.line > MAX_AMOUNT)) fail(422, 'INVALID_TOTAL', 'Importe demasiado alto.');
++            await repo.replaceQuoteItems(id, lines.map(({ line, ...item }) => ({ ...item, line_total: decimal(line) })));
++            await repo.updateQuote(id, { status: 'SENT', subtotal: decimal(subtotal), fees: input.fees, discount: input.discount, total_amount: decimal(total),
++                valid_until: input.valid_until, provider_notes: input.provider_notes, responded_by_user_id: user.id, responded_at: new Date() });
++            await repo.notifyUser(String(quote.requester_user_id), id, 'Cotización recibida',
++                `${String(quote.event_name)} (${String(quote.offering_name)}): total ${decimal(total)} ${String(quote.currency)}.`);
++            return this.quoteDetails(repo, id);
++        });
++    }
++    // reject: the company declines. cancel: the requester withdraws, also after accepting while the service has not started.
++    closeQuote(id: string, action: 'reject' | 'cancel', notes: string | null | undefined, user: Principal) {
++        return this.run(true, async repo => {
++            const locked = required(await repo.lockQuote(id), 'Cotización inexistente.');
++            const { quote, provider } = await this.quoteAccess(repo, id, user);
++            if (action === 'reject' ? !provider : quote.requester_user_id !== user.id)
++                fail(403, 'FORBIDDEN', action === 'reject' ? 'Solo la empresa rechaza la cotización.' : 'Solo quien la pidió la cancela.');
++            const open = ['REQUESTED', 'SENT'].includes(String(locked.status));
++            const contracted = action === 'cancel' && locked.status === 'ACCEPTED' && (locked.event_start_at as Date) > new Date();
++            if (!open && !contracted) fail(409, 'INVALID_STATE', 'La cotización ya está cerrada.');
++            if (action === 'reject') {
++                await repo.updateQuote(id, { status: 'REJECTED', provider_notes: notes, responded_by_user_id: user.id, responded_at: new Date() });
++                await repo.notifyUser(String(quote.requester_user_id), id, 'Cotización rechazada', `${String(quote.event_name)}: la empresa no puede prestar el servicio.`);
++            } else {
++                await repo.updateQuote(id, { status: 'CANCELLED', requester_notes: notes ? `${String(quote.requester_notes ?? '')}\nCancelación: ${notes}`.trim() : undefined });
++                await repo.notifyProvider(String(quote.provider_id), id, contracted ? 'Contratación cancelada' : 'Pedido cancelado',
++                    `${String(quote.event_name)} fue cancelado por el cliente.`);
++            }
++            return this.quoteDetails(repo, id);
++        });
++    }
++    async acceptQuote(id: string, user: Principal) {
++        const outcome = await this.run(true, async repo => {
++            const locked = required(await repo.lockQuote(id), 'Cotización inexistente.');
++            const { quote } = await this.quoteAccess(repo, id, user);
++            if (quote.requester_user_id !== user.id) fail(403, 'FORBIDDEN', 'Solo quien pidió la cotización puede aceptarla.');
++            if (locked.status === 'SENT' && (locked.valid_until as Date) <= new Date()) {
++                await repo.updateQuote(id, { status: 'EXPIRED' });
++                return { expired: true as const };
++            }
++            if (locked.status !== 'SENT') fail(409, 'INVALID_STATE', 'Solo se acepta una cotización enviada.');
++            await repo.updateQuote(id, { status: 'ACCEPTED', accepted_at: new Date() });
++            await repo.notifyProvider(String(quote.provider_id), id, 'Servicio contratado', `${String(quote.event_name)}: el cliente aceptó la cotización.`);
++            return { expired: false as const, data: await this.quoteDetails(repo, id) };
++        });
++        // Persist EXPIRED before reporting the conflict.
++        if (outcome.expired) fail(409, 'QUOTE_EXPIRED', 'La cotización venció.');
++        return outcome.data;
++    }
++}
+diff --git a/backend/src/utils/access.util.js b/backend/src/utils/access.util.js
+index 0b5d612..5733d17 100644
+--- a/backend/src/utils/access.util.js
++++ b/backend/src/utils/access.util.js
+@@ -1,12 +1,14 @@
+ // Permission codes checked by the API. The grants per role live in the database (role_permissions);
+ // database/venti_shema2.sql seeds them. Ownership and memberships (concert owner, concert_staff,
+-// organization_members) are still checked on top of these.
++// organization_members) are still checked on top of these. tickets.validate is never granted by a role:
++// MysqlAuthRepository.access adds it while the user holds a concert_staff assignment.
+ export const PERMISSIONS = Object.freeze({
+     concertsManage: 'concerts.manage',
+     concertsManageAll: 'concerts.manage_all',
+     concertsStaffManage: 'concerts.staff.manage',
+     ticketsPurchase: 'tickets.purchase',
+     ticketsValidate: 'tickets.validate',
++    ticketsValidateAll: 'tickets.validate_all',
+     ordersReadAll: 'orders.read_all',
+     statisticsOwn: 'statistics.own',
+     statisticsGlobal: 'statistics.global',
+@@ -21,6 +23,10 @@ export const PERMISSIONS = Object.freeze({
+     marketplaceAdmin: 'marketplace.admin',
+     artistProfileManage: 'artist.profile.manage',
+     artistsAdmin: 'artists.admin',
++    servicesManage: 'services.manage',
++    serviceQuotesRespond: 'services.quotes.respond',
++    serviceQuotesRequest: 'services.quotes.request',
++    servicesAdmin: 'services.admin',
+ });
+ // True when the principal holds at least one of the codes.
+ export const can = (principal, ...codes) => Boolean(principal?.permissions?.some(code => codes.includes(code)));
+diff --git a/backend/src/utils/money.util.ts b/backend/src/utils/money.util.ts
+new file mode 100644
+index 0000000..6e85619
+--- /dev/null
++++ b/backend/src/utils/money.util.ts
+@@ -0,0 +1,13 @@
++// Money as integer cents: never accumulate binary floating point amounts.
++export const cents = (value: number | string) => {
++    const [whole, fraction = ''] = String(value).split('.');
++    return BigInt(whole) * 100n + BigInt((fraction + '00').slice(0, 2)) * (String(value).startsWith('-') ? -1n : 1n);
++};
++export const decimal = (value: bigint) => `${value / 100n}.${String(value % 100n).padStart(2, '0')}`;
++export const MAX_AMOUNT = 999999999999n;
++// Quote lines rounded half-up to cents; the total is subtotal + fees - discount.
++export function quoteTotals<T extends { quantity: number; unit_price: number }>(items: T[], fees: number, discount: number) {
++    const lines = items.map(item => ({ ...item, line: (cents(item.quantity) * cents(item.unit_price) + 50n) / 100n }));
++    const subtotal = lines.reduce((sum, item) => sum + item.line, 0n);
++    return { lines, subtotal, total: subtotal + cents(fees) - cents(discount) };
++}
+diff --git a/backend/src/validators/admin.schemas.ts b/backend/src/validators/admin.schemas.ts
+index 73eb2c3..b2b787e 100644
+--- a/backend/src/validators/admin.schemas.ts
++++ b/backend/src/validators/admin.schemas.ts
+@@ -5,11 +5,19 @@ import { idSchema, nameSchema, paginationShape } from './management.schemas.ts';
+ // GUEST belongs to the guest flow and is never granted or revoked by hand.
+ export const ASSIGNABLE_ROLES = ROLES.filter(role => role !== 'GUEST') as [string, ...string[]];
+ export const roleCodeSchema = z.enum(ASSIGNABLE_ROLES);
+-export const userQuerySchema = z.strictObject({ ...paginationShape, q: nameSchema(190).optional(), role: z.enum(ROLES as [string, ...string[]]).optional() });
++export const userQuerySchema = z.strictObject({ ...paginationShape, q: nameSchema(190).optional(), role: z.enum(ROLES as [string, ...string[]]).optional(),
++    status: z.enum(['ACTIVE', 'BLOCKED', 'DELETED']).optional() });
+ export const grantSchema = z.strictObject({ role: roleCodeSchema, reason: z.string().trim().max(255).nullable().optional() });
+ export const revokeSchema = z.strictObject({ reason: z.string().trim().max(255).nullable().optional() }).default({});
+ // Any assignable code is accepted so the service can explain which profiles need an ADMIN (403) instead of a bare 422.
+ export const selfProfileSchema = z.strictObject({ role: roleCodeSchema });
+-export const auditQuerySchema = z.strictObject({ ...paginationShape, target_user_id: idSchema.optional(), actor_user_id: idSchema.optional() });
++export const auditQuerySchema = z.strictObject({ ...paginationShape, target_user_id: idSchema.optional(), actor_user_id: idSchema.optional(),
++    action: z.string().regex(/^[A-Z_]{1,40}$/).optional(), entity_type: z.enum(['USER', 'ORDER', 'SERVICE_PROVIDER']).optional(), entity_id: idSchema.optional() });
++// Suspending needs a reason: it is the record the account owner and other admins will read.
++export const suspendSchema = z.strictObject({ reason: z.string().trim().min(3).max(255) });
++export const reactivateSchema = z.strictObject({ reason: z.string().trim().max(255).nullable().optional() }).default({});
++export const organizationQuerySchema = z.strictObject({ ...paginationShape, q: nameSchema(150).optional(), status: z.enum(['ACTIVE', 'SUSPENDED']).optional(),
++    kind: z.enum(['VENUE', 'SERVICES']).optional() });
+ export type UserQuery = z.output<typeof userQuerySchema>;
+ export type AuditQuery = z.output<typeof auditQuerySchema>;
++export type OrganizationQuery = z.output<typeof organizationQuerySchema>;
+diff --git a/backend/src/validators/commerce.schemas.ts b/backend/src/validators/commerce.schemas.ts
+index 553e390..4ed6f7b 100644
+--- a/backend/src/validators/commerce.schemas.ts
++++ b/backend/src/validators/commerce.schemas.ts
+@@ -8,6 +8,8 @@ export const purchaseSchema = z.strictObject({
+         .refine(items => new Set(items.map(item => item.ticketTypeId)).size === items.length, 'Tipos de entrada duplicados.')
+         .refine(items => items.reduce((sum, item) => sum + item.quantity, 0) <= 100, 'Máximo 100 entradas por compra.'),
+ });
++// Confirming a purchase is a simulated payment: only the desired outcome is accepted, never card or bank data.
++export const purchasePaymentSchema = z.strictObject({ outcome: z.enum(['APPROVED', 'REJECTED']).default('APPROVED') }).default({ outcome: 'APPROVED' });
+ export const validationSchema = z.strictObject({ concertId: idSchema, qrToken: z.string().regex(/^[a-f0-9]{64}$/) });
+ export const pageSchema = z.strictObject({
+     page: z.coerce.number().int().min(1).max(1000000).default(1),
+diff --git a/backend/src/validators/management.schemas.ts b/backend/src/validators/management.schemas.ts
+index 98ecf35..9000f41 100644
+--- a/backend/src/validators/management.schemas.ts
++++ b/backend/src/validators/management.schemas.ts
+@@ -11,6 +11,9 @@ const image = z.url().max(500).refine(value => /^https?:\/\//i.test(value), 'Usa
+ const date = z.iso.datetime({ offset: true }).transform(value => new Date(value))
+     .refine(value => value.getUTCFullYear() >= 1000 && value.getUTCFullYear() <= 9999, 'Fecha fuera de rango MySQL.');
+ const genreIds = z.array(smallId).max(100).refine(values => new Set(values).size === values.length, 'IDs duplicados.');
++// Published artist profiles performing, in billing order (first = headliner).
++const artistIds = z.array(idSchema).max(20).refine(values => new Set(values).size === values.length, 'IDs duplicados.');
++const price = z.coerce.number().min(0).max(9999999999.99);
+ const uint = z.number().int().min(0).max(4294967295);
+ export { name as nameSchema, cityId as cityIdSchema, smallId as smallIdSchema, image as imageSchema, pagination as paginationShape };
+ const nonempty = (value: object) => Object.keys(value).length > 0;
+@@ -37,6 +40,7 @@ export const concertSchema = z.strictObject({
+     name: name(200), artist_name: name(200), description: text, image_url: image,
+     start_datetime: date, end_datetime: date.nullable().optional(),
+     genre_ids: genreIds.optional(),
++    artist_profile_ids: artistIds.optional(),
+     ticket_types: z.array(ticketSchema).max(100).optional(),
+ });
+ export const concertPatchSchema = concertSchema.omit({ organizer_id: true, ticket_types: true }).partial().refine(nonempty, 'Enviar al menos un campo.');
+@@ -46,11 +50,13 @@ const pagination = {
+ };
+ export const concertQuerySchema = z.strictObject({
+     ...pagination, q: name(180).optional(), name: name(180).optional(),
+-    artist: name(200).optional(), genre_id: idSchema.optional(), venue_id: idSchema.optional(), city_id: idSchema.optional(),
++    artist: name(200).optional(), artist_profile_id: idSchema.optional(), genre_id: idSchema.optional(), venue_id: idSchema.optional(), city_id: idSchema.optional(),
++    min_price: price.optional(), max_price: price.optional(),
+     status: z.enum(['DRAFT', 'PUBLISHED', 'CANCELLED', 'FINISHED']).optional(),
+     date_from: date.optional(), date_to: date.optional(),
+     mine: z.enum(['true', 'false']).transform(v => v === 'true').optional(),
+-}).refine(q => !q.date_from || !q.date_to || q.date_from <= q.date_to, 'Rango de fechas inválido.');
++}).refine(q => !q.date_from || !q.date_to || q.date_from <= q.date_to, 'Rango de fechas inválido.')
++    .refine(q => q.min_price === undefined || q.max_price === undefined || q.min_price <= q.max_price, 'Rango de precios inválido.');
+ export const catalogQuerySchema = z.strictObject({ ...pagination, q: name(180).optional() });
+ export const cityQuerySchema = catalogQuerySchema.extend({ province_id: idSchema.optional(), district_id: idSchema.optional() });
+ export const districtQuerySchema = catalogQuerySchema.extend({ province_id: idSchema.optional() });
+diff --git a/backend/src/validators/marketplace.schemas.ts b/backend/src/validators/marketplace.schemas.ts
+index 4d17896..c8ed992 100644
+--- a/backend/src/validators/marketplace.schemas.ts
++++ b/backend/src/validators/marketplace.schemas.ts
+@@ -68,6 +68,8 @@ export const quoteResponseSchema = z.strictObject({
+ });
+ export const notesSchema = z.strictObject({ provider_notes: text(16000) }).default({});
+ export const cancelSchema = z.strictObject({ reason: text(255) }).default({});
++// The requester reads the reason, so rejecting a booking requires one.
++export const rejectSchema = z.strictObject({ reason: z.string().trim().min(3).max(255) });
+ // Payments are always simulated: only the desired outcome is accepted, never card or bank data.
+ export const paymentSchema = z.strictObject({ outcome: z.enum(['APPROVED', 'REJECTED']).default('APPROVED') }).default({ outcome: 'APPROVED' });
+ 
+diff --git a/backend/src/validators/services.schemas.ts b/backend/src/validators/services.schemas.ts
+new file mode 100644
+index 0000000..25df4a0
+--- /dev/null
++++ b/backend/src/validators/services.schemas.ts
+@@ -0,0 +1,63 @@
++import { z } from 'zod';
++import { cityIdSchema, idSchema, nameSchema } from './management.schemas.ts';
++import { pageSchema } from './commerce.schemas.ts';
++import { organizationSchema } from './marketplace.schemas.ts';
++
++const text = (max: number) => z.string().trim().max(max).nullable().optional();
++const money = z.number().min(0).max(9999999999.99).refine(value => Number(value.toFixed(2)) === value, 'Máximo dos decimales.');
++const when = z.iso.datetime({ offset: true }).transform(value => new Date(value))
++    .refine(value => value.getUTCFullYear() >= 2000 && value.getUTCFullYear() <= 9999, 'Fecha fuera de rango.');
++const code = z.string().trim().regex(/^[A-Z_]{1,40}$/);
++
++// A service company is an organization (same fields) plus its commercial profile.
++const providerFields = { description: text(16000), city_id: cityIdSchema.nullable().optional(), coverage_area: text(255) };
++export const providerSchema = organizationSchema.extend(providerFields);
++export const providerPatchSchema = organizationSchema.partial().extend(providerFields)
++    .refine(value => Object.keys(value).length > 0, 'Enviar al menos un campo.');
++
++const pricing = z.enum(['HOUR', 'DAY', 'EVENT', 'UNIT', 'QUOTE']);
++const offeringFields = {
++    category_code: code, name: nameSchema(150), description: text(16000), equipment: text(16000), conditions: text(16000),
++    pricing_unit: pricing.default('QUOTE'), base_price: money.nullable().optional(),
++};
++// Without a list price the offering works only through quotes (pricing_unit QUOTE).
++const priced = (value: { pricing_unit?: string; base_price?: number | null }) => value.pricing_unit === undefined || value.pricing_unit === 'QUOTE' || value.base_price != null;
++export const offeringSchema = z.strictObject(offeringFields).refine(priced, 'Indicar base_price o usar pricing_unit QUOTE.');
++export const offeringPatchSchema = z.strictObject({ ...offeringFields, pricing_unit: pricing.optional() }).partial()
++    .refine(value => Object.keys(value).length > 0, 'Enviar al menos un campo.');
++
++export const serviceQuoteRequestSchema = z.strictObject({
++    offering_id: idSchema, concert_id: idSchema.nullable().optional(), reservation_id: idSchema.nullable().optional(),
++    event_name: nameSchema(200), event_start_at: when, event_end_at: when, location_text: text(255), requester_notes: text(16000),
++}).refine(value => value.event_start_at < value.event_end_at, 'El servicio debe terminar después de empezar.');
++export const serviceQuoteResponseSchema = z.strictObject({
++    items: z.array(z.strictObject({
++        description: nameSchema(255),
++        quantity: z.number().positive().max(10000).refine(value => Number(value.toFixed(2)) === value, 'Máximo dos decimales.'),
++        unit_price: money.refine(value => value <= 99999999.99, 'Precio unitario demasiado alto.'),
++    })).min(1).max(100),
++    fees: money.default(0), discount: money.default(0), valid_until: when, provider_notes: text(16000),
++});
++export const serviceNotesSchema = z.strictObject({ provider_notes: text(16000) }).default({});
++export const serviceCancelSchema = z.strictObject({ reason: text(255) }).default({});
++
++export const providerQuerySchema = pageSchema.extend({
++    q: nameSchema(150).optional(), city_id: idSchema.optional(), category: code.optional(), verified: z.enum(['true', 'false']).transform(v => v === 'true').optional(),
++}).strict();
++export const offeringQuerySchema = pageSchema.extend({
++    q: nameSchema(150).optional(), city_id: idSchema.optional(), category: code.optional(), provider_id: idSchema.optional(),
++    max_price: z.coerce.number().min(0).max(9999999999.99).optional(),
++}).strict();
++export const serviceQuoteListSchema = pageSchema.extend({
++    as: z.enum(['requester', 'provider']).default('requester'), status: z.string().regex(/^[A-Z]{1,20}$/).optional(), concert_id: idSchema.optional(),
++}).strict();
++
++export type ProviderInput = z.output<typeof providerSchema>;
++export type ProviderPatch = z.output<typeof providerPatchSchema>;
++export type OfferingInput = z.output<typeof offeringSchema>;
++export type OfferingPatch = z.output<typeof offeringPatchSchema>;
++export type ServiceQuoteRequest = z.output<typeof serviceQuoteRequestSchema>;
++export type ServiceQuoteResponse = z.output<typeof serviceQuoteResponseSchema>;
++export type ProviderQuery = z.output<typeof providerQuerySchema>;
++export type OfferingQuery = z.output<typeof offeringQuerySchema>;
++export type ServiceQuoteList = z.output<typeof serviceQuoteListSchema>;
+diff --git a/database/migrations/20261026_perfiles_y_pagos.sql b/database/migrations/20261026_perfiles_y_pagos.sql
+new file mode 100644
+index 0000000..7449763
+--- /dev/null
++++ b/database/migrations/20261026_perfiles_y_pagos.sql
+@@ -0,0 +1,300 @@
++-- Migracion sobre una base cargada con venti_shema2.sql (version anterior a perfiles y pagos).
++-- No borra datos. Se ejecuta UNA vez: los ALTER TABLE ... ADD COLUMN fallan si ya se aplico.
++-- Ejecutar con: node scripts/db-migrate.mjs --file ../database/migrations/20261026_perfiles_y_pagos.sql --backup <respaldo.sql> --confirm venti
++-- (o con el cliente mysql / Workbench: usa DELIMITER).
++USE venti;
++
++SET NAMES utf8mb4;
++SET time_zone = '+00:00';
++
++-- 1. Auditoria: referencia al recurso afectado (compras, cuentas).
++ALTER TABLE admin_audit_log
++  ADD COLUMN entity_type VARCHAR(30) NULL AFTER role_id,
++  ADD COLUMN entity_id BIGINT UNSIGNED NULL AFTER entity_type,
++  ADD KEY idx_audit_entity (entity_type, entity_id);
++
++-- 2. Compras: estado de reembolso y registro del pago simulado.
++ALTER TABLE orders
++  ADD COLUMN refund_status ENUM('NONE','REFUNDED') NOT NULL DEFAULT 'NONE' AFTER cancelled_at,
++  ADD COLUMN refunded_at DATETIME NULL AFTER refund_status,
++  ADD CONSTRAINT chk_orders_refunded CHECK (refund_status = 'NONE' OR (refunded_at IS NOT NULL AND status = 'CANCELLED'));
++
++CREATE TABLE order_payments (
++  id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
++  order_id BIGINT UNSIGNED NOT NULL,
++  payer_user_id BIGINT UNSIGNED NULL,
++  amount DECIMAL(12,2) NOT NULL,
++  currency CHAR(3) NOT NULL DEFAULT 'ARS',
++  status ENUM('APPROVED','REJECTED','REFUNDED') NOT NULL,
++  provider ENUM('SIMULATED') NOT NULL DEFAULT 'SIMULATED',
++  is_simulated TINYINT(1) NOT NULL DEFAULT 1,
++  simulated_reference VARCHAR(40) NOT NULL,
++  processed_at DATETIME NOT NULL,
++  refunded_at DATETIME NULL,
++  created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
++  PRIMARY KEY (id),
++  UNIQUE KEY uq_order_payments_reference (simulated_reference),
++  KEY idx_order_payments_order (order_id, status),
++  KEY idx_order_payments_payer (payer_user_id),
++  CONSTRAINT fk_order_payments_order FOREIGN KEY (order_id) REFERENCES orders (id),
++  CONSTRAINT fk_order_payments_payer FOREIGN KEY (payer_user_id) REFERENCES users (id) ON DELETE SET NULL,
++  CONSTRAINT chk_order_payments_simulated CHECK (is_simulated = 1),
++  CONSTRAINT chk_order_payments_amount CHECK (amount >= 0),
++  CONSTRAINT chk_order_payments_refunded CHECK (status <> 'REFUNDED' OR refunded_at IS NOT NULL)
++) ENGINE=InnoDB;
++
++-- 3. Artistas reales en conciertos.
++CREATE TABLE concert_artists (
++  concert_id BIGINT UNSIGNED NOT NULL,
++  artist_profile_id BIGINT UNSIGNED NOT NULL,
++  billing_order SMALLINT UNSIGNED NOT NULL DEFAULT 0,
++  created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
++  PRIMARY KEY (concert_id, artist_profile_id),
++  KEY idx_concert_artists_artist (artist_profile_id),
++  CONSTRAINT fk_concert_artists_concert FOREIGN KEY (concert_id) REFERENCES concerts (id) ON DELETE CASCADE,
++  CONSTRAINT fk_concert_artists_artist FOREIGN KEY (artist_profile_id) REFERENCES artist_profiles (id) ON DELETE CASCADE
++) ENGINE=InnoDB;
++
++-- 4. EMPRESA_SERVICIOS.
++CREATE TABLE service_categories (
++  id SMALLINT UNSIGNED NOT NULL AUTO_INCREMENT,
++  code VARCHAR(40) NOT NULL,
++  name VARCHAR(100) NOT NULL,
++  PRIMARY KEY (id),
++  UNIQUE KEY uq_service_categories_code (code)
++) ENGINE=InnoDB;
++
++CREATE TABLE service_providers (
++  organization_id BIGINT UNSIGNED NOT NULL,
++  description TEXT NULL,
++  city_id INT UNSIGNED NULL,
++  coverage_area VARCHAR(255) NULL,
++  status ENUM('DRAFT','PUBLISHED','ARCHIVED') NOT NULL DEFAULT 'DRAFT',
++  published_at DATETIME NULL,
++  is_verified TINYINT(1) NOT NULL DEFAULT 0,
++  verified_at DATETIME NULL,
++  verified_by_user_id BIGINT UNSIGNED NULL,
++  created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
++  updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
++  PRIMARY KEY (organization_id),
++  KEY idx_service_providers_status_city (status, city_id),
++  KEY idx_service_providers_city (city_id),
++  KEY idx_service_providers_verified_by (verified_by_user_id),
++  CONSTRAINT fk_service_providers_organization FOREIGN KEY (organization_id) REFERENCES organizations (id) ON DELETE CASCADE,
++  CONSTRAINT fk_service_providers_city FOREIGN KEY (city_id) REFERENCES cities (id),
++  CONSTRAINT fk_service_providers_verified_by FOREIGN KEY (verified_by_user_id) REFERENCES users (id) ON DELETE SET NULL,
++  CONSTRAINT chk_service_providers_published CHECK (status <> 'PUBLISHED' OR published_at IS NOT NULL),
++  CONSTRAINT chk_service_providers_verified CHECK (is_verified = 0 OR verified_at IS NOT NULL)
++) ENGINE=InnoDB;
++
++CREATE TABLE service_offerings (
++  id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
++  organization_id BIGINT UNSIGNED NOT NULL,
++  category_id SMALLINT UNSIGNED NOT NULL,
++  name VARCHAR(150) NOT NULL,
++  slug VARCHAR(170) NOT NULL,
++  description TEXT NULL,
++  equipment TEXT NULL,
++  conditions TEXT NULL,
++  pricing_unit ENUM('HOUR','DAY','EVENT','UNIT','QUOTE') NOT NULL DEFAULT 'QUOTE',
++  base_price DECIMAL(12,2) NULL,
++  currency CHAR(3) NOT NULL DEFAULT 'ARS',
++  status ENUM('DRAFT','PUBLISHED','ARCHIVED') NOT NULL DEFAULT 'DRAFT',
++  published_at DATETIME NULL,
++  created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
++  updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
++  PRIMARY KEY (id),
++  UNIQUE KEY uq_service_offerings_slug (slug),
++  KEY idx_service_offerings_provider (organization_id, status),
++  KEY idx_service_offerings_category (category_id, status),
++  CONSTRAINT fk_service_offerings_provider FOREIGN KEY (organization_id) REFERENCES service_providers (organization_id) ON DELETE CASCADE,
++  CONSTRAINT fk_service_offerings_category FOREIGN KEY (category_id) REFERENCES service_categories (id),
++  CONSTRAINT chk_service_offerings_price CHECK (base_price IS NULL OR base_price >= 0),
++  CONSTRAINT chk_service_offerings_pricing CHECK (pricing_unit = 'QUOTE' OR base_price IS NOT NULL),
++  CONSTRAINT chk_service_offerings_published CHECK (status <> 'PUBLISHED' OR published_at IS NOT NULL)
++) ENGINE=InnoDB;
++
++CREATE TABLE service_quotes (
++  id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
++  public_code VARCHAR(20) NOT NULL,
++  offering_id BIGINT UNSIGNED NOT NULL,
++  organization_id BIGINT UNSIGNED NOT NULL,
++  requester_user_id BIGINT UNSIGNED NOT NULL,
++  concert_id BIGINT UNSIGNED NULL,
++  reservation_id BIGINT UNSIGNED NULL,
++  event_name VARCHAR(200) NOT NULL,
++  event_start_at DATETIME NOT NULL,
++  event_end_at DATETIME NOT NULL,
++  location_text VARCHAR(255) NULL,
++  requester_notes TEXT NULL,
++  status ENUM('REQUESTED','SENT','ACCEPTED','REJECTED','EXPIRED','CANCELLED') NOT NULL DEFAULT 'REQUESTED',
++  subtotal DECIMAL(12,2) NULL,
++  fees DECIMAL(12,2) NULL,
++  discount DECIMAL(12,2) NULL,
++  total_amount DECIMAL(12,2) NULL,
++  currency CHAR(3) NOT NULL DEFAULT 'ARS',
++  valid_until DATETIME NULL,
++  provider_notes TEXT NULL,
++  responded_by_user_id BIGINT UNSIGNED NULL,
++  responded_at DATETIME NULL,
++  accepted_at DATETIME NULL,
++  created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
++  updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
++  PRIMARY KEY (id),
++  UNIQUE KEY uq_service_quotes_public_code (public_code),
++  KEY idx_service_quotes_provider (organization_id, status),
++  KEY idx_service_quotes_requester (requester_user_id, status),
++  KEY idx_service_quotes_offering (offering_id),
++  KEY idx_service_quotes_concert (concert_id),
++  KEY idx_service_quotes_reservation (reservation_id),
++  KEY idx_service_quotes_responded_by (responded_by_user_id),
++  CONSTRAINT fk_service_quotes_offering FOREIGN KEY (offering_id) REFERENCES service_offerings (id),
++  CONSTRAINT fk_service_quotes_provider FOREIGN KEY (organization_id) REFERENCES service_providers (organization_id),
++  CONSTRAINT fk_service_quotes_requester FOREIGN KEY (requester_user_id) REFERENCES users (id),
++  CONSTRAINT fk_service_quotes_concert FOREIGN KEY (concert_id) REFERENCES concerts (id) ON DELETE SET NULL,
++  CONSTRAINT fk_service_quotes_reservation FOREIGN KEY (reservation_id) REFERENCES reservations (id) ON DELETE SET NULL,
++  CONSTRAINT fk_service_quotes_responded_by FOREIGN KEY (responded_by_user_id) REFERENCES users (id) ON DELETE SET NULL,
++  CONSTRAINT chk_service_quotes_times CHECK (event_start_at < event_end_at),
++  CONSTRAINT chk_service_quotes_amounts CHECK ((subtotal IS NULL OR subtotal >= 0) AND (fees IS NULL OR fees >= 0) AND (discount IS NULL OR discount >= 0) AND (total_amount IS NULL OR total_amount >= 0)),
++  CONSTRAINT chk_service_quotes_sent_has_total CHECK (status IN ('REQUESTED','CANCELLED','REJECTED','EXPIRED') OR total_amount IS NOT NULL),
++  CONSTRAINT chk_service_quotes_accepted CHECK (status <> 'ACCEPTED' OR accepted_at IS NOT NULL)
++) ENGINE=InnoDB;
++
++CREATE TABLE service_quote_items (
++  id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
++  service_quote_id BIGINT UNSIGNED NOT NULL,
++  description VARCHAR(255) NOT NULL,
++  quantity DECIMAL(10,2) NOT NULL DEFAULT 1.00,
++  unit_price DECIMAL(12,2) NOT NULL,
++  line_total DECIMAL(12,2) NOT NULL,
++  sort_order SMALLINT UNSIGNED NOT NULL DEFAULT 0,
++  PRIMARY KEY (id),
++  KEY idx_service_quote_items_quote (service_quote_id, sort_order),
++  CONSTRAINT fk_service_quote_items_quote FOREIGN KEY (service_quote_id) REFERENCES service_quotes (id) ON DELETE CASCADE,
++  CONSTRAINT chk_service_quote_items_values CHECK (quantity > 0 AND unit_price >= 0 AND line_total >= 0)
++) ENGINE=InnoDB;
++
++-- 5. Permisos nuevos y grants. tickets.validate deja de otorgarse por perfil: lo da concert_staff.
++INSERT IGNORE INTO permissions (code, description) VALUES
++  ('tickets.validate_all', 'Validar entradas por QR de cualquier concierto'),
++  ('services.quotes.request', 'Pedir cotizaciones a empresas de servicios'),
++  ('services.admin', 'Administrar y verificar cualquier empresa de servicios');
++
++UPDATE permissions SET description = 'Validar entradas por QR de los conciertos asignados (concert_staff); no se asigna por perfil'
++WHERE code = 'tickets.validate';
++UPDATE permissions SET description = 'Gestionar la empresa de servicios propia y su catalogo' WHERE code = 'services.manage';
++UPDATE permissions SET description = 'Responder cotizaciones de servicios de su empresa' WHERE code = 'services.quotes.respond';
++UPDATE roles SET description = 'Ofrece servicios para eventos y responde cotizaciones' WHERE code = 'EMPRESA_SERVICIOS';
++
++INSERT IGNORE INTO role_permissions (role_id, permission_id)
++SELECT r.id, p.id FROM roles r CROSS JOIN permissions p
++WHERE r.code = 'ADMIN' AND p.code <> 'tickets.validate';
++
++INSERT IGNORE INTO role_permissions (role_id, permission_id)
++SELECT r.id, p.id FROM roles r JOIN permissions p ON p.code = 'services.quotes.request'
++WHERE r.code IN ('ORGANIZADOR','VENUE');
++
++DELETE rp FROM role_permissions rp JOIN permissions p ON p.id = rp.permission_id
++WHERE p.code = 'tickets.validate';
++
++INSERT IGNORE INTO service_categories (code, name) VALUES
++  ('CLEANING', 'Limpieza'),
++  ('SOUND', 'Sonido'),
++  ('LIGHTING', 'Iluminacion'),
++  ('SECURITY', 'Seguridad'),
++  ('STAGING', 'Montaje y desmontaje'),
++  ('EQUIPMENT_RENTAL', 'Equipamiento y alquiler tecnico'),
++  ('CATERING', 'Catering'),
++  ('PHOTO_VIDEO', 'Foto y video'),
++  ('TRANSPORT', 'Transporte');
++
++-- 6. Reservas: el pago simulado de una reserva directa ya no la confirma (la acepta el espacio),
++--    y un HOLD pagado que vence devuelve el pago.
++DROP PROCEDURE IF EXISTS sp_simulate_payment;
++DROP PROCEDURE IF EXISTS sp_expire_holds;
++
++DELIMITER $$
++
++CREATE PROCEDURE sp_simulate_payment(
++  IN p_reservation_id BIGINT UNSIGNED,
++  IN p_payer_user_id BIGINT UNSIGNED,
++  IN p_approve TINYINT,
++  OUT p_payment_id BIGINT UNSIGNED
++)
++BEGIN
++  DECLARE v_status VARCHAR(20);
++  DECLARE v_amount DECIMAL(12,2);
++  DECLARE v_currency CHAR(3);
++  DECLARE v_quote_id BIGINT UNSIGNED;
++  DECLARE v_setup DATETIME;
++  DECLARE v_hold_expires DATETIME;
++  DECLARE v_paid INT DEFAULT 0;
++  DECLARE EXIT HANDLER FOR SQLEXCEPTION
++  BEGIN
++    ROLLBACK;
++    SET @venti_user_id = NULL;
++    RESIGNAL;
++  END;
++
++  START TRANSACTION;
++
++  SELECT status_code, total_amount, currency, quote_id, setup_start_at, hold_expires_at
++    INTO v_status, v_amount, v_currency, v_quote_id, v_setup, v_hold_expires
++  FROM reservations WHERE id = p_reservation_id FOR UPDATE;
++
++  IF v_status IS NULL THEN
++    SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'RESERVATION_NOT_FOUND: la reserva no existe';
++  END IF;
++
++  IF v_status <> 'HOLD' THEN
++    SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'INVALID_STATUS: solo se puede pagar una reserva en HOLD';
++  END IF;
++
++  IF v_hold_expires <= UTC_TIMESTAMP() THEN
++    SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'HOLD_EXPIRED: el HOLD vencio y no puede pagarse';
++  END IF;
++
++  SELECT COUNT(*) INTO v_paid FROM payments WHERE reservation_id = p_reservation_id AND status = 'APPROVED';
++  IF v_paid > 0 THEN
++    SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'ALREADY_PAID: la reserva ya tiene un pago aprobado';
++  END IF;
++
++  INSERT INTO payments (reservation_id, payer_user_id, amount, currency, status, provider, is_simulated, simulated_reference, processed_at)
++  VALUES (p_reservation_id, p_payer_user_id, v_amount, v_currency, IF(p_approve = 1, 'APPROVED', 'REJECTED'), 'SIMULATED', 1,
++          CONCAT('SIM-', UPPER(HEX(RANDOM_BYTES(8)))), UTC_TIMESTAMP());
++
++  SET p_payment_id = LAST_INSERT_ID();
++
++  -- El pago confirma la compra, no la reserva. Con presupuesto aceptado el espacio ya acepto las condiciones y
++  -- la reserva se confirma. Una reserva directa queda en HOLD hasta que el espacio la acepta: el HOLD se extiende
++  -- hasta 48 horas (nunca despues del armado) para que el espacio responda; si no responde, vence y se reembolsa.
++  IF p_approve = 1 THEN
++    SET @venti_user_id = p_payer_user_id;
++    IF v_quote_id IS NOT NULL THEN
++      UPDATE reservations SET status_code = 'CONFIRMED' WHERE id = p_reservation_id;
++    ELSE
++      UPDATE reservations SET hold_expires_at = GREATEST(hold_expires_at, LEAST(v_setup, UTC_TIMESTAMP() + INTERVAL 48 HOUR))
++      WHERE id = p_reservation_id;
++    END IF;
++    SET @venti_user_id = NULL;
++  END IF;
++
++  COMMIT;
++END$$
++
++CREATE PROCEDURE sp_expire_holds()
++BEGIN
++  UPDATE reservations
++  SET status_code = 'EXPIRED'
++  WHERE status_code = 'HOLD'
++    AND hold_expires_at <= UTC_TIMESTAMP();
++
++  -- Un HOLD pagado que el espacio no acepto a tiempo devuelve el pago simulado.
++  UPDATE payments p
++  JOIN reservations r ON r.id = p.reservation_id
++  SET p.status = 'REFUNDED'
++  WHERE r.status_code = 'EXPIRED'
++    AND p.status = 'APPROVED';
++END$$
++
++DELIMITER ;
+diff --git a/database/venti_shema2.sql b/database/venti_shema2.sql
+index 4798b28..45366c0 100644
+--- a/database/venti_shema2.sql
++++ b/database/venti_shema2.sql
+@@ -132,20 +132,24 @@ CREATE TABLE user_preferences (
+   CONSTRAINT chk_user_preferences_notifications CHECK (notifications_enabled IN (0,1))
+ ) ENGINE=InnoDB;
+ 
+--- Auditoria de acciones sensibles del admin (por ahora, asignar y quitar roles).
++-- Auditoria de acciones sensibles: perfiles, suspension de cuentas, pagos simulados y reembolsos de compras.
+ -- Sin cascada: el historial sobrevive al usuario; details guarda una copia de emails y codigos.
++-- entity_type/entity_id apuntan al recurso afectado (ORDER, USER, ...) sin FK, para que sobreviva a borrados.
+ CREATE TABLE admin_audit_log (
+   id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+   actor_user_id BIGINT UNSIGNED NULL,
+   action VARCHAR(40) NOT NULL,
+   target_user_id BIGINT UNSIGNED NULL,
+   role_id SMALLINT UNSIGNED NULL,
++  entity_type VARCHAR(30) NULL,
++  entity_id BIGINT UNSIGNED NULL,
+   details JSON NULL,
+   created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+   PRIMARY KEY (id),
+   KEY idx_audit_target (target_user_id, created_at),
+   KEY idx_audit_actor (actor_user_id, created_at),
+   KEY idx_audit_role (role_id),
++  KEY idx_audit_entity (entity_type, entity_id),
+   CONSTRAINT fk_audit_actor FOREIGN KEY (actor_user_id) REFERENCES users (id) ON DELETE SET NULL,
+   CONSTRAINT fk_audit_target FOREIGN KEY (target_user_id) REFERENCES users (id) ON DELETE SET NULL,
+   CONSTRAINT fk_audit_role FOREIGN KEY (role_id) REFERENCES roles (id)
+@@ -693,6 +697,18 @@ CREATE TABLE concert_staff (
+   CONSTRAINT fk_concert_staff_user FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE
+ ) ENGINE=InnoDB;
+ 
++-- Perfiles de artista reales que actuan en un concierto (concerts.artist_name sigue siendo el texto del cartel).
++CREATE TABLE concert_artists (
++  concert_id BIGINT UNSIGNED NOT NULL,
++  artist_profile_id BIGINT UNSIGNED NOT NULL,
++  billing_order SMALLINT UNSIGNED NOT NULL DEFAULT 0,
++  created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
++  PRIMARY KEY (concert_id, artist_profile_id),
++  KEY idx_concert_artists_artist (artist_profile_id),
++  CONSTRAINT fk_concert_artists_concert FOREIGN KEY (concert_id) REFERENCES concerts (id) ON DELETE CASCADE,
++  CONSTRAINT fk_concert_artists_artist FOREIGN KEY (artist_profile_id) REFERENCES artist_profiles (id) ON DELETE CASCADE
++) ENGINE=InnoDB;
++
+ CREATE TABLE ticket_types (
+   id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+   concert_id BIGINT UNSIGNED NOT NULL,
+@@ -731,6 +747,8 @@ CREATE TABLE orders (
+   expires_at DATETIME NULL,
+   confirmed_at DATETIME NULL,
+   cancelled_at DATETIME NULL,
++  refund_status ENUM('NONE','REFUNDED') NOT NULL DEFAULT 'NONE',
++  refunded_at DATETIME NULL,
+   created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+   updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+   PRIMARY KEY (id),
+@@ -740,7 +758,34 @@ CREATE TABLE orders (
+   CONSTRAINT fk_orders_user FOREIGN KEY (user_id) REFERENCES users (id),
+   CONSTRAINT chk_orders_amount CHECK (total_amount >= 0),
+   CONSTRAINT chk_orders_confirmed CHECK (status <> 'CONFIRMED' OR confirmed_at IS NOT NULL),
+-  CONSTRAINT chk_orders_cancelled CHECK (status <> 'CANCELLED' OR cancelled_at IS NOT NULL)
++  CONSTRAINT chk_orders_cancelled CHECK (status <> 'CANCELLED' OR cancelled_at IS NOT NULL),
++  CONSTRAINT chk_orders_refunded CHECK (refund_status = 'NONE' OR (refunded_at IS NOT NULL AND status = 'CANCELLED'))
++) ENGINE=InnoDB;
++
++-- Pago simulado de una compra de entradas: confirma la compra. No guarda datos de tarjeta ni mueve dinero.
++-- Un reembolso (cancelacion de una compra confirmada) pasa el pago APPROVED a REFUNDED.
++CREATE TABLE order_payments (
++  id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
++  order_id BIGINT UNSIGNED NOT NULL,
++  payer_user_id BIGINT UNSIGNED NULL,
++  amount DECIMAL(12,2) NOT NULL,
++  currency CHAR(3) NOT NULL DEFAULT 'ARS',
++  status ENUM('APPROVED','REJECTED','REFUNDED') NOT NULL,
++  provider ENUM('SIMULATED') NOT NULL DEFAULT 'SIMULATED',
++  is_simulated TINYINT(1) NOT NULL DEFAULT 1,
++  simulated_reference VARCHAR(40) NOT NULL,
++  processed_at DATETIME NOT NULL,
++  refunded_at DATETIME NULL,
++  created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
++  PRIMARY KEY (id),
++  UNIQUE KEY uq_order_payments_reference (simulated_reference),
++  KEY idx_order_payments_order (order_id, status),
++  KEY idx_order_payments_payer (payer_user_id),
++  CONSTRAINT fk_order_payments_order FOREIGN KEY (order_id) REFERENCES orders (id),
++  CONSTRAINT fk_order_payments_payer FOREIGN KEY (payer_user_id) REFERENCES users (id) ON DELETE SET NULL,
++  CONSTRAINT chk_order_payments_simulated CHECK (is_simulated = 1),
++  CONSTRAINT chk_order_payments_amount CHECK (amount >= 0),
++  CONSTRAINT chk_order_payments_refunded CHECK (status <> 'REFUNDED' OR refunded_at IS NOT NULL)
+ ) ENGINE=InnoDB;
+ 
+ CREATE TABLE order_items (
+@@ -805,6 +850,126 @@ CREATE TABLE ticket_validations (
+   CONSTRAINT fk_ticket_validations_user FOREIGN KEY (validated_by_user_id) REFERENCES users (id) ON DELETE SET NULL
+ ) ENGINE=InnoDB;
+ 
++-- EMPRESA_SERVICIOS. La empresa es una organizacion (organizations + organization_members); service_providers
++-- guarda su perfil comercial. Solo un ADMIN marca is_verified. Una cotizacion ACCEPTED es un servicio contratado.
++CREATE TABLE service_categories (
++  id SMALLINT UNSIGNED NOT NULL AUTO_INCREMENT,
++  code VARCHAR(40) NOT NULL,
++  name VARCHAR(100) NOT NULL,
++  PRIMARY KEY (id),
++  UNIQUE KEY uq_service_categories_code (code)
++) ENGINE=InnoDB;
++
++CREATE TABLE service_providers (
++  organization_id BIGINT UNSIGNED NOT NULL,
++  description TEXT NULL,
++  city_id INT UNSIGNED NULL,
++  coverage_area VARCHAR(255) NULL,
++  status ENUM('DRAFT','PUBLISHED','ARCHIVED') NOT NULL DEFAULT 'DRAFT',
++  published_at DATETIME NULL,
++  is_verified TINYINT(1) NOT NULL DEFAULT 0,
++  verified_at DATETIME NULL,
++  verified_by_user_id BIGINT UNSIGNED NULL,
++  created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
++  updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
++  PRIMARY KEY (organization_id),
++  KEY idx_service_providers_status_city (status, city_id),
++  KEY idx_service_providers_city (city_id),
++  KEY idx_service_providers_verified_by (verified_by_user_id),
++  CONSTRAINT fk_service_providers_organization FOREIGN KEY (organization_id) REFERENCES organizations (id) ON DELETE CASCADE,
++  CONSTRAINT fk_service_providers_city FOREIGN KEY (city_id) REFERENCES cities (id),
++  CONSTRAINT fk_service_providers_verified_by FOREIGN KEY (verified_by_user_id) REFERENCES users (id) ON DELETE SET NULL,
++  CONSTRAINT chk_service_providers_published CHECK (status <> 'PUBLISHED' OR published_at IS NOT NULL),
++  CONSTRAINT chk_service_providers_verified CHECK (is_verified = 0 OR verified_at IS NOT NULL)
++) ENGINE=InnoDB;
++
++CREATE TABLE service_offerings (
++  id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
++  organization_id BIGINT UNSIGNED NOT NULL,
++  category_id SMALLINT UNSIGNED NOT NULL,
++  name VARCHAR(150) NOT NULL,
++  slug VARCHAR(170) NOT NULL,
++  description TEXT NULL,
++  equipment TEXT NULL,
++  conditions TEXT NULL,
++  pricing_unit ENUM('HOUR','DAY','EVENT','UNIT','QUOTE') NOT NULL DEFAULT 'QUOTE',
++  base_price DECIMAL(12,2) NULL,
++  currency CHAR(3) NOT NULL DEFAULT 'ARS',
++  status ENUM('DRAFT','PUBLISHED','ARCHIVED') NOT NULL DEFAULT 'DRAFT',
++  published_at DATETIME NULL,
++  created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
++  updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
++  PRIMARY KEY (id),
++  UNIQUE KEY uq_service_offerings_slug (slug),
++  KEY idx_service_offerings_provider (organization_id, status),
++  KEY idx_service_offerings_category (category_id, status),
++  CONSTRAINT fk_service_offerings_provider FOREIGN KEY (organization_id) REFERENCES service_providers (organization_id) ON DELETE CASCADE,
++  CONSTRAINT fk_service_offerings_category FOREIGN KEY (category_id) REFERENCES service_categories (id),
++  CONSTRAINT chk_service_offerings_price CHECK (base_price IS NULL OR base_price >= 0),
++  CONSTRAINT chk_service_offerings_pricing CHECK (pricing_unit = 'QUOTE' OR base_price IS NOT NULL),
++  CONSTRAINT chk_service_offerings_published CHECK (status <> 'PUBLISHED' OR published_at IS NOT NULL)
++) ENGINE=InnoDB;
++
++CREATE TABLE service_quotes (
++  id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
++  public_code VARCHAR(20) NOT NULL,
++  offering_id BIGINT UNSIGNED NOT NULL,
++  organization_id BIGINT UNSIGNED NOT NULL,
++  requester_user_id BIGINT UNSIGNED NOT NULL,
++  concert_id BIGINT UNSIGNED NULL,
++  reservation_id BIGINT UNSIGNED NULL,
++  event_name VARCHAR(200) NOT NULL,
++  event_start_at DATETIME NOT NULL,
++  event_end_at DATETIME NOT NULL,
++  location_text VARCHAR(255) NULL,
++  requester_notes TEXT NULL,
++  status ENUM('REQUESTED','SENT','ACCEPTED','REJECTED','EXPIRED','CANCELLED') NOT NULL DEFAULT 'REQUESTED',
++  subtotal DECIMAL(12,2) NULL,
++  fees DECIMAL(12,2) NULL,
++  discount DECIMAL(12,2) NULL,
++  total_amount DECIMAL(12,2) NULL,
++  currency CHAR(3) NOT NULL DEFAULT 'ARS',
++  valid_until DATETIME NULL,
++  provider_notes TEXT NULL,
++  responded_by_user_id BIGINT UNSIGNED NULL,
++  responded_at DATETIME NULL,
++  accepted_at DATETIME NULL,
++  created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
++  updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
++  PRIMARY KEY (id),
++  UNIQUE KEY uq_service_quotes_public_code (public_code),
++  KEY idx_service_quotes_provider (organization_id, status),
++  KEY idx_service_quotes_requester (requester_user_id, status),
++  KEY idx_service_quotes_offering (offering_id),
++  KEY idx_service_quotes_concert (concert_id),
++  KEY idx_service_quotes_reservation (reservation_id),
++  KEY idx_service_quotes_responded_by (responded_by_user_id),
++  CONSTRAINT fk_service_quotes_offering FOREIGN KEY (offering_id) REFERENCES service_offerings (id),
++  CONSTRAINT fk_service_quotes_provider FOREIGN KEY (organization_id) REFERENCES service_providers (organization_id),
++  CONSTRAINT fk_service_quotes_requester FOREIGN KEY (requester_user_id) REFERENCES users (id),
++  CONSTRAINT fk_service_quotes_concert FOREIGN KEY (concert_id) REFERENCES concerts (id) ON DELETE SET NULL,
++  CONSTRAINT fk_service_quotes_reservation FOREIGN KEY (reservation_id) REFERENCES reservations (id) ON DELETE SET NULL,
++  CONSTRAINT fk_service_quotes_responded_by FOREIGN KEY (responded_by_user_id) REFERENCES users (id) ON DELETE SET NULL,
++  CONSTRAINT chk_service_quotes_times CHECK (event_start_at < event_end_at),
++  CONSTRAINT chk_service_quotes_amounts CHECK ((subtotal IS NULL OR subtotal >= 0) AND (fees IS NULL OR fees >= 0) AND (discount IS NULL OR discount >= 0) AND (total_amount IS NULL OR total_amount >= 0)),
++  CONSTRAINT chk_service_quotes_sent_has_total CHECK (status IN ('REQUESTED','CANCELLED','REJECTED','EXPIRED') OR total_amount IS NOT NULL),
++  CONSTRAINT chk_service_quotes_accepted CHECK (status <> 'ACCEPTED' OR accepted_at IS NOT NULL)
++) ENGINE=InnoDB;
++
++CREATE TABLE service_quote_items (
++  id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
++  service_quote_id BIGINT UNSIGNED NOT NULL,
++  description VARCHAR(255) NOT NULL,
++  quantity DECIMAL(10,2) NOT NULL DEFAULT 1.00,
++  unit_price DECIMAL(12,2) NOT NULL,
++  line_total DECIMAL(12,2) NOT NULL,
++  sort_order SMALLINT UNSIGNED NOT NULL DEFAULT 0,
++  PRIMARY KEY (id),
++  KEY idx_service_quote_items_quote (service_quote_id, sort_order),
++  CONSTRAINT fk_service_quote_items_quote FOREIGN KEY (service_quote_id) REFERENCES service_quotes (id) ON DELETE CASCADE,
++  CONSTRAINT chk_service_quote_items_values CHECK (quantity > 0 AND unit_price >= 0 AND line_total >= 0)
++) ENGINE=InnoDB;
++
+ CREATE TABLE recommendations (
+   id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+   user_id BIGINT UNSIGNED NOT NULL,
+@@ -1159,6 +1324,10 @@ BEGIN
+   DECLARE v_status VARCHAR(20);
+   DECLARE v_amount DECIMAL(12,2);
+   DECLARE v_currency CHAR(3);
++  DECLARE v_quote_id BIGINT UNSIGNED;
++  DECLARE v_setup DATETIME;
++  DECLARE v_hold_expires DATETIME;
++  DECLARE v_paid INT DEFAULT 0;
+   DECLARE EXIT HANDLER FOR SQLEXCEPTION
+   BEGIN
+     ROLLBACK;
+@@ -1168,7 +1337,8 @@ BEGIN
+ 
+   START TRANSACTION;
+ 
+-  SELECT status_code, total_amount, currency INTO v_status, v_amount, v_currency
++  SELECT status_code, total_amount, currency, quote_id, setup_start_at, hold_expires_at
++    INTO v_status, v_amount, v_currency, v_quote_id, v_setup, v_hold_expires
+   FROM reservations WHERE id = p_reservation_id FOR UPDATE;
+ 
+   IF v_status IS NULL THEN
+@@ -1179,15 +1349,32 @@ BEGIN
+     SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'INVALID_STATUS: solo se puede pagar una reserva en HOLD';
+   END IF;
+ 
++  IF v_hold_expires <= UTC_TIMESTAMP() THEN
++    SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'HOLD_EXPIRED: el HOLD vencio y no puede pagarse';
++  END IF;
++
++  SELECT COUNT(*) INTO v_paid FROM payments WHERE reservation_id = p_reservation_id AND status = 'APPROVED';
++  IF v_paid > 0 THEN
++    SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'ALREADY_PAID: la reserva ya tiene un pago aprobado';
++  END IF;
++
+   INSERT INTO payments (reservation_id, payer_user_id, amount, currency, status, provider, is_simulated, simulated_reference, processed_at)
+   VALUES (p_reservation_id, p_payer_user_id, v_amount, v_currency, IF(p_approve = 1, 'APPROVED', 'REJECTED'), 'SIMULATED', 1,
+           CONCAT('SIM-', UPPER(HEX(RANDOM_BYTES(8)))), UTC_TIMESTAMP());
+ 
+   SET p_payment_id = LAST_INSERT_ID();
+ 
++  -- El pago confirma la compra, no la reserva. Con presupuesto aceptado el espacio ya acepto las condiciones y
++  -- la reserva se confirma. Una reserva directa queda en HOLD hasta que el espacio la acepta: el HOLD se extiende
++  -- hasta 48 horas (nunca despues del armado) para que el espacio responda; si no responde, vence y se reembolsa.
+   IF p_approve = 1 THEN
+     SET @venti_user_id = p_payer_user_id;
+-    UPDATE reservations SET status_code = 'CONFIRMED' WHERE id = p_reservation_id;
++    IF v_quote_id IS NOT NULL THEN
++      UPDATE reservations SET status_code = 'CONFIRMED' WHERE id = p_reservation_id;
++    ELSE
++      UPDATE reservations SET hold_expires_at = GREATEST(hold_expires_at, LEAST(v_setup, UTC_TIMESTAMP() + INTERVAL 48 HOUR))
++      WHERE id = p_reservation_id;
++    END IF;
+     SET @venti_user_id = NULL;
+   END IF;
+ 
+@@ -1200,6 +1387,13 @@ BEGIN
+   SET status_code = 'EXPIRED'
+   WHERE status_code = 'HOLD'
+     AND hold_expires_at <= UTC_TIMESTAMP();
++
++  -- Un HOLD pagado que el espacio no acepto a tiempo devuelve el pago simulado.
++  UPDATE payments p
++  JOIN reservations r ON r.id = p.reservation_id
++  SET p.status = 'REFUNDED'
++  WHERE r.status_code = 'EXPIRED'
++    AND p.status = 'APPROVED';
+ END$$
+ 
+ CREATE PROCEDURE sp_complete_reservations()
+@@ -1233,7 +1427,7 @@ INSERT IGNORE INTO roles (code, name, description) VALUES
+   ('ARTISTA', 'Artista', 'Busca espacios, pide presupuestos y reserva salas'),
+   ('ORGANIZADOR', 'Organizador', 'Publica conciertos, vende entradas, asigna staff y reserva espacios'),
+   ('VENUE', 'Venue', 'Gestiona establecimientos y espacios de su organizacion, responde presupuestos y reservas'),
+-  ('EMPRESA_SERVICIOS', 'Empresa de servicios', 'Ofrece servicios para eventos (catalogo pendiente de aprobar)'),
++  ('EMPRESA_SERVICIOS', 'Empresa de servicios', 'Ofrece servicios para eventos y responde cotizaciones'),
+   ('GUEST', 'Invitado', 'Usuario sin registro completo');
+ 
+ INSERT IGNORE INTO permissions (code, description) VALUES
+@@ -1244,7 +1438,8 @@ INSERT IGNORE INTO permissions (code, description) VALUES
+   ('concerts.manage_all', 'Gestionar y ver cualquier concierto, incluidos borradores'),
+   ('concerts.staff.manage', 'Asignar staff a conciertos propios'),
+   ('tickets.purchase', 'Comprar entradas'),
+-  ('tickets.validate', 'Validar entradas por QR de cualquier concierto (el staff valida por asignacion)'),
++  ('tickets.validate', 'Validar entradas por QR de los conciertos asignados (concert_staff); no se asigna por perfil'),
++  ('tickets.validate_all', 'Validar entradas por QR de cualquier concierto'),
+   ('orders.read_all', 'Ver y gestionar todas las compras'),
+   ('statistics.own', 'Ver estadisticas de conciertos propios'),
+   ('statistics.global', 'Ver estadisticas de toda la plataforma'),
+@@ -1257,12 +1452,16 @@ INSERT IGNORE INTO permissions (code, description) VALUES
+   ('marketplace.admin', 'Administrar todo el marketplace'),
+   ('artists.admin', 'Gestionar cualquier perfil de artista'),
+   ('artist.profile.manage', 'Crear y gestionar perfiles de artista propios'),
+-  ('services.manage', 'Gestionar el catalogo de servicios (tablas pendientes de aprobar)'),
+-  ('services.quotes.respond', 'Responder presupuestos de servicios (tablas pendientes de aprobar)');
++  ('services.manage', 'Gestionar la empresa de servicios propia y su catalogo'),
++  ('services.quotes.respond', 'Responder cotizaciones de servicios de su empresa'),
++  ('services.quotes.request', 'Pedir cotizaciones a empresas de servicios'),
++  ('services.admin', 'Administrar y verificar cualquier empresa de servicios');
+ 
++-- ADMIN tiene todo menos tickets.validate, que no se otorga por perfil: lo da una asignacion en concert_staff
++-- (ver MysqlAuthRepository.access). ADMIN valida cualquier concierto con tickets.validate_all.
+ INSERT IGNORE INTO role_permissions (role_id, permission_id)
+ SELECT r.id, p.id FROM roles r CROSS JOIN permissions p
+-WHERE r.code = 'ADMIN';
++WHERE r.code = 'ADMIN' AND p.code <> 'tickets.validate';
+ 
+ INSERT IGNORE INTO role_permissions (role_id, permission_id)
+ SELECT r.id, p.id FROM roles r JOIN permissions p ON p.code IN (
+@@ -1279,13 +1478,14 @@ INSERT IGNORE INTO role_permissions (role_id, permission_id)
+ SELECT r.id, p.id FROM roles r JOIN permissions p ON p.code IN (
+   'concerts.browse','tickets.purchase','marketplace.venues.browse',
+   'concerts.manage','concerts.staff.manage','statistics.own',
+-  'marketplace.quotes.request','marketplace.reservations.create')
++  'marketplace.quotes.request','marketplace.reservations.create','services.quotes.request')
+ WHERE r.code = 'ORGANIZADOR';
+ 
+ INSERT IGNORE INTO role_permissions (role_id, permission_id)
+ SELECT r.id, p.id FROM roles r JOIN permissions p ON p.code IN (
+   'concerts.browse','tickets.purchase','marketplace.venues.browse',
+-  'marketplace.establishments.manage','marketplace.quotes.respond','marketplace.reservations.manage')
++  'marketplace.establishments.manage','marketplace.quotes.respond','marketplace.reservations.manage',
++  'services.quotes.request')
+ WHERE r.code = 'VENUE';
+ 
+ INSERT IGNORE INTO role_permissions (role_id, permission_id)
+@@ -1294,6 +1494,17 @@ SELECT r.id, p.id FROM roles r JOIN permissions p ON p.code IN (
+   'services.manage','services.quotes.respond')
+ WHERE r.code = 'EMPRESA_SERVICIOS';
+ 
++INSERT IGNORE INTO service_categories (code, name) VALUES
++  ('CLEANING', 'Limpieza'),
++  ('SOUND', 'Sonido'),
++  ('LIGHTING', 'Iluminacion'),
++  ('SECURITY', 'Seguridad'),
++  ('STAGING', 'Montaje y desmontaje'),
++  ('EQUIPMENT_RENTAL', 'Equipamiento y alquiler tecnico'),
++  ('CATERING', 'Catering'),
++  ('PHOTO_VIDEO', 'Foto y video'),
++  ('TRANSPORT', 'Transporte');
++
+ INSERT INTO reservation_statuses (code, name, is_hold, blocks_space, is_final, sort_order) VALUES
+   ('HOLD', 'Reserva temporal', 1, 1, 0, 1),
+   ('CONFIRMED', 'Confirmada', 0, 1, 0, 2),
+-- 
+2.43.0
+
