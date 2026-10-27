@@ -30,14 +30,14 @@ export default function StatisticsCharts({ data }: { data: Statistics }) {
       <Copy>Entradas vendidas y utilizadas</Copy>
       <Svg width="100%" height={80} viewBox="0 0 600 80" accessibilityLabel={`${data.tickets_sold} vendidas, ${data.tickets_used} utilizadas`}>
         <Rect x={0} y={5} width={data.tickets_sold ? 600 : 0} height={25} fill={colors.accent} />
-        <Rect x={0} y={45} width={data.tickets_sold ? Math.min(1, data.tickets_used / data.tickets_sold) * 600 : 0} height={25} fill={colors.good} />
+        <Rect x={0} y={45} width={data.tickets_sold ? Math.min(1, data.tickets_used / data.tickets_sold) * 600 : 0} height={25} fill={colors.success} />
       </Svg>
       <Copy>Vendidas: {data.tickets_sold} · Utilizadas: {data.tickets_used} · Pendientes: {data.tickets_pending}</Copy>
       <Copy muted>La ocupación compara ventas del período con el cupo actual de entradas.</Copy>
       <Copy>Ocupación: {data.occupancy_percent}% · Capacidad: {data.capacity}</Copy>
       <Svg width="100%" height={24} viewBox="0 0 600 24" accessibilityLabel={`Ocupación ${data.occupancy_percent}%`}>
         <Rect width={600} height={24} rx={6} fill={colors.border} />
-        <Rect width={Math.min(100, data.occupancy_percent) * 6} height={24} rx={6} fill={colors.good} />
+        <Rect width={Math.min(100, data.occupancy_percent) * 6} height={24} rx={6} fill={colors.success} />
       </Svg>
     </Card>
   </>;

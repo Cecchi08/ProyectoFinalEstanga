@@ -1,5 +1,5 @@
 import { Redirect, Slot, router, usePathname } from "expo-router";
-import { type PropsWithChildren } from "react";
+import { useState, type PropsWithChildren, type ReactNode } from "react";
 import {
   Pressable,
   ScrollView,
@@ -13,7 +13,60 @@ import { PreferencesProvider } from "../../contexts/PreferencesContext";
 import { NotificationsProvider, NotificationBadge } from "../../contexts/NotificationsContext";
 import { useResource } from "../../hooks/useResource";
 import type { Concert, Permission } from "../../types/api";
-import { colors, Copy, Page, ResourceState } from "../ui";
+import { colors, Copy, Page, radius, ResourceState, shadows } from "../ui";
+function NavTab({
+  label,
+  selected,
+  vertical,
+  onPress,
+  children,
+}: {
+  label: string;
+  selected: boolean;
+  vertical: boolean;
+  onPress(): void;
+  children?: ReactNode;
+}) {
+  const [hovered, setHovered] = useState(false);
+  return (
+    <Pressable
+      accessibilityRole="tab"
+      accessibilityState={{ selected }}
+      onPress={onPress}
+      onHoverIn={() => setHovered(true)}
+      onHoverOut={() => setHovered(false)}
+      style={{
+        paddingVertical: 13,
+        paddingHorizontal: 14,
+        minHeight: 48,
+        justifyContent: "center",
+        borderRadius: radius.md,
+        backgroundColor: selected ? colors.primarySoft : hovered ? colors.surfaceHover : "transparent",
+      }}
+    >
+      {selected && (
+        <View
+          aria-hidden
+          style={
+            vertical
+              ? { position: "absolute", left: 0, top: 12, bottom: 12, width: 3, borderRadius: radius.pill, backgroundColor: colors.primary }
+              : { position: "absolute", left: 14, right: 14, bottom: 4, height: 3, borderRadius: radius.pill, backgroundColor: colors.primary }
+          }
+        />
+      )}
+      <Text
+        style={{
+          color: selected ? colors.accent : hovered ? colors.text : colors.muted,
+          fontSize: 15,
+          fontWeight: selected ? "800" : "600",
+        }}
+      >
+        {label}
+        {children}
+      </Text>
+    </Pressable>
+  );
+}
 // Sections are gated by permission, like the API. While /auth/me is in flight the decision
 // is not known yet, so the guard waits instead of denying.
 export function Require({
@@ -96,33 +149,18 @@ export default function Shell() {
   const navigation = (
     <View
       accessibilityRole="tablist"
-      style={{ flexDirection: desktop ? "column" : "row", gap: 6, padding: 12 }}
+      style={{ flexDirection: desktop ? "column" : "row", gap: 4, padding: desktop ? 12 : 8 }}
     >
       {links.map((link) => (
-        <Pressable
+        <NavTab
           key={link.path}
-          accessibilityRole="tab"
-          accessibilityState={{ selected: path.startsWith(link.path) }}
+          label={link.label}
+          selected={path.startsWith(link.path)}
+          vertical={desktop}
           onPress={() => router.navigate(link.path)}
-          style={{
-            padding: 14,
-            minHeight: 48,
-            borderRadius: 12,
-            backgroundColor: path.startsWith(link.path)
-              ? "#352650"
-              : "transparent",
-          }}
         >
-          <Text
-            style={{
-              color: path.startsWith(link.path) ? colors.accent : colors.muted,
-              fontWeight: "700",
-            }}
-          >
-            {link.label}
-            {link.path === '/notifications' && <NotificationBadge />}
-          </Text>
-        </Pressable>
+          {link.path === '/notifications' && <NotificationBadge />}
+        </NavTab>
       ))}
     </View>
   );
@@ -142,20 +180,30 @@ export default function Shell() {
               width: 220,
               flexGrow: 0,
               flexShrink: 0,
+              backgroundColor: colors.surfaceAlt,
               borderRightWidth: 1,
               borderColor: colors.border,
             }}
           >
-            <Text
-              style={{
-                color: colors.accent,
-                fontSize: 32,
-                fontWeight: "900",
-                padding: 26,
-              }}
-            >
-              VENTI
-            </Text>
+            <View style={{ flexDirection: "row", alignItems: "center", gap: 10, paddingHorizontal: 22, paddingTop: 26, paddingBottom: 18 }}>
+              <View
+                aria-hidden
+                style={{
+                  width: 30,
+                  height: 30,
+                  borderRadius: radius.sm,
+                  backgroundColor: colors.primary,
+                  boxShadow: shadows.primary,
+                  alignItems: "center",
+                  justifyContent: "center",
+                }}
+              >
+                <Text style={{ color: colors.onPrimary, fontSize: 17, fontWeight: "900" }}>V</Text>
+              </View>
+              <Text style={{ color: colors.text, fontSize: 24, fontWeight: "900", letterSpacing: 1.5 }}>
+                VENTI
+              </Text>
+            </View>
             {navigation}
           </ScrollView>
         )}
@@ -163,7 +211,7 @@ export default function Shell() {
           <Slot key={auth.user.id} />
         </View>
         {!desktop && (
-          <View style={{ borderTopWidth: 1, borderColor: colors.border }}>
+          <View style={{ borderTopWidth: 1, borderColor: colors.border, backgroundColor: colors.surfaceAlt, boxShadow: shadows.bar }}>
             <ScrollView horizontal showsHorizontalScrollIndicator={false}>
               {navigation}
             </ScrollView>

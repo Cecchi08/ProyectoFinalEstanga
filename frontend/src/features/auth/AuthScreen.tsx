@@ -8,6 +8,7 @@ import {
   ActionFeedback,
   Button,
   Card,
+  colors,
   Copy,
   Field,
   Notice,
@@ -198,7 +199,7 @@ export default function AuthScreen({ mode }: { mode: Mode }) {
               <Link
                 key={item}
                 href={`/${item}`}
-                style={{ color: "#ba9bff", padding: 8 }}
+                style={{ color: colors.accent, padding: 8, fontWeight: "600" }}
               >
                 {
                   {

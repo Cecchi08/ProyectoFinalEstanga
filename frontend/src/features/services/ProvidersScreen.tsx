@@ -152,7 +152,7 @@ export function ProviderScreen() {
             {(provider.email || provider.phone) && <Copy muted>{[provider.email, provider.phone].filter(Boolean).join(" · ")}</Copy>}
             {provider.legal_name && <Copy muted>{provider.legal_name}</Copy>}
             {member && provider.organization_status !== "ACTIVE" && (
-              <Notice message="La organización está suspendida: la empresa no aparece en el catálogo." error />
+              <Notice message="La organización está suspendida: la empresa no aparece en el catálogo." tone="warning" />
             )}
             {provider.verified_at && <Copy muted>Verificada {dateLabel(provider.verified_at)}</Copy>}
           </Card>

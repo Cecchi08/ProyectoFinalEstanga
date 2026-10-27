@@ -1,10 +1,11 @@
 import { useState } from "react";
-import { Image, View } from "react-native";
+import { Image, Text, View } from "react-native";
 import { router } from "expo-router";
 import { useAuth } from '../../contexts/AuthContext';
 import {
   Button,
   Card,
+  colors,
   Copy,
   Field,
   Notice,
@@ -41,10 +42,10 @@ export function ConcertCard({
             style={{ height: 170, borderRadius: 12 }}
           />
         )}
-        <Copy muted>
+        <Text style={[styles.label, { color: colors.accent }]}>
           {dateLabel(concert.start_datetime)} · {concert.status}
-        </Copy>
-        <Copy>{concert.name}</Copy>
+        </Text>
+        <Text style={styles.heading}>{concert.name}</Text>
         <Copy muted>{lineup(concert)}</Copy>
         <Copy muted>{place(concert)}</Copy>
         {concert.price_from != null && <Copy muted>Desde {money(concert.price_from)}</Copy>}

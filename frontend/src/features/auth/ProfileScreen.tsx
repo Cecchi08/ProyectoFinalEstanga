@@ -12,6 +12,7 @@ import {
   Copy,
   Page,
   ResourceState,
+  switchColors,
   useAction,
 } from "../../components/ui";
 export default function ProfileScreen() {
@@ -56,7 +57,7 @@ export default function ProfileScreen() {
         />
         {preferences.enabled !== null && (
           <>
-            <Switch
+            <Switch {...switchColors}
               accessibilityLabel="Recomendaciones personalizadas"
               value={preferences.enabled}
               disabled={preferences.loading || preferences.saving}
