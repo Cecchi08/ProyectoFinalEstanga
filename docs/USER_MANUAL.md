@@ -8,7 +8,7 @@ En escritorio, las secciones aparecen a la izquierda. En teléfono o tablet, des
 
 ## Perfiles
 
-Toda cuenta nace como **COMPRADOR**. En **Mi cuenta → Mis perfiles** ves tus perfiles y tus permisos, y podés activar **ARTISTA** por tu cuenta. ORGANIZADOR, VENUE y EMPRESA_SERVICIOS los asigna un ADMIN, porque implican una organización o un negocio que hay que revisar. Los perfiles se combinan: una cuenta puede ser, por ejemplo, ORGANIZADOR y VENUE a la vez.
+Toda cuenta nace como **COMPRADOR**. En **Mi cuenta → Mis perfiles** ves tus perfiles y tus permisos, y podés activar **ARTISTA** por tu cuenta. Para **ORGANIZADOR**, **VENUE** o **EMPRESA_SERVICIOS**, en la misma pantalla tocás **Solicitar** y un administrador revisa la solicitud: mientras espera, el perfil figura como *Pendiente de revisión*; si la rechaza, el historial muestra el motivo y podés volver a pedirlo. Los perfiles se combinan: una cuenta puede ser, por ejemplo, ORGANIZADOR y VENUE a la vez.
 
 ## COMPRADOR
 

@@ -17,13 +17,13 @@ El catálogo de permisos del código está en `backend/src/utils/access.util.js`
 |---|---|---|
 | COMPRADOR | Comprar entradas, recomendaciones, notificaciones. Es el perfil por defecto al registrarse. | Automático al registrarse; también por autoservicio |
 | ARTISTA | Perfil de artista o banda; busca espacios, pide presupuestos y reserva salas. | Autoservicio o un admin |
-| ORGANIZADOR | Publica conciertos, vende entradas, asigna staff, ve sus estadísticas y reserva espacios. | Un admin lo asigna |
-| VENUE | Gestiona establecimientos y espacios de su organización, responde presupuestos y reservas. | Un admin lo asigna |
-| EMPRESA_SERVICIOS | Empresa de servicios para eventos (sonido, iluminación, seguridad…): catálogo, integrantes y respuesta de cotizaciones. No pide cotizaciones. | Un admin lo asigna |
+| ORGANIZADOR | Publica conciertos, vende entradas, asigna staff, ve sus estadísticas y reserva espacios. | Solicitud de la persona + aprobación de un ADMIN |
+| VENUE | Gestiona establecimientos y espacios de su organización, responde presupuestos y reservas. | Solicitud de la persona + aprobación de un ADMIN |
+| EMPRESA_SERVICIOS | Empresa de servicios para eventos (sonido, iluminación, seguridad…): catálogo, integrantes y respuesta de cotizaciones. No pide cotizaciones. | Solicitud de la persona + aprobación de un ADMIN |
 | ADMIN | Todo. Es el único con `users.manage`, `catalogs.manage` y los permisos globales. | Un admin lo asigna |
 | GUEST | Invitado sin registro completo. **No se asigna ni se quita a mano.** | Flujo de invitado |
 
-**Autoservicio:** COMPRADOR y ARTISTA los activa la propia persona con `POST /me/profiles`. ORGANIZADOR, VENUE y EMPRESA_SERVICIOS implican una organización o un negocio que hay que revisar, así que los asigna un ADMIN con `POST /admin/users/:id/roles` y, si los pide la persona, la respuesta es `403 ADMIN_APPROVAL_REQUIRED`. Las dos formas quedan registradas en `admin_audit_log`: `ROLE_SELF_ACTIVATED`, `ROLE_GRANTED` y `ROLE_REVOKED`.
+**Autoservicio:** COMPRADOR y ARTISTA los activa la propia persona con `POST /me/profiles`. ORGANIZADOR, VENUE y EMPRESA_SERVICIOS implican una organización o un negocio que hay que revisar: la persona los **solicita** con `POST /me/profile-requests` (quedan `PENDING`) y un ADMIN los aprueba (se conceden) o rechaza (con motivo) desde `/admin/profile-requests`. Si la persona intenta activarlos directamente con `POST /me/profiles`, la respuesta es `403 ADMIN_APPROVAL_REQUIRED`. Una cuenta no puede solicitar un perfil que ya tiene (`409 ALREADY_HELD`) ni tener dos solicitudes pendientes del mismo perfil (`409 REQUEST_PENDING`). Quedan registradas en `admin_audit_log`: `ROLE_SELF_ACTIVATED`, `PROFILE_REQUESTED`, `PROFILE_REQUEST_APPROVED` (con `ROLE_GRANTED` al conceder), `PROFILE_REQUEST_REJECTED` y `ROLE_REVOKED`. No se agregó ningún permiso nuevo: decidir solicitudes usa `users.manage`, que ya es solo de ADMIN.
 
 ## Permisos
 
@@ -148,6 +148,11 @@ La empresa es una organización (`organizations` + `organization_members`) con p
 |---|---|---|
 | `GET /me/profiles` | autenticado | Perfiles, permisos y cuáles son de autoservicio |
 | `POST /me/profiles` (`role`) | autenticado | Solo COMPRADOR o ARTISTA; idempotente; cuentas registradas y activas; queda auditado como `ROLE_SELF_ACTIVATED` |
+| `POST /me/profile-requests` (`role`, `reason?`) | autenticado | Solo ORGANIZADOR, VENUE o EMPRESA_SERVICIOS (`422 NOT_REQUESTABLE` para el resto; `422 SELF_SERVICE_PROFILE` para COMPRADOR y ARTISTA); cuenta registrada y activa; `409 ALREADY_HELD` y `409 REQUEST_PENDING`; queda auditado como `PROFILE_REQUESTED` |
+| `GET /me/profile-requests` | autenticado | Las solicitudes propias, con su estado y el motivo de la decisión |
+| `GET /admin/profile-requests` (`status`) | `users.manage` | Lista de solicitudes, las pendientes primero |
+| `POST /admin/profile-requests/:id/approve` (`reason?`) | `users.manage` | Concede el perfil en la misma transacción; `409 INVALID_STATE` si ya fue decidida; auditado como `PROFILE_REQUEST_APPROVED` y `ROLE_GRANTED` |
+| `POST /admin/profile-requests/:id/reject` (`reason`, mínimo 3 caracteres) | `users.manage` | No concede nada; `409 INVALID_STATE` si ya fue decidida; auditado como `PROFILE_REQUEST_REJECTED` |
 
 ### Administración de usuarios
 | Endpoint | Acceso | Además |
