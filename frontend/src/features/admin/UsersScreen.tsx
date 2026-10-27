@@ -8,6 +8,7 @@ import {
   ASSIGNABLE_ROLES,
   ROLE_LABELS,
   ROLES,
+  type AdminProfileRequest,
   type AdminUser,
   type AuditAction,
   type AuditEntity,
@@ -39,6 +40,54 @@ const fullName = (user: {
 export const STATUS_LABELS: Record<string, string> = { ACTIVE: "Activa", BLOCKED: "Suspendida", DELETED: "Eliminada" };
 const profiles = (roles: Role[]) =>
   roles.length ? roles.map((role) => ROLE_LABELS[role]).join(" · ") : "Sin perfiles";
+// GET /admin/profile-requests (users.manage): pending requests first. Approving grants the profile; rejecting needs a reason.
+function ProfileRequestsPanel() {
+  const requests = useResource<AdminProfileRequest[]>("/admin/profile-requests?status=PENDING&limit=50");
+  const action = useAction();
+  const [reasons, setReasons] = useState<Record<string, string>>({});
+  const decide = (item: AdminProfileRequest, approve: boolean) =>
+    action.run(async () => {
+      const reason = reasons[item.id]?.trim() ?? "";
+      if (!approve && reason.length < 3) throw new Error("Indicá el motivo del rechazo (mínimo 3 caracteres).");
+      await api.request(`/admin/profile-requests/${item.id}/${approve ? "approve" : "reject"}`, {
+        method: "POST",
+        body: approve ? (reason ? { reason } : {}) : { reason },
+      });
+      await requests.reload();
+      action.setMessage(approve ? `${ROLE_LABELS[item.role]} concedido a ${item.email ?? `#${item.user_id}`}.` : `Solicitud rechazada: ${item.email ?? `#${item.user_id}`}.`);
+    });
+  return (
+    <Card>
+      <Copy>Solicitudes de perfil pendientes</Copy>
+      <ActionFeedback action={action} />
+      <ResourceState
+        {...requests}
+        empty={requests.result?.data.length === 0}
+        retry={() => void requests.reload()}
+      />
+      {requests.result?.data.map((item) => (
+        <View key={item.id} style={{ gap: 8 }}>
+          <Copy>
+            {ROLE_LABELS[item.role]} · {`${item.first_name ?? ""} ${item.last_name ?? ""}`.trim() || item.email || `#${item.user_id}`}
+          </Copy>
+          <Copy muted>
+            {item.email ?? "sin email"} · pedido el {dateLabel(item.created_at)}
+            {item.reason ? ` · ${item.reason}` : ""}
+          </Copy>
+          <Field
+            label={`Motivo del rechazo de la solicitud #${item.id}`}
+            value={reasons[item.id] ?? ""}
+            onChangeText={(value) => setReasons((current) => ({ ...current, [item.id]: value }))}
+          />
+          <View style={styles.row}>
+            <Button title={`Aprobar ${ROLE_LABELS[item.role]} de la solicitud #${item.id}`} disabled={action.busy} onPress={() => void decide(item, true)} />
+            <Button title={`Rechazar la solicitud #${item.id}`} secondary danger disabled={action.busy} onPress={() => void decide(item, false)} />
+          </View>
+        </View>
+      ))}
+    </Card>
+  );
+}
 // GET /admin/users (users.manage). Search covers email and name; the filter uses role codes.
 export default function UsersScreen() {
   const [page, setPage] = useState(1);
@@ -57,6 +106,7 @@ export default function UsersScreen() {
         <Button title="Ver auditoría" secondary onPress={() => router.push("/admin/audit")} />
         <Button title="Volver a administración" secondary onPress={() => router.push("/admin")} />
       </View>
+      <ProfileRequestsPanel />
       <Field
         label="Buscar por nombre o email"
         value={search}
@@ -306,8 +356,11 @@ export const ACTIONS: Record<AuditAction, string> = {
   CONCERT_PUBLISHED: "Concierto publicado",
   CONCERT_CANCELLED: "Concierto cancelado",
   RESERVATION_REFUNDED: "Reserva de espacio reembolsada",
+  PROFILE_REQUESTED: "Solicitud de perfil",
+  PROFILE_REQUEST_APPROVED: "Solicitud de perfil aprobada",
+  PROFILE_REQUEST_REJECTED: "Solicitud de perfil rechazada",
 };
-const ENTITIES: Record<AuditEntity, string> = { USER: "Cuentas", ORDER: "Compras", SERVICE_PROVIDER: "Empresas de servicios", ESTABLISHMENT: "Establecimientos", CONCERT: "Conciertos", RESERVATION: "Reservas de espacios" };
+const ENTITIES: Record<AuditEntity, string> = { USER: "Cuentas", ORDER: "Compras", SERVICE_PROVIDER: "Empresas de servicios", ESTABLISHMENT: "Establecimientos", CONCERT: "Conciertos", RESERVATION: "Reservas de espacios", PROFILE_REQUEST: "Solicitudes de perfil" };
 // GET /admin/audit (users.manage), newest first, filterable by target or actor.
 export function AuditScreen() {
   const [page, setPage] = useState(1);
@@ -349,7 +402,7 @@ export function AuditScreen() {
         <Button title="Ver usuarios" secondary onPress={() => router.push("/admin/users")} />
       </View>
       <View style={styles.row}>
-        {(["", "USER", "ORDER", "SERVICE_PROVIDER", "ESTABLISHMENT", "CONCERT", "RESERVATION"] as const).map((value) => (
+        {(["", "USER", "ORDER", "SERVICE_PROVIDER", "ESTABLISHMENT", "CONCERT", "RESERVATION", "PROFILE_REQUEST"] as const).map((value) => (
           <Button
             key={value || "all"}
             title={value ? ENTITIES[value] : "Todo"}

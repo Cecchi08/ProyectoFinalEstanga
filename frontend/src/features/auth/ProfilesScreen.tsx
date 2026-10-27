@@ -2,7 +2,7 @@ import { router } from "expo-router";
 import { useAuth } from "../../contexts/AuthContext";
 import { useResource } from "../../hooks/useResource";
 import { api } from "../../services/api";
-import { ROLE_LABELS, type Access, type Role, type SelfProfiles } from "../../types/api";
+import { ROLE_LABELS, type Access, type ProfileRequestStatus, type Role, type SelfProfiles } from "../../types/api";
 import {
   ActionFeedback,
   Button,
@@ -13,14 +13,20 @@ import {
   useAction,
 } from "../../components/ui";
 // GET /me/profiles lists the profiles the account holds and which ones it can activate alone.
-// ORGANIZADOR, VENUE and EMPRESA_SERVICIOS involve a business, so an ADMIN grants them
-// (POST /me/profiles answers 403 ADMIN_APPROVAL_REQUIRED for those).
-const BY_ADMIN: Role[] = ["ORGANIZADOR", "VENUE", "EMPRESA_SERVICIOS"];
+// ORGANIZADOR, VENUE and EMPRESA_SERVICIOS involve a business: the person requests them
+// (POST /me/profile-requests) and an ADMIN approves or rejects the request.
+const REQUEST_STATUS: Record<ProfileRequestStatus, string> = { PENDING: "Pendiente de revisión", APPROVED: "Aprobada", REJECTED: "Rechazada" };
 export default function ProfilesScreen() {
   const auth = useAuth();
   const action = useAction();
   const resource = useResource<SelfProfiles>("/me/profiles");
   const profiles = resource.result?.data;
+  const request = (role: Role) =>
+    action.run(async () => {
+      await api.request("/me/profile-requests", { method: "POST", body: { role } });
+      await resource.reload();
+      action.setMessage(`Solicitud de ${ROLE_LABELS[role]} enviada. Un administrador la revisará.`);
+    });
   const activate = (role: Role) =>
     action.run(async () => {
       const { data } = await api.request<Access & { changed: boolean }>(
@@ -77,16 +83,40 @@ export default function ProfilesScreen() {
               )}
             </Card>
           ))}
-          <Card>
-            <Copy>Perfiles que asigna un administrador</Copy>
-            <Copy muted>
-              {BY_ADMIN.map((role) => ROLE_LABELS[role]).join(" · ")}
-            </Copy>
-            <Copy muted>
-              Implican una organización o un negocio que hay que revisar. Pedilos
-              por los canales de contacto de Venti.
-            </Copy>
-          </Card>
+          {profiles.requestable.map((profile) => (
+            <Card key={profile.code}>
+              <Copy>
+                {profile.name} · {profile.active ? "Activo" : profile.pending ? "Pendiente" : "Disponible con solicitud"}
+              </Copy>
+              {profile.description && <Copy muted>{profile.description}</Copy>}
+              {profile.active ? (
+                <Copy muted>Ya lo tenés. Para darlo de baja escribile a un administrador.</Copy>
+              ) : profile.pending ? (
+                <Copy muted>Tu solicitud está pendiente de revisión por un administrador.</Copy>
+              ) : (
+                <>
+                  <Copy muted>Implica una organización o un negocio: un administrador revisa la solicitud.</Copy>
+                  <Button
+                    title={`Solicitar ${profile.name}`}
+                    secondary
+                    disabled={action.busy}
+                    onPress={() => void request(profile.code)}
+                  />
+                </>
+              )}
+            </Card>
+          ))}
+          {profiles.requests.length > 0 && (
+            <Card>
+              <Copy>Historial de solicitudes</Copy>
+              {profiles.requests.map((item) => (
+                <Copy key={item.id} muted>
+                  {ROLE_LABELS[item.role]} · {REQUEST_STATUS[item.status]}
+                  {item.decision_note ? ` · ${item.decision_note}` : ""}
+                </Copy>
+              ))}
+            </Card>
+          )}
           <Card>
             <Copy>Permisos de tu cuenta</Copy>
             <Copy muted>

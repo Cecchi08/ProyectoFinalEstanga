@@ -213,6 +213,26 @@ export interface RoleInfo {
 }
 export interface SelfProfiles extends Access {
   self_service: (RoleInfo & { active: boolean })[];
+  requestable: (RoleInfo & { active: boolean; pending: boolean })[];
+  requests: ProfileRequest[];
+}
+export type ProfileRequestStatus = "PENDING" | "APPROVED" | "REJECTED";
+export interface ProfileRequest {
+  id: string;
+  role: Role;
+  status: ProfileRequestStatus;
+  reason: string | null;
+  decision_note: string | null;
+  created_at: string;
+  decided_at: string | null;
+}
+// GET /admin/profile-requests (users.manage): the pending queue or any status, with the account it belongs to.
+export interface AdminProfileRequest extends ProfileRequest {
+  user_id: string;
+  email: string | null;
+  first_name: string | null;
+  last_name: string | null;
+  user_status: string;
 }
 export interface AdminUser {
   id: string;
@@ -245,8 +265,11 @@ export type AuditAction =
   | "ESTABLISHMENT_REJECTED"
   | "CONCERT_PUBLISHED"
   | "CONCERT_CANCELLED"
-  | "RESERVATION_REFUNDED";
-export type AuditEntity = "USER" | "ORDER" | "SERVICE_PROVIDER" | "ESTABLISHMENT" | "CONCERT" | "RESERVATION";
+  | "RESERVATION_REFUNDED"
+  | "PROFILE_REQUESTED"
+  | "PROFILE_REQUEST_APPROVED"
+  | "PROFILE_REQUEST_REJECTED";
+export type AuditEntity = "USER" | "ORDER" | "SERVICE_PROVIDER" | "ESTABLISHMENT" | "CONCERT" | "RESERVATION" | "PROFILE_REQUEST";
 export interface AuditEntry {
   id: string;
   action: AuditAction;
