@@ -30,7 +30,7 @@ Toda cuenta nace como **COMPRADOR**. En **Mi cuenta → Mis perfiles** ves tus p
 
 ## ORGANIZADOR
 
-1. **Organizador → Crear concierto**: nombre, inicio con zona horaria (por ejemplo `2027-06-10T23:00:00-03:00`), texto del cartel, géneros y lugar (texto libre o una reserva de espacio confirmada).
+1. **Organizador → Crear concierto**: nombre, inicio con zona horaria (por ejemplo `2027-06-10T23:00:00-03:00`), texto del cartel, géneros y lugar: texto libre, o una reserva de espacio confirmada. Un concierto en un espacio del marketplace solo se publica con una reserva propia confirmada que cubra la fecha.
 2. En **Perfiles de artista en el cartel** agregás perfiles publicados. El primero es el artista principal, y el orden se cambia con **Subir**.
 3. Agregá tipos de entrada con nombre, precio y cupo. **Publicar concierto** lo habilita en Descubrir.
 4. **Control de ingreso:** en el editor, escribí el email de una cuenta registrada en **Email del staff** y elegí **Asignar staff**. Esa cuenta valida las entradas del concierto mientras esté publicado. No necesita ningún perfil adicional.
@@ -41,7 +41,7 @@ Toda cuenta nace como **COMPRADOR**. En **Mi cuenta → Mis perfiles** ves tus p
 ## VENUE
 
 1. **Espacios → Gestionar establecimientos**: creá una organización (quedás como Dueño), sumá miembros con perfil VENUE y cargá establecimientos, espacios y bloqueos de agenda.
-2. Publicá cada espacio y el establecimiento para que aparezcan en la búsqueda.
+2. Publicá cada espacio y elegí **Enviar a revisión** en el establecimiento. Aparece en la búsqueda cuando un ADMIN lo aprueba; si lo rechaza, vuelve a borrador con el motivo y podés reenviarlo.
 3. En **Espacios → Presupuestos recibidos** respondés cada pedido con ítems, cargos, descuento y validez, o lo rechazás.
 4. En **Espacios → Reservas recibidas**, una reserva directa pagada se **acepta** (pasa a CONFIRMED) o se **rechaza** con motivo (se reembolsa el pago simulado). El espacio no puede cancelar una reserva confirmada.
 5. Los avisos de **Notificaciones** sobre presupuestos y reservas tienen **Ver presupuesto** o **Ver reserva** para abrir el detalle.
@@ -60,8 +60,9 @@ Si la cuenta también puede pedir o reservar (por ejemplo, ORGANIZADOR y VENUE a
 1. **Admin → Usuarios y perfiles**: buscá cuentas, asigná o quitá perfiles, y suspendé o reactivá cuentas con un motivo. Cada cambio queda en **Auditoría**. Nadie puede suspender su propia cuenta, ni dejar la plataforma sin un ADMIN activo.
 2. **Catálogos**: provincias, distritos, ciudades y géneros. Un registro en uso puede rechazar la eliminación.
 3. **Organizaciones**: listado de organizaciones de espacios y de empresas de servicios. Desde la ficha de una empresa podés verificarla o quitarle la verificación.
-4. **Estadísticas globales** reúne las métricas de la plataforma.
-5. **Staff** permite validar entradas de cualquier concierto (`tickets.validate_all`).
+4. **Establecimientos en revisión**: aprobá (se publica) o rechazá con motivo (vuelve a borrador) los establecimientos que envían los dueños.
+5. **Estadísticas globales** reúne las métricas de la plataforma.
+6. **Staff** permite validar entradas de cualquier concierto (`tickets.validate_all`).
 
 ## Mensajes frecuentes
 

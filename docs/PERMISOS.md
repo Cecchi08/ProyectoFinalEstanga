@@ -84,7 +84,7 @@ La columna **Además** indica la regla de propiedad o membresía que se valida e
 | `GET /staff/assignments` | autenticado | Conciertos asignados; todos con `tickets.validate_all` |
 | `POST /purchases` | `tickets.purchase` | — |
 | `GET /purchases/me`, `/purchases/:id`, `POST /purchases/:id/confirm` (`outcome`: APPROVED/REJECTED), `/cancel`, `GET /tickets`, `/tickets/:id` | autenticado | Propias, o todas con `orders.read_all`. `confirm` es el pago simulado: APPROVED confirma y emite las entradas, REJECTED se registra y la compra sigue pendiente. Cancelar una compra confirmada libera el stock, anula las entradas y reembolsa el pago (auditado) |
-| `POST /tickets/validate` | `tickets.validate` o `tickets.validate_all` | Con `tickets.validate`, solo conciertos asignados en `concert_staff` |
+| `POST /tickets/validate` | autenticado | El servicio exige asignación en `concert_staff` para ese concierto, o `tickets.validate_all`. Sin asignación: `403 STAFF_NOT_ASSIGNED`; los rechazos (cancelada, otro concierto, usada) quedan en `ticket_validations` |
 
 ### Catálogos
 | Endpoint | Acceso |
@@ -96,7 +96,7 @@ La columna **Además** indica la regla de propiedad o membresía que se valida e
 ### Recomendaciones, preferencias, notificaciones y estadísticas
 | Endpoint | Acceso | Además |
 |---|---|---|
-| `GET /recommendations`, `GET/PATCH /preferences`, `GET /notifications`, `PATCH /notifications/read-all`, `/notifications/:id/read` | autenticado | Siempre del propio usuario |
+| `GET /recommendations`, `GET/PATCH /preferences`, `GET /notifications`, `PATCH /notifications/read-all`, `/notifications/:id/read` | autenticado | Siempre del propio usuario. Cada aviso trae `reservation_id`, `quote_id` (presupuesto de espacio) o `service_quote_id` (cotización de servicio) cuando corresponde |
 | `GET /organizer/statistics`, `/organizer/concerts/:id/statistics` | `statistics.own` | Conciertos propios |
 | `GET /admin/statistics` | `statistics.global` | — |
 
@@ -107,6 +107,8 @@ La columna **Además** indica la regla de propiedad o membresía que se valida e
 | `POST /marketplace/organizations`, `GET /marketplace/organizations/mine`, `GET /marketplace/establishments/mine` | `marketplace.establishments.manage` o `marketplace.admin` | Quien crea la organización queda como OWNER |
 | `GET/POST /marketplace/organizations/:id/members`, `PATCH/DELETE …/members/:userId` | `marketplace.establishments.manage` o `marketplace.admin` | Para ver alcanza con ser miembro; gestionan OWNER/ADMIN; solo un OWNER toca a otro OWNER; siempre queda uno; solo se suman cuentas con VENUE |
 | `POST /marketplace/establishments`, `PATCH /…/:id`, `POST /…/:id/publish`, `/archive`, `GET/POST /…/:id/venues`, `PATCH /marketplace/venues/:id`, `POST /…/venues/:id/publish`, `/archive`, `GET/POST /…/:id/blocks`, `DELETE /marketplace/blocks/:id` | `marketplace.establishments.manage` o `marketplace.admin` | Miembro; editar exige OWNER/ADMIN de la organización |
+| `POST /marketplace/establishments/:id/publish` (dueño) | `marketplace.establishments.manage` | OWNER/ADMIN de la organización: lo deja en `PENDING_REVIEW`; no aparece en búsquedas hasta que lo aprueba un ADMIN. Con `marketplace.admin` publica directamente (auditado) |
+| `GET /marketplace/establishments/pending`, `POST /marketplace/establishments/:id/approve`, `/reject` (`reason`) | `marketplace.admin` | Solo establecimientos en `PENDING_REVIEW`. Aprobar publica; rechazar vuelve a `DRAFT` con el motivo. Se audita como `ESTABLISHMENT_APPROVED` / `ESTABLISHMENT_REJECTED` |
 | `POST /marketplace/quotes`, `POST /marketplace/quotes/:id/accept`, `/cancel` | `marketplace.quotes.request` o `marketplace.admin` | Aceptar y cancelar: solo quien lo pidió |
 | `GET /marketplace/quotes`, `/marketplace/quotes/:id` | `quotes.request`, `quotes.respond` o `marketplace.admin` | El propio, o el de su organización; la vista `as=provider` exige `quotes.respond` |
 | `POST /marketplace/quotes/:id/respond`, `/reject` | `marketplace.quotes.respond` o `marketplace.admin` | Miembro de la organización del espacio |
