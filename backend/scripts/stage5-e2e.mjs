@@ -14,12 +14,12 @@ let context, apiServer, webServer, browser;
 const accounts = {};
 before(async () => {
   await db.open(); db.env.AUTH_RATE_LIMIT_MAX = 10000; db.env.AUTH_RATE_LIMIT_WINDOW_MS = 1000; context = db.context();
-  // Registration grants COMPRADOR. Staff is not a role: the staff account is a COMPRADOR assigned in concert_staff.
-  // The organizer also runs spaces (VENUE) for the marketplace flow.
-  for (const [name, roles] of Object.entries({admin:['ADMIN'], organizer:['ORGANIZADOR','VENUE'], staff:[]})) {
+  // Registration grants COMPRADOR. Staff is not a profile: the staff account is a COMPRADOR assigned in concert_staff.
+  // Only the first ADMIN is seeded in SQL (nobody can grant it yet); every other profile goes through the UI below.
+  for (const name of ['admin','organizer','staff','artist','services','crew']) {
     const account = await context.auth.register({...registration,email:`${name}@e2e.example`,first_name:name});
     await context.auth.verifyEmail(context.mailer.last('verification').token);
-    for (const role of roles) await db.rows('INSERT INTO user_roles(user_id,role_id) SELECT ?,id FROM roles WHERE code=?',[account.user.id,role]);
+    if (name === 'admin') await db.rows("INSERT INTO user_roles(user_id,role_id) SELECT ?,id FROM roles WHERE code='ADMIN'",[account.user.id]);
     accounts[name] = account.user.id;
   }
   // Production client uses localhost:3000. Bind only loopback.
@@ -28,10 +28,38 @@ before(async () => {
   webServer = await new Promise(resolve => {const server = web.listen(8081,'127.0.0.1',() => resolve(server));});
   browser = await chromium.launch({...(process.env.E2E_BROWSER_CHANNEL ? {channel:process.env.E2E_BROWSER_CHANNEL} : {}),headless:true});
   await mkdir('../frontend/test-results',{recursive:true});
-});
+  const browserContext = await browser.newContext({viewport:{width:1440,height:1000}}); const page = await browserContext.newPage();
+  try {
+    // ADMIN assigns the reviewed profiles from /admin/users; each change lands in the audit log.
+    await login(page,'admin');
+    await grant(page,'organizer',['Organizador','Espacios']);
+    await grant(page,'services',['Empresa de servicios']);
+    await grant(page,'crew',['Empresa de servicios']);
+    await logout(page);
+    // ARTISTA is self-service from /profiles; the artist then creates and publishes the profile billed in the concerts.
+    await login(page,'artist'); await page.getByRole('tab',{name:'Mi cuenta',exact:true}).click();
+    await page.getByRole('button',{name:'Mis perfiles',exact:true}).click();
+    await page.getByRole('button',{name:'Activar Artista',exact:true}).click(); await expect(page.getByText('Perfil Artista activado.',{exact:true})).toBeVisible();
+    await page.getByRole('button',{name:'Gestionar mis perfiles de artista',exact:true}).click();
+    await page.getByRole('button',{name:'Crear perfil de artista',exact:true}).click();
+    await page.getByLabel('Nombre artístico',{exact:true}).fill(ARTIST); await page.getByRole('button',{name:'Crear perfil',exact:true}).click();
+    await page.getByRole('button',{name:'Publicar perfil',exact:true}).click(); await expect(page.getByText('Perfil publicado.',{exact:true})).toBeVisible();
+    await logout(page);
+  } finally {await browserContext.close();}
+}, {timeout:180000});
 after(async () => {await browser?.close(); await Promise.all([apiServer,webServer].filter(Boolean).map(server => new Promise(resolve => server.close(resolve)))); await db.close();});
 async function login(page,name) {await page.goto('http://localhost:8081/login'); await page.getByLabel('Email',{exact:true}).fill(`${name}@e2e.example`); await page.getByLabel('Contraseña',{exact:true}).fill(password); await page.getByRole('button',{name:'Ingresar',exact:true}).click(); await expect(page.getByRole('heading',{name:'Encontrá tu próximo show'})).toBeVisible();}
 async function logout(page) {await page.getByRole('tab',{name:'Mi cuenta',exact:true}).click(); await page.getByRole('button',{name:'Cerrar sesión',exact:true}).click(); await expect(page.getByRole('button',{name:'Ingresar',exact:true})).toBeVisible();}
+const ARTIST = 'Los Prismas E2E';
+// Signed in as ADMIN: assigns profiles (labels as in ROLE_LABELS) and checks the audit trail of the account.
+async function grant(page,name,labels) {
+  await page.goto('http://localhost:8081/admin/users'); await page.getByLabel('Buscar por nombre o email',{exact:true}).fill(`${name}@e2e.example`);
+  await page.getByRole('button',{name:`Gestionar cuenta de ${name} ${registration.last_name}`,exact:true}).click();
+  for (const label of labels) {
+    await page.getByRole('button',{name:`Asignar ${label}`,exact:true}).click(); await expect(page.getByText(`Perfil ${label} asignado.`,{exact:true})).toBeVisible();
+    await expect(page.getByText(new RegExp(`Perfil asignado · ${label} · por #${accounts.admin}$`))).toBeVisible();
+  }
+}
 // Seeded catalogs (24 provinces, 15 genres) exceed one Select page: search before choosing.
 async function choose(page,label,option) {
   await page.getByRole('button',{name:label,exact:true}).click();
@@ -58,10 +86,13 @@ for (const viewport of [{width:1440,height:1000},{width:768,height:1024},{width:
     await catalog('Ciudades',`Ciudad ${suffix}`,async () => {await choose(page,'Provincia',`Provincia ${suffix}`); await choose(page,'Distrito',`Distrito ${suffix}`);});
     await catalog('Géneros',`Rock ${suffix}`); await logout(page);
     // Organizer's multi-role menu and CRUD/publication.
-    await login(page,'organizer'); await page.getByRole('tab',{name:'Organizer',exact:true}).click(); await page.getByRole('button',{name:'Crear concierto',exact:true}).click();
+    await login(page,'organizer'); await page.getByRole('tab',{name:'Organizador',exact:true}).click(); await page.getByRole('button',{name:'Crear concierto',exact:true}).click();
     await page.getByLabel('Nombre del concierto',{exact:true}).fill(`VENTI Live ${suffix}`); await page.getByLabel('Inicio (ISO con zona horaria)',{exact:true}).fill(new Date(Date.now()+30*86400000).toISOString());
     // Free-text place in the city created above; marketplace spaces and reservations are optional.
-    await page.getByLabel('Artista',{exact:true}).fill(`Banda ${suffix}`); await page.getByLabel('Lugar',{exact:true}).fill(`Sala ${suffix}`);
+    await page.getByLabel('Artista (texto del cartel)',{exact:true}).fill(`Banda ${suffix}`); await page.getByLabel('Lugar',{exact:true}).fill(`Sala ${suffix}`);
+    // The published artist profile is billed as headliner; the lineup then shows it instead of the free text.
+    await page.getByRole('button',{name:'Agregar perfil de artista',exact:true}).click(); await page.getByLabel('Buscar perfil de artista',{exact:true}).fill(ARTIST);
+    await page.getByRole('button',{name:`Agregar ${ARTIST}`,exact:true}).click(); await expect(page.getByText(`1. ${ARTIST}`,{exact:true})).toBeVisible();
     await page.getByLabel('Dirección (opcional)',{exact:true}).fill('Calle Música 123'); await choose(page,'Ciudad',`Ciudad ${suffix}`);
     await choose(page,'Géneros',`Rock ${suffix}`); await page.getByRole('button',{name:'Guardar concierto',exact:true}).click();
     await expect(page.getByRole('button',{name:'Agregar tipo de entrada',exact:true})).toBeVisible();
@@ -74,9 +105,22 @@ for (const viewport of [{width:1440,height:1000},{width:768,height:1024},{width:
     await logout(page);
     // User discovery, filters, persisted session, reservation and confirmation (the schema has no favorites).
     await login(page,`user${suffix}`); await page.reload(); await expect(page.getByRole('heading',{name:'Encontrá tu próximo show'})).toBeVisible();
-    await page.getByLabel('Buscar conciertos').fill(`VENTI Live ${suffix}`); await page.getByRole('button',{name:'Buscar',exact:true}).click(); await page.getByRole('button',{name:`Ver VENTI Live ${suffix}`,exact:true}).click();
-    await expect(page.getByText(`Artista: Banda ${suffix}`,{exact:true})).toBeVisible();
+    await page.getByLabel('Buscar conciertos').fill(`VENTI Live ${suffix}`); await page.getByRole('button',{name:'Buscar',exact:true}).click();
+    // Price filter: a concert matches when one of its ticket types (General, $ 1200) falls inside the range.
+    await page.getByRole('button',{name:'Filtros',exact:true}).click();
+    await page.getByLabel('Precio mínimo',{exact:true}).fill('1300'); await page.getByLabel('Precio máximo',{exact:true}).fill('1000');
+    await page.getByRole('button',{name:'Aplicar filtros',exact:true}).click(); await expect(page.getByText('El precio mínimo no puede superar al máximo.',{exact:true})).toBeVisible();
+    await page.getByLabel('Precio máximo',{exact:true}).fill('5000'); await page.getByRole('button',{name:'Aplicar filtros',exact:true}).click();
+    await expect(page.getByText('No hay resultados para mostrar.',{exact:true})).toBeVisible();
+    await page.getByRole('button',{name:'Filtros',exact:true}).click(); await page.getByLabel('Precio mínimo',{exact:true}).fill('1000');
+    await page.getByRole('button',{name:'Aplicar filtros',exact:true}).click(); await expect(page.getByText('Desde $ 1.200,00',{exact:true})).toBeVisible();
+    await page.getByRole('button',{name:`Ver VENTI Live ${suffix}`,exact:true}).click();
+    await expect(page.getByText(`Artistas: ${ARTIST}`,{exact:true})).toBeVisible();
     await expect(page.getByText(`Sala ${suffix} · Ciudad ${suffix}, Provincia ${suffix}`,{exact:true})).toBeVisible();
+    // The artist's public profile lists the concert among its upcoming performances.
+    await page.getByRole('button',{name:`Principal: ${ARTIST}`,exact:true}).click(); await expect(page.getByText('Presentaciones',{exact:true})).toBeVisible();
+    await expect(page.getByRole('button',{name:`Ver VENTI Live ${suffix}`,exact:true})).toBeVisible();
+    await page.getByRole('button',{name:'Volver',exact:true}).click(); await expect(page.getByRole('button',{name:'Reservar entradas',exact:true})).toBeVisible();
     // Discover honors persisted preferences and does not even request recommendations while OFF.
     let recommendationRequests = 0;
     page.on('request', req => {const url = new URL(req.url()); if (url.origin === 'http://localhost:3000' && url.pathname === '/recommendations') recommendationRequests++;});
@@ -100,7 +144,13 @@ for (const viewport of [{width:1440,height:1000},{width:768,height:1024},{width:
     await expect(page.getByText('Un próximo concierto publicado para descubrir.',{exact:true}).first()).toBeVisible();
     await page.screenshot({path:`../frontend/test-results/discover-${suffix}.png`,fullPage:true});
     await page.getByRole('button',{name:`Ver VENTI Live ${suffix}`,exact:true}).click();
-    await page.getByLabel('Cantidad General').fill('1'); await page.getByRole('button',{name:'Reservar entradas',exact:true}).click(); await page.getByRole('button',{name:'Confirmar compra',exact:true}).click(); await page.getByRole('button',{name:'Ver mis entradas QR',exact:true}).click();
+    // The purchase starts PENDING; the simulated payment confirms it. No card data is ever requested.
+    await page.getByLabel('Cantidad General').fill('1'); await page.getByRole('button',{name:'Reservar entradas',exact:true}).click();
+    await expect(page.getByText('Pago simulado: no se cobra dinero ni se piden datos de tarjeta.',{exact:true})).toBeVisible();
+    assert.equal(await page.locator('input[aria-label*="tarjeta" i], input[autocomplete^="cc-"]').count(),0);
+    await page.getByRole('button',{name:'Simular pago aprobado',exact:true}).click();
+    await expect(page.getByText('Pago aprobado y compra confirmada. Tus QR están en Entradas.',{exact:true})).toBeVisible();
+    await page.getByRole('button',{name:'Ver mis entradas QR',exact:true}).click();
     const qr = page.locator('[aria-label^="QR de entrada"]'); await expect(qr).toBeVisible();
     const png = PNG.sync.read(await qr.screenshot()); const decoded = jsQR(new Uint8ClampedArray(png.data),png.width,png.height); assert.ok(decoded); assert.match(decoded.data,/^[a-f0-9]{64}$/);
     await page.screenshot({path:`../frontend/test-results/tickets-${suffix}.png`,fullPage:true});
@@ -139,7 +189,7 @@ for (const viewport of [{width:1440,height:1000},{width:768,height:1024},{width:
     await page.getByLabel('Nombre del concierto',{exact:true}).fill(`VENTI Editado ${suffix}`); await page.getByRole('button',{name:'Guardar concierto',exact:true}).click(); await expect(page.getByText('Concierto guardado.',{exact:true})).toBeVisible();
     await page.getByRole('button',{name:'Editar General',exact:true}).click(); await page.getByLabel('Precio',{exact:true}).fill('1300'); await page.getByRole('button',{name:'Guardar tipo de entrada',exact:true}).click(); await expect(page.getByText('General · $ 1300.00 · Cupo 20',{exact:true})).toBeVisible();
     await page.getByRole('button',{name:'Cancelar concierto',exact:true}).click(); await page.getByRole('button',{name:'Confirmar cancelación',exact:true}).click(); await expect(page.getByText(`#${concertId} · CANCELLED`,{exact:true})).toBeVisible();
-    await page.getByRole('tab',{name:'Organizer',exact:true}).click();
+    await page.getByRole('tab',{name:'Organizador',exact:true}).click();
     await page.getByRole('button',{name:'Ver estadísticas',exact:true}).click();
     await expect(page.getByRole('heading',{name:'Mis estadísticas',exact:true})).toBeVisible();
     await page.getByLabel('ID de concierto (opcional)').fill(concertId);
@@ -194,7 +244,7 @@ test('catalog update/delete, pagination, draft delete, empty and retry states', 
     await page.getByRole('button',{name:'Siguiente',exact:true}).click(); await expect(page.getByText('2 / 3',{exact:true})).toBeVisible(); await page.getByRole('button',{name:'Anterior',exact:true}).click();
     await page.getByLabel('Buscar provincias').fill('Test provincia 00'); await page.getByRole('button',{name:'Editar Test provincia 00',exact:true}).click(); await page.getByLabel('Nombre',{exact:true}).fill('Test provincia 00 editada'); await page.getByRole('button',{name:'Guardar catálogo',exact:true}).click(); await page.getByRole('button',{name:'Editar Test provincia 00 editada',exact:true}).click(); await page.getByRole('button',{name:'Eliminar registro',exact:true}).click(); await page.getByRole('button',{name:'Confirmar eliminación',exact:true}).click(); await expect(page.getByText('No hay resultados para mostrar.',{exact:true})).toBeVisible();
     await logout(page); await login(page,'organizer'); await page.goto('http://localhost:8081/organizer/new');
-    await page.getByLabel('Nombre del concierto',{exact:true}).fill('Borrador para eliminar'); await page.getByLabel('Inicio (ISO con zona horaria)',{exact:true}).fill(new Date(Date.now()+30*86400000).toISOString()); await page.getByLabel('Artista',{exact:true}).fill('Banda borrador'); await page.getByRole('button',{name:'Guardar concierto',exact:true}).click(); await page.getByRole('button',{name:'Eliminar borrador',exact:true}).click(); await page.getByRole('button',{name:'Confirmar eliminación',exact:true}).click(); await expect(page.getByRole('heading',{name:'Mis conciertos'})).toBeVisible();
+    await page.getByLabel('Nombre del concierto',{exact:true}).fill('Borrador para eliminar'); await page.getByLabel('Inicio (ISO con zona horaria)',{exact:true}).fill(new Date(Date.now()+30*86400000).toISOString()); await page.getByLabel('Artista (texto del cartel)',{exact:true}).fill('Banda borrador'); await page.getByRole('button',{name:'Guardar concierto',exact:true}).click(); await page.getByRole('button',{name:'Eliminar borrador',exact:true}).click(); await page.getByRole('button',{name:'Confirmar eliminación',exact:true}).click(); await expect(page.getByRole('heading',{name:'Mis conciertos'})).toBeVisible();
     let fail = true;
     await page.route('**/concerts?**', async route => { if (fail) {fail=false;await route.abort();} else await route.continue(); });
     await page.getByRole('tab',{name:'Descubrir',exact:true}).click(); await page.getByRole('button',{name:'Reintentar',exact:true}).click(); await expect(page.getByText('No hay resultados para mostrar.',{exact:true})).toBeVisible();
@@ -285,28 +335,100 @@ test('marketplace: gestión del establecimiento, búsqueda, disponibilidad, rese
     await page.getByRole('button',{name:'Publicar Complejo E2E',exact:true}).click(); await expect(page.getByText('Complejo E2E · PUBLISHED',{exact:true})).toBeVisible();
     await logout(page);
     // An artist finds the space, checks the slot, books it (HOLD) and approves the simulated payment.
-    // Booking needs marketplace.reservations.create: the buyer account activates the ARTISTA profile.
-    await db.rows("INSERT IGNORE INTO user_roles(user_id,role_id) SELECT u.id,r.id FROM users u JOIN roles r ON r.code='ARTISTA' WHERE u.email='user1440@e2e.example'");
-    await login(page,'user1440'); await page.getByRole('tab',{name:'Espacios',exact:true}).click();
+    // Booking needs marketplace.reservations.create: the buyer activates the ARTISTA profile on its own from /profiles.
+    await login(page,'user1440'); await page.getByRole('tab',{name:'Mi cuenta',exact:true}).click();
+    await page.getByRole('button',{name:'Mis perfiles',exact:true}).click();
+    await page.getByRole('button',{name:'Activar Artista',exact:true}).click(); await expect(page.getByText('Perfil Artista activado.',{exact:true})).toBeVisible();
+    await page.getByRole('tab',{name:'Espacios',exact:true}).click();
     await page.getByLabel('Buscar espacios',{exact:true}).fill('Sala E2E'); await page.getByRole('button',{name:'Backline',exact:true}).click();
     await page.getByRole('button',{name:'Aplicar búsqueda',exact:true}).click(); await page.getByRole('button',{name:'Ver Sala E2E',exact:true}).click();
     await page.getByLabel('Fecha (AAAA-MM-DD)',{exact:true}).fill(date);
     await page.getByLabel('Inicio del evento (HH:MM)',{exact:true}).fill('18:00'); await page.getByLabel('Fin del evento (HH:MM)',{exact:true}).fill('20:00');
     await page.getByRole('button',{name:'Consultar disponibilidad',exact:true}).click(); await expect(page.getByText('La franja está libre.',{exact:true})).toBeVisible();
     await page.getByLabel('Nombre del evento',{exact:true}).fill('Ensayo E2E'); await page.getByRole('button',{name:'Reservar al precio de lista',exact:true}).click();
-    await expect(page.getByText('Ensayo E2E · HOLD',{exact:true})).toBeVisible();
+    await expect(page.getByText('Ensayo E2E · HOLD · pendiente de pago',{exact:true})).toBeVisible();
     await expect(page.getByText(/no se cobra dinero ni se piden datos de tarjeta/)).toBeVisible();
     assert.equal(await page.locator('input[aria-label*="tarjeta" i], input[autocomplete^="cc-"]').count(),0);
+    // A direct booking stays HOLD after the payment: it is confirmed when the venue accepts it.
     await page.getByRole('button',{name:'Simular pago aprobado',exact:true}).click();
     await expect(page.getByText(/^Pago simulado: no se cobró dinero real.*APPROVED\.$/)).toBeVisible();
-    await expect(page.getByText('Ensayo E2E · CONFIRMED',{exact:true})).toBeVisible();
+    await expect(page.getByText('Ensayo E2E · HOLD · pagada, espera aceptación del espacio',{exact:true})).toBeVisible();
     await expect(page.getByText(/Total \$ 3\.000,00/)).toBeVisible();
     await page.screenshot({path:'../frontend/test-results/marketplace-reservation-1440.png',fullPage:true});
     await logout(page);
-    // The provider sees the confirmed booking among those received by its spaces.
+    // The venue accepts the paid booking among those received by its spaces, and then cannot cancel it.
     await login(page,'organizer'); await page.goto('http://localhost:8081/marketplace/reservations');
     await page.getByRole('button',{name:'Recibidos en mis espacios',exact:true}).click();
+    await expect(page.getByText('Ensayo E2E · HOLD · pagada, espera aceptación del espacio',{exact:true})).toBeVisible();
+    await page.getByRole('button',{name:/^Ver reserva /}).click();
+    await page.getByRole('button',{name:'Aceptar reserva',exact:true}).click(); await expect(page.getByText('Reserva aceptada y confirmada.',{exact:true})).toBeVisible();
     await expect(page.getByText('Ensayo E2E · CONFIRMED',{exact:true})).toBeVisible();
+    await expect(page.getByRole('button',{name:'Cancelar reserva',exact:true})).toHaveCount(0);
+    await expect(page.getByText('Una reserva confirmada solo la puede cancelar el cliente.',{exact:true})).toBeVisible();
+    await logout(page);
+    // The client still can cancel its confirmed booking.
+    await login(page,'user1440'); await page.goto('http://localhost:8081/marketplace/reservations');
+    await expect(page.getByText('Ensayo E2E · CONFIRMED',{exact:true})).toBeVisible(); await page.getByRole('button',{name:/^Ver reserva /}).click();
+    await expect(page.getByRole('button',{name:'Cancelar reserva',exact:true})).toBeVisible();
+    await logout(page);
+    assert.deepEqual(errors,[]);
+  } finally { await browserContext.close(); }
+});
+
+test('servicios: empresa, integrantes, catálogo, cotización, contratación y disponibilidad', {timeout:180000}, async () => {
+  const browserContext = await browser.newContext({viewport:{width:1440,height:1000}}); const page = await browserContext.newPage();
+  const errors = []; page.on('pageerror', error => errors.push(error.message));
+  // Argentina calendar dates: the quote must expire before the event starts.
+  const day = offset => new Date(Date.now()+offset*86400000).toLocaleDateString('en-CA',{timeZone:'America/Argentina/Buenos_Aires'});
+  const [eventDate, validDate] = [day(20), day(5)];
+  try {
+    // EMPRESA_SERVICIOS (granted by ADMIN) creates the company, adds a teammate and publishes a service and the company.
+    await login(page,'services'); await page.getByRole('tab',{name:'Servicios',exact:true}).click();
+    await page.getByRole('button',{name:'Mis empresas de servicios',exact:true}).click();
+    await page.getByRole('button',{name:'Nueva empresa de servicios',exact:true}).click();
+    await page.getByLabel('Nombre comercial',{exact:true}).fill('Sonido E2E'); await page.getByRole('button',{name:'Crear empresa',exact:true}).click();
+    await expect(page.getByRole('heading',{name:'Sonido E2E',exact:true})).toBeVisible();
+    await page.getByLabel('Email del miembro (cuenta con perfil EMPRESA_SERVICIOS)',{exact:true}).fill('crew@e2e.example');
+    await page.getByRole('button',{name:'Agregar miembro',exact:true}).click(); await expect(page.getByText('Miembro agregado.',{exact:true})).toBeVisible();
+    await expect(page.getByText(`crew ${registration.last_name} · crew@e2e.example · Staff`,{exact:true})).toBeVisible();
+    await page.getByRole('button',{name:'Nuevo servicio',exact:true}).click();
+    await page.getByRole('button',{name:'Sonido',exact:true}).click(); await page.getByLabel('Nombre del servicio',{exact:true}).fill('PA E2E');
+    await page.getByRole('button',{name:'Crear servicio',exact:true}).click();
+    await page.getByRole('button',{name:'Publicar PA E2E',exact:true}).click(); await expect(page.getByText('Servicio publicado.',{exact:true})).toBeVisible();
+    await page.getByRole('button',{name:'Publicar empresa',exact:true}).click(); await expect(page.getByText('Empresa publicada.',{exact:true})).toBeVisible();
+    await logout(page);
+    // The organizer finds the service in the public catalog and asks for a quote.
+    async function openService() {
+      await page.getByRole('tab',{name:'Servicios',exact:true}).click();
+      await page.getByLabel('Buscar',{exact:true}).fill('PA E2E'); await page.getByRole('button',{name:'Buscar servicios',exact:true}).click();
+      await page.getByRole('button',{name:'Ver servicio PA E2E',exact:true}).click();
+    }
+    await login(page,'organizer'); await openService();
+    await page.getByLabel('Nombre del evento',{exact:true}).fill('Show E2E');
+    // The availability lookup also has a date field: the quote form is the second one.
+    await page.getByLabel('Fecha (AAAA-MM-DD)',{exact:true}).last().fill(eventDate);
+    await page.getByLabel('Desde (HH:MM)',{exact:true}).fill('20:00'); await page.getByLabel('Hasta (HH:MM)',{exact:true}).fill('23:00');
+    await page.getByRole('button',{name:'Enviar pedido de cotización',exact:true}).click();
+    await expect(page.getByText('Show E2E · Pedida',{exact:true})).toBeVisible();
+    await logout(page);
+    // The company answers with an itemized quote.
+    await login(page,'services'); await page.goto('http://localhost:8081/services/quotes');
+    await page.getByRole('button',{name:/^Ver cotización /}).click();
+    await page.getByLabel('Ítem 1',{exact:true}).fill('Sistema PA'); await page.getByLabel('Precio unitario 1',{exact:true}).fill('50000');
+    await page.getByLabel('Válida hasta (AAAA-MM-DD)',{exact:true}).fill(validDate);
+    await page.getByRole('button',{name:'Enviar cotización',exact:true}).click(); await expect(page.getByText('Cotización enviada.',{exact:true})).toBeVisible();
+    await expect(page.getByText('Show E2E · Cotizada',{exact:true})).toBeVisible();
+    await logout(page);
+    // The organizer accepts it; the contracted window then shows as busy in the service's availability.
+    await login(page,'organizer'); await page.goto('http://localhost:8081/services/quotes');
+    await page.getByRole('button',{name:/^Ver cotización /}).click();
+    await expect(page.getByText('Total $ 50.000,00 ARS',{exact:true})).toBeVisible();
+    await page.getByRole('button',{name:'Aceptar y contratar',exact:true}).click(); await expect(page.getByText('Servicio contratado.',{exact:true})).toBeVisible();
+    await expect(page.getByText('Show E2E · Contratada',{exact:true})).toBeVisible();
+    await openService();
+    await page.getByLabel('Fecha (AAAA-MM-DD)',{exact:true}).first().fill(eventDate); await page.getByRole('button',{name:'Consultar disponibilidad',exact:true}).click();
+    await expect(page.getByText(/^Contratado: /)).toBeVisible();
+    await page.screenshot({path:'../frontend/test-results/services-quote-1440.png',fullPage:true});
     await logout(page);
     assert.deepEqual(errors,[]);
   } finally { await browserContext.close(); }
