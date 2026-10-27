@@ -57,6 +57,8 @@ export interface Notification {
   type: 'PURCHASE_CONFIRMED' | 'CONCERT_REMINDER' | 'CONCERT_UPDATED' | 'CONCERT_CANCELLED' | 'RECOMMENDATION' | 'POST_EVENT' | 'QUOTE_UPDATE' | 'RESERVATION_UPDATE' | 'SYSTEM';
   title: string; message: string; read_at: string | null; created_at: string;
   concert_id: string | null; purchase_id: string | null; reservation_id: string | null; quote_id: string | null; concert_status: string | null;
+  // Service-company quotes (QUOTE_UPDATE): quote_id is only for space quotes.
+  service_quote_id: string | null;
 }
 export interface Notifications { items: Notification[]; unread_count: number }
 export interface Statistics {
@@ -238,8 +240,10 @@ export type AuditAction =
   | "ORDER_PAYMENT_REJECTED"
   | "ORDER_REFUNDED"
   | "SERVICE_PROVIDER_VERIFIED"
-  | "SERVICE_PROVIDER_UNVERIFIED";
-export type AuditEntity = "USER" | "ORDER" | "SERVICE_PROVIDER";
+  | "SERVICE_PROVIDER_UNVERIFIED"
+  | "ESTABLISHMENT_APPROVED"
+  | "ESTABLISHMENT_REJECTED";
+export type AuditEntity = "USER" | "ORDER" | "SERVICE_PROVIDER" | "ESTABLISHMENT";
 export interface AuditEntry {
   id: string;
   action: AuditAction;
@@ -393,9 +397,13 @@ export interface Establishment extends Named {
   phone: string | null;
   email: string | null;
   website: string | null;
-  status: "DRAFT" | "PUBLISHED" | "ARCHIVED";
+  // PENDING_REVIEW: sent by the owner, waiting for an ADMIN; only PUBLISHED is public.
+  status: "DRAFT" | "PENDING_REVIEW" | "PUBLISHED" | "ARCHIVED";
+  review_note: string | null;
+  reviewed_at: string | null;
   venues: number;
 }
+export interface PendingEstablishment extends Establishment { organization_name: string; city_name: string; updated_at: string }
 export interface Block { id: string; venue_id: string | null; reason: string; description: string | null; starts_at: string; ends_at: string }
 export interface StaffMember { user_id: string; first_name: string | null; last_name: string | null; email: string }
 export interface AdminOrganization extends Named {

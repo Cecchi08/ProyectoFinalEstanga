@@ -36,6 +36,7 @@ export default function NotificationsScreen() {
         {/* Marketplace events carry the space quote or reservation; the detail checks access for either side. */}
         {item.reservation_id && <Button title="Ver reserva" onPress={() => router.push(`/marketplace/reservations/${item.reservation_id}`)} />}
         {item.quote_id && <Button title="Ver presupuesto" onPress={() => router.push(`/marketplace/quotes/${item.quote_id}`)} />}
+        {item.service_quote_id && <Button title="Ver cotización" onPress={() => router.push(`/services/quotes/${item.service_quote_id}`)} />}
       </View>
     </Card>)}
     <Pager pagination={resource.result?.pagination} onPage={setPage} />

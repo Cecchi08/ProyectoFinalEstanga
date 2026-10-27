@@ -121,10 +121,20 @@ export class ManagementService {
         if (concert.start_datetime < (reservation.event_start_at as Date) || end > (reservation.event_end_at as Date))
             fail(422, 'OUTSIDE_RESERVATION', 'El concierto debe realizarse dentro del horario de evento de la reserva.');
     }
+    // A concert in a marketplace space is published only with its own reservation of that space, still confirmed and
+    // covering the date. A free-text place needs none.
+    private async booked(repo: ManagementRepository, concert: ConcertRow): Promise<void> {
+        if (concert.venue_id && !concert.reservation_id)
+            fail(409, 'RESERVATION_REQUIRED', 'Para publicar en un espacio del marketplace hace falta una reserva confirmada de ese espacio.');
+        if (!concert.reservation_id) return;
+        const reservation = required(await repo.reservation(String(concert.reservation_id)));
+        if (!['CONFIRMED', 'COMPLETED'].includes(String(reservation.status_code))) fail(409, 'RESERVATION_NOT_CONFIRMED', 'La reserva debe estar confirmada.');
+        await this.reservationFits(repo, concert);
+    }
     private async publishable(repo: ManagementRepository, concert: ConcertRow): Promise<void> {
         dates(concert.start_datetime, concert.end_datetime);
         if (!concert.venue_name || !concert.city_id) fail(422, 'INCOMPLETE_CONCERT', 'Publicar requiere un lugar y una ciudad.');
-        await this.reservationFits(repo, concert);
+        await this.booked(repo, concert);
         const detail = (await repo.concertDetails([concert]))[0];
         if (!detail.genres.length || !detail.ticket_types.length)
             fail(422, 'INCOMPLETE_CONCERT', 'Publicar requiere al menos un género y un tipo de entrada.');

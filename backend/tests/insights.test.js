@@ -73,6 +73,13 @@ test('every notification type of the schema ENUM can be listed and read', async 
     assert.ok(result.data.items.some(item => item.type === 'CONCERT_REMINDER'));
     await call('patch','/notifications/read-all').expect(200);
 });
+test('service quote notices expose service_quote_id from data; others return null', async () => {
+    await db.rows("INSERT INTO notifications(user_id,type,title,body,data) VALUES (101,'QUOTE_UPDATE','Cotización','x',?)", [JSON.stringify({ service_quote_id: '77' })]);
+    await db.rows("INSERT INTO notifications(user_id,type,title,body) VALUES (101,'SYSTEM','Aviso','x')");
+    const items = (await inbox()).data.items;
+    assert.equal(items.find(item => item.type === 'QUOTE_UPDATE').service_quote_id, '77');
+    assert.equal(items.find(item => item.type === 'SYSTEM').service_quote_id, null);
+});
 test('preferences validate booleans, preserve fields, isolate users and default missing rows', async () => {
     assert.deepEqual((await call('get','/preferences')).body.data,{recommendations_enabled:true,notifications_enabled:true});
     await call('patch','/preferences','user',{notifications_enabled:false}).expect(200);

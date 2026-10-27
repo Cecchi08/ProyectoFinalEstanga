@@ -5,7 +5,7 @@ import { useAuth } from "../../contexts/AuthContext";
 import { useResource } from "../../hooks/useResource";
 import { api } from "../../services/api";
 import type { Block, Establishment, MarketplaceCatalogs, Member, Named, Organization, Venue, VenueDetail } from "../../types/api";
-import { ActionFeedback, Button, Card, Copy, Field, Page, ResourceState, styles, useAction } from "../../components/ui";
+import { ActionFeedback, Button, Card, Copy, Field, Notice, Page, ResourceState, styles, useAction } from "../../components/ui";
 import { Codes, VenueCard } from "./MarketplaceScreen";
 import { at, days, isDate, range } from "./time";
 
@@ -148,8 +148,10 @@ function EstablishmentForm({ establishment, organizations, done }: { establishme
   );
 }
 
+// Publishing is a request: the owner sends the establishment to review and an ADMIN (marketplace.admin) publishes it.
 function EstablishmentPanel({ establishment, organizations, reload }: { establishment: Establishment; organizations: Organization[]; reload(): Promise<void> }) {
   const [open, setOpen] = useState<"" | "edit" | "venues" | "blocks">("");
+  const reviewer = useAuth().can("marketplace.admin");
   const action = useAction();
   const status = (next: "publish" | "archive") => action.run(async () => {
     await api.request(`/marketplace/establishments/${establishment.id}/${next}`, { method: "POST", body: {} }); await reload();
@@ -158,13 +160,23 @@ function EstablishmentPanel({ establishment, organizations, reload }: { establis
     <Card>
       <Copy>{establishment.name} · {establishment.status}</Copy>
       <Copy muted>{establishment.address_line} · {establishment.venues} espacio(s)</Copy>
+      {establishment.status === "PENDING_REVIEW" && (
+        <Notice tone="info" message="En revisión: aparece en las búsquedas cuando un administrador de Venti lo aprueba." />
+      )}
+      {establishment.status === "DRAFT" && establishment.review_note && (
+        <Notice tone="warning" message={`Revisión rechazada: ${establishment.review_note}`} />
+      )}
       <View style={styles.row}>
         {(["edit", "venues", "blocks"] as const).map((panel) => (
           <Button key={panel} title={`${{ edit: "Editar", venues: "Espacios", blocks: "Bloqueos" }[panel]} de ${establishment.name}`}
             secondary={open !== panel} onPress={() => setOpen(open === panel ? "" : panel)} />
         ))}
-        {establishment.status !== "PUBLISHED" && <Button title={`Publicar ${establishment.name}`} disabled={action.busy} onPress={() => void status("publish")} />}
-        {establishment.status === "PUBLISHED" && <Button title={`Archivar ${establishment.name}`} secondary danger disabled={action.busy} onPress={() => void status("archive")} />}
+        {establishment.status !== "PUBLISHED" && (reviewer || establishment.status !== "PENDING_REVIEW") && (
+          <Button title={`${reviewer ? "Publicar" : "Enviar a revisión"} ${establishment.name}`} disabled={action.busy} onPress={() => void status("publish")} />
+        )}
+        {["PUBLISHED", "PENDING_REVIEW"].includes(establishment.status) && (
+          <Button title={`Archivar ${establishment.name}`} secondary danger disabled={action.busy} onPress={() => void status("archive")} />
+        )}
       </View>
       <ActionFeedback action={action} />
       {open === "edit" && <EstablishmentForm establishment={establishment} organizations={organizations} done={async () => { setOpen(""); await reload(); }} />}

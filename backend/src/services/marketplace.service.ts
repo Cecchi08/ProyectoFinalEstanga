@@ -2,6 +2,7 @@ import { AppError } from '../utils/app-error.util.js';
 import { PERMISSIONS as P, can } from '../utils/access.util.js';
 import { MarketplaceRepository } from '../repositories/marketplace.repository.ts';
 import { NotificationsRepository } from '../repositories/notifications.repository.ts';
+import { audit } from '../repositories/audit.repository.ts';
 import { slugify } from '../repositories/management.repository.ts';
 import { MAX_AMOUNT, cents, decimal } from '../utils/money.util.ts';
 import type { Database, Principal, Row } from '../types/management.types.ts';
@@ -171,11 +172,38 @@ export class MarketplaceService {
             return repo.establishment(id);
         });
     }
+    // Publishing is a request: the owner sends the establishment to review and only marketplace.admin publishes it
+    // (directly, or by approving the review). Public searches only show PUBLISHED establishments.
     establishmentStatus(id: string, status: 'PUBLISHED' | 'ARCHIVED', user: Principal) {
         return this.run(true, async repo => {
             const establishment = required(await repo.establishment(id, true));
             await this.provider(repo, user, String(establishment.organization_id), true);
-            await repo.updateEstablishment(id, { status, published_at: status === 'PUBLISHED' ? (establishment.published_at as Date | null) ?? new Date() : undefined });
+            if (status === 'ARCHIVED') await repo.updateEstablishment(id, { status });
+            else if (admin(user)) await this.publishEstablishment(repo, establishment, user);
+            else if (establishment.status !== 'PUBLISHED') await repo.updateEstablishment(id, { status: 'PENDING_REVIEW', review_note: null });
+            return repo.establishment(id);
+        });
+    }
+    private async publishEstablishment(repo: MarketplaceRepository, establishment: Row, user: Principal) {
+        if (establishment.status === 'PUBLISHED') return;
+        const id = String(establishment.id);
+        await repo.updateEstablishment(id, { status: 'PUBLISHED', published_at: (establishment.published_at as Date | null) ?? new Date(),
+            reviewed_at: new Date(), reviewed_by_user_id: user.id, review_note: null });
+        await audit(repo.connection, { actor: user.id, action: 'ESTABLISHMENT_APPROVED', entity: { type: 'ESTABLISHMENT', id },
+            details: { establishment_id: id, organization_id: String(establishment.organization_id), previous_status: establishment.status } });
+    }
+    pendingEstablishments() { return this.run(false, repo => repo.pendingEstablishments()); }
+    // ADMIN decision on an establishment in review; rejecting sends it back to DRAFT with the reason for the owner.
+    reviewEstablishment(id: string, approve: boolean, reason: string | undefined, user: Principal) {
+        return this.run(true, async repo => {
+            const establishment = required(await repo.establishment(id, true));
+            if (establishment.status !== 'PENDING_REVIEW') fail(409, 'INVALID_STATE', 'El establecimiento no está en revisión.');
+            if (approve) await this.publishEstablishment(repo, establishment, user);
+            else {
+                await repo.updateEstablishment(id, { status: 'DRAFT', reviewed_at: new Date(), reviewed_by_user_id: user.id, review_note: reason ?? null });
+                await audit(repo.connection, { actor: user.id, action: 'ESTABLISHMENT_REJECTED', entity: { type: 'ESTABLISHMENT', id },
+                    details: { establishment_id: id, organization_id: String(establishment.organization_id), reason } });
+            }
             return repo.establishment(id);
         });
     }

@@ -1,10 +1,11 @@
 import type { PoolConnection } from 'mysql2/promise';
 
 export type AuditAction = 'ROLE_GRANTED' | 'ROLE_REVOKED' | 'ROLE_SELF_ACTIVATED' | 'USER_SUSPENDED' | 'USER_REACTIVATED'
-    | 'ORDER_PAYMENT_APPROVED' | 'ORDER_PAYMENT_REJECTED' | 'ORDER_REFUNDED' | 'SERVICE_PROVIDER_VERIFIED' | 'SERVICE_PROVIDER_UNVERIFIED';
+    | 'ORDER_PAYMENT_APPROVED' | 'ORDER_PAYMENT_REJECTED' | 'ORDER_REFUNDED' | 'SERVICE_PROVIDER_VERIFIED' | 'SERVICE_PROVIDER_UNVERIFIED'
+    | 'ESTABLISHMENT_APPROVED' | 'ESTABLISHMENT_REJECTED';
 export interface AuditEntry {
     actor: string; action: AuditAction; target?: string | null; roleId?: string | null;
-    entity?: { type: 'USER' | 'ORDER' | 'SERVICE_PROVIDER'; id: string }; details: Record<string, unknown>;
+    entity?: { type: 'USER' | 'ORDER' | 'SERVICE_PROVIDER' | 'ESTABLISHMENT'; id: string }; details: Record<string, unknown>;
 }
 
 // Written in the caller's transaction: the audited change and its row commit (or roll back) together.

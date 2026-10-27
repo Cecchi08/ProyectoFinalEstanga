@@ -173,6 +173,13 @@ export class MarketplaceRepository {
     async establishment(id: string, lock = false): Promise<Row | undefined> {
         return (await this.rows(`SELECT * FROM establishments WHERE id = ?${lock ? ' FOR UPDATE' : ''}`, [id]))[0];
     }
+    // Review queue for marketplace.admin, oldest request first.
+    pendingEstablishments() {
+        return this.rows(`SELECT e.*, o.name AS organization_name, c.name AS city_name,
+            (SELECT COUNT(*) FROM venues v WHERE v.establishment_id = e.id) AS venues
+            FROM establishments e JOIN organizations o ON o.id = e.organization_id JOIN cities c ON c.id = e.city_id
+            WHERE e.status = 'PENDING_REVIEW' ORDER BY e.updated_at, e.id`);
+    }
     establishments(userId: string, admin: boolean) {
         return this.rows(`SELECT e.*, (SELECT COUNT(*) FROM venues v WHERE v.establishment_id = e.id) AS venues FROM establishments e
             ${admin ? '' : `WHERE ${member('e.organization_id')}`} ORDER BY e.name, e.id`, admin ? [] : [userId]);

@@ -22,6 +22,19 @@ const input = (extra = {}) => ({ name: 'Festival VENTI', artist_name: 'Banda Uno
     ticket_types: [{ name: 'General', price: 1500.25, stock_total: 100, sale_start: future(1), sale_end: future(29), max_per_purchase: 4 }], ...extra });
 const create = async (extra = {}, role = 'owner') => (await call('post', '/concerts', role, input(extra)).expect(201)).body.data;
 const publish = async id => (await call('post', `/concerts/${id}/publish`, 'owner').expect(200)).body.data;
+// Confirmed reservation of marketplace space 1, from the schema's own procedure (one connection: it returns an OUT variable).
+async function booking(role, fromDays, toDays) {
+    const connection = await db.pool.getConnection();
+    try {
+        const sql = days => future(days).replace('T', ' ').replace('Z', '');
+        // No setup/teardown time: they equal the event window.
+        await connection.query("CALL sp_create_reservation_hold(1, ?, NULL, 'VENUE', 'Reserva', NULL, ?, ?, ?, ?, 0, @reservation_id)",
+            [ids[role], sql(fromDays), sql(fromDays), sql(toDays), sql(toDays)]);
+        const [[{ id }]] = await connection.query('SELECT @reservation_id AS id');
+        await connection.query("UPDATE reservations SET status_code = 'CONFIRMED' WHERE id = ?", [id]);
+        return String(id);
+    } finally { connection.release(); }
+}
 
 before(async () => { await db.open(); });
 after(async () => { await db.close(); });
@@ -95,7 +108,9 @@ test('lectura pública oculta borradores y cancelados, incluso sus entradas', as
 
 test('listado combina todos los filtros y pagina sin duplicar conciertos con varios géneros', async () => {
     const matching = await create({ genre_ids: ['1', '2'] }); await publish(matching.id);
-    const second = await create({ name: 'Otro show', venue_id: '1', artist_name: 'Banda Dos', genre_ids: ['2'] }); await publish(second.id);
+    // A concert in a marketplace space is published only with the organizer's confirmed reservation of it.
+    const second = await create({ name: 'Otro show', reservation_id: await booking('owner', 29, 32), artist_name: 'Banda Dos', genre_ids: ['2'] });
+    await publish(second.id);
     await create();
     const query = new URLSearchParams({ q: 'VENTI', name: 'Festival', artist: 'Uno', genre_id: '1', city_id: '1',
         status: 'PUBLISHED', date_from: future(20), date_to: future(40), page: '1', limit: '1' });

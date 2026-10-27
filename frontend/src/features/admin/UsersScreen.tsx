@@ -301,8 +301,10 @@ export const ACTIONS: Record<AuditAction, string> = {
   ORDER_REFUNDED: "Compra reembolsada",
   SERVICE_PROVIDER_VERIFIED: "Empresa verificada",
   SERVICE_PROVIDER_UNVERIFIED: "Verificación quitada",
+  ESTABLISHMENT_APPROVED: "Establecimiento aprobado",
+  ESTABLISHMENT_REJECTED: "Establecimiento rechazado",
 };
-const ENTITIES: Record<AuditEntity, string> = { USER: "Cuentas", ORDER: "Compras", SERVICE_PROVIDER: "Empresas de servicios" };
+const ENTITIES: Record<AuditEntity, string> = { USER: "Cuentas", ORDER: "Compras", SERVICE_PROVIDER: "Empresas de servicios", ESTABLISHMENT: "Establecimientos" };
 // GET /admin/audit (users.manage), newest first, filterable by target or actor.
 export function AuditScreen() {
   const [page, setPage] = useState(1);
@@ -344,7 +346,7 @@ export function AuditScreen() {
         <Button title="Ver usuarios" secondary onPress={() => router.push("/admin/users")} />
       </View>
       <View style={styles.row}>
-        {(["", "USER", "ORDER", "SERVICE_PROVIDER"] as const).map((value) => (
+        {(["", "USER", "ORDER", "SERVICE_PROVIDER", "ESTABLISHMENT"] as const).map((value) => (
           <Button
             key={value || "all"}
             title={value ? ENTITIES[value] : "Todo"}

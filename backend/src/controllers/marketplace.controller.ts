@@ -36,6 +36,10 @@ export class MarketplaceController {
     establishmentStatus = (status: 'PUBLISHED' | 'ARCHIVED') => async (req: Request, res: Response) => {
         ok(res, await this.service.establishmentStatus(id(req), status, principal(req)));
     };
+    pendingEstablishments = async (_req: Request, res: Response) => { ok(res, await this.service.pendingEstablishments()); };
+    reviewEstablishment = (approve: boolean) => async (req: Request, res: Response) => {
+        ok(res, await this.service.reviewEstablishment(id(req), approve, approve ? undefined : rejectSchema.parse(req.body).reason, principal(req)));
+    };
     establishmentVenues = async (req: Request, res: Response) => { ok(res, await this.service.establishmentVenues(id(req), principal(req))); };
     createVenue = async (req: Request, res: Response) => { ok(res, await this.service.createVenue(id(req), req.body, principal(req)), 201); };
     updateVenue = async (req: Request, res: Response) => { ok(res, await this.service.updateVenue(id(req), req.body, principal(req))); };

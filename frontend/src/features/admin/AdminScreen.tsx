@@ -53,6 +53,9 @@ export default function AdminScreen() {
       {can("users.manage", "marketplace.admin") && (
         <Button title="Organizaciones" secondary onPress={() => router.push("/admin/organizations")} />
       )}
+      {can("marketplace.admin") && (
+        <Button title="Establecimientos en revisión" secondary onPress={() => router.push("/admin/establishments")} />
+      )}
       {can("statistics.global") && (
         <Button title="Estadísticas globales" onPress={() => router.push('/admin/statistics')} />
       )}

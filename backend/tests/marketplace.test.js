@@ -39,7 +39,9 @@ async function provision() {
     const hall = (await call('post', `/marketplace/establishments/${establishment.id}/venues`, 'provider', {
         venue_type_code: 'CONCERT_HALL', name: 'Sala Grande', capacity_standing: 400, capacity_seated: 250, price_per_hour: 20000, amenities: ['STAGE'] }).expect(201)).body.data;
     for (const venue of [room, hall]) await call('post', `/marketplace/venues/${venue.id}/publish`, 'provider').expect(200);
+    // The owner sends it to review; an ADMIN approves it so it is public.
     await call('post', `/marketplace/establishments/${establishment.id}/publish`, 'provider').expect(200);
+    await call('post', `/marketplace/establishments/${establishment.id}/approve`, 'admin').expect(200);
     return { org, establishment, room: room.id, hall: hall.id };
 }
 
@@ -345,4 +347,51 @@ test('concierto vinculado a una reserva confirmada del organizador toma el espac
     const created = (await concert(21, 23).expect(201)).body.data;
     assert.deepEqual([created.venue_id, created.reservation_id, created.venue_name, created.address_line, created.city_name],
         [venues.hall, reservation.id, 'Complejo Norte - Sala Grande', 'Av. Colón 1234', 'Mar del Plata']);
+});
+
+test('revisión de establecimientos: el dueño lo envía y solo un ADMIN lo publica; en revisión o rechazado no aparece', async () => {
+    const search = async () => (await call('get', '/marketplace/venues').expect(200)).body.data.map(venue => venue.id);
+    const created = (await call('post', '/marketplace/establishments', 'provider', {
+        organization_id: venues.org.id, city_id: '1', name: 'Complejo Sur', address_line: 'Calle Sur 100' }).expect(201)).body.data;
+    const room = (await call('post', `/marketplace/establishments/${created.id}/venues`, 'provider', {
+        venue_type_code: 'REHEARSAL_ROOM', name: 'Sala Sur', capacity_standing: 30, price_per_hour: 1000 }).expect(201)).body.data;
+    await call('post', `/marketplace/venues/${room.id}/publish`, 'provider').expect(200);
+    const sent = (await call('post', `/marketplace/establishments/${created.id}/publish`, 'provider').expect(200)).body.data;
+    assert.equal(sent.status, 'PENDING_REVIEW');
+    assert.ok(!(await search()).includes(room.id));
+    for (const role of ['provider', 'customer']) await error(call('post', `/marketplace/establishments/${created.id}/approve`, role), 403, 'FORBIDDEN');
+    await error(call('get', '/marketplace/establishments/pending', 'provider'), 403, 'FORBIDDEN');
+    assert.deepEqual((await call('get', '/marketplace/establishments/pending', 'admin').expect(200)).body.data.map(item => item.id), [created.id]);
+    await call('post', `/marketplace/establishments/${created.id}/reject`, 'admin', {}).expect(422);
+    const rejected = (await call('post', `/marketplace/establishments/${created.id}/reject`, 'admin', { reason: 'Faltan fotos del espacio' }).expect(200)).body.data;
+    assert.deepEqual([rejected.status, rejected.review_note], ['DRAFT', 'Faltan fotos del espacio']);
+    await error(call('post', `/marketplace/establishments/${created.id}/approve`, 'admin'), 409, 'INVALID_STATE');
+    assert.ok(!(await search()).includes(room.id));
+    await call('post', `/marketplace/establishments/${created.id}/publish`, 'provider').expect(200);
+    const approved = (await call('post', `/marketplace/establishments/${created.id}/approve`, 'admin').expect(200)).body.data;
+    assert.deepEqual([approved.status, String(approved.reviewed_by_user_id), approved.review_note], ['PUBLISHED', ids.admin, null]);
+    assert.ok((await search()).includes(room.id));
+    const audit = await db.rows("SELECT action FROM admin_audit_log WHERE entity_type = 'ESTABLISHMENT' AND entity_id = ? ORDER BY id", [created.id]);
+    assert.deepEqual(audit.map(row => row.action), ['ESTABLISHMENT_REJECTED', 'ESTABLISHMENT_APPROVED']);
+});
+
+test('concierto en un espacio del marketplace: publicar exige reserva propia confirmada y vigente; el texto libre no', async () => {
+    const draft = async (from, to, extra) => (await call('post', '/concerts', 'rival', { name: 'Show', artist_name: 'La Banda', start_datetime: at(from),
+        end_datetime: at(to), genre_ids: ['1'], ticket_types: [{ name: 'General', price: 1000, stock_total: 10 }], ...extra }).expect(201)).body.data;
+    const publish = id => call('post', `/concerts/${id}/publish`, 'rival', {});
+    const confirmed = async (venue, from, to) => {
+        const reservation = await held(venue, from, to, {}, 'rival');
+        await call('post', `/marketplace/reservations/${reservation.id}/payments`, 'rival', {}).expect(201);
+        await call('post', `/marketplace/reservations/${reservation.id}/accept`, 'provider').expect(200);
+        return reservation;
+    };
+    await error(publish((await draft(21, 23, { venue_id: venues.hall })).id), 409, 'RESERVATION_REQUIRED');
+    await publish((await draft(21, 23, { venue_name: 'Bar del Puerto', city_id: '1' })).id).expect(200);
+    const hall = await confirmed(venues.hall, 20, 26);
+    await publish((await draft(21, 23, { reservation_id: hall.id })).id).expect(200);
+    // The booking is cancelled after linking it: the concert can no longer be published.
+    const room = await confirmed(venues.room, 2, 4);
+    const pending = await draft(2, 4, { reservation_id: room.id });
+    await call('post', `/marketplace/reservations/${room.id}/cancel`, 'rival', {}).expect(200);
+    await error(publish(pending.id), 409, 'RESERVATION_NOT_CONFIRMED');
 });

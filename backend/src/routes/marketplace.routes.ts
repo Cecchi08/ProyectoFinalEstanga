@@ -42,6 +42,11 @@ export function marketplaceRoutes(database: Database, authenticate: RequestHandl
     router.patch('/marketplace/establishments/:id', authenticate, establishments, validateRequest(establishmentPatchSchema), controller.updateEstablishment);
     router.post('/marketplace/establishments/:id/publish', authenticate, establishments, empty, controller.establishmentStatus('PUBLISHED'));
     router.post('/marketplace/establishments/:id/archive', authenticate, establishments, empty, controller.establishmentStatus('ARCHIVED'));
+    // Review of establishments sent by their owners (PENDING_REVIEW); approving publishes them.
+    const reviewing = requirePermission(P.marketplaceAdmin);
+    router.get('/marketplace/establishments/pending', authenticate, reviewing, controller.pendingEstablishments);
+    router.post('/marketplace/establishments/:id/approve', authenticate, reviewing, empty, controller.reviewEstablishment(true));
+    router.post('/marketplace/establishments/:id/reject', authenticate, reviewing, controller.reviewEstablishment(false));
     router.get('/marketplace/establishments/:id/venues', authenticate, establishments, controller.establishmentVenues);
     router.post('/marketplace/establishments/:id/venues', authenticate, establishments, validateRequest(venueSchema), controller.createVenue);
     router.get('/marketplace/establishments/:id/blocks', authenticate, establishments, controller.blocks);

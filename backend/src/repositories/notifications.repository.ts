@@ -10,7 +10,8 @@ export class NotificationsRepository {
         const [counts] = await this.sql.rows(`SELECT COUNT(*) AS total, COALESCE(SUM(read_at IS NULL), 0) AS unread_count
             FROM notifications WHERE user_id = ?`, [userId]);
         const items = await this.sql.rows(`SELECT n.id, n.type, n.title, n.body AS message, n.concert_id, n.order_id AS purchase_id,
-            n.reservation_id, n.quote_id, n.read_at, n.created_at, c.status AS concert_status
+            n.reservation_id, n.quote_id, JSON_UNQUOTE(JSON_EXTRACT(n.data, '$.service_quote_id')) AS service_quote_id,
+            n.read_at, n.created_at, c.status AS concert_status
             FROM notifications n LEFT JOIN concerts c ON c.id = n.concert_id
             WHERE n.user_id = ? ORDER BY n.created_at DESC, n.id DESC LIMIT ? OFFSET ?`,
         [userId, String(query.limit), String((query.page - 1) * query.limit)]);

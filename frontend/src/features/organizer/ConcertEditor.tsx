@@ -222,6 +222,9 @@ export default function ConcertEditor() {
                   onChange={(v) => setForm((current) => ({ ...current, venue_id: v[0] ?? "", venue_name: "", address_line: "", city_id: "" }))}
                 />
               )}
+              {form.venue_id && !form.reservation_id && (
+                <Copy muted>Para publicar en un espacio del marketplace hace falta una reserva confirmada que cubra la fecha: elegila arriba.</Copy>
+              )}
               <Field
                 label="Lugar"
                 placeholder={form.venue_id || form.reservation_id ? "Se toma del espacio si lo dejás vacío" : "Nombre de la sala o predio"}
