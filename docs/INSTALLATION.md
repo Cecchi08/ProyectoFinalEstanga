@@ -43,14 +43,24 @@ La plantilla `backend/.env.example` es orientativa: elegí una URL o el conjunto
 Abrí el cliente con `mysql -u root -p` (o su ruta completa en Windows) y ejecutá sobre una instalación nueva:
 
 ```sql
-SOURCE C:/ruta/ProyectoFinalEstanga/database/schema.sql;
+SOURCE C:/ruta/ProyectoFinalEstanga/database/venti_shema2.sql;
 CREATE USER 'venti_app'@'127.0.0.1' IDENTIFIED BY 'REEMPLAZAR_POR_PASSWORD_PROPIO';
-GRANT SELECT, INSERT, UPDATE, DELETE ON venti.* TO 'venti_app'@'127.0.0.1';
+GRANT SELECT, INSERT, UPDATE, DELETE, EXECUTE ON venti.* TO 'venti_app'@'127.0.0.1';
 ```
 
-Completá ese usuario/password y `DB_HOST=127.0.0.1` en `.env`. Adaptá el host del usuario si MySQL está en otra máquina. El schema crea la base, tablas, relaciones y catálogos de roles/estados/proveedores; no incluye usuarios, conciertos ni ubicaciones de demostración. **Importarlo una sola vez**: las tablas no son una migración idempotente. No eliminar una base existente para reinstalar.
+Completá ese usuario/password y `DB_HOST=127.0.0.1` en `.env`. Adaptá el host del usuario si MySQL está en otra máquina. `EXECUTE` es necesario porque las reservas del marketplace usan procedimientos almacenados (`sp_create_reservation_hold`, `sp_simulate_payment`).
 
-`database/schema.sql` selecciona explícitamente la base `venti`. En Railway, asegurate de que `MYSQLDATABASE` (o el nombre incluido en la URL) también sea `venti`. Si Railway asigna otro nombre y no permite crear `venti`, conservá intacto el archivo original y prepará una copia revisada que cambie únicamente `CREATE DATABASE` y `USE venti` por el nombre asignado; importala solo en una base vacía o respaldada. No borres tablas ni vuelvas a importar sobre datos existentes. `npm run db:check` marca error si el nombre conectado no coincide.
+`database/venti_shema2.sql` es el **esquema vigente**. Crea la base, las tablas, los triggers, los procedimientos y el evento de vencimiento de reservas. También carga los datos iniciales:
+
+- perfiles, permisos y sus asignaciones;
+- estados y proveedores;
+- catálogos del marketplace y categorías de servicios.
+
+No incluye usuarios, conciertos ni datos de demostración. El evento necesita `event_scheduler=ON` en el servidor. **Importarlo una sola vez**: las tablas no son una migración idempotente. No eliminar una base existente para reinstalar. `database/schema.sql` es el esquema anterior y no se usa en instalaciones nuevas.
+
+**Base creada con una versión anterior de `venti_shema2.sql`.** Las diferencias van en `database/migrations/`. Cada migración se aplica **una sola vez**, con respaldo previo, mediante `node scripts/db-migrate.mjs` (desde `backend`; ver el encabezado de cada archivo). `20261026_perfiles_y_pagos.sql` ya está aplicada en la base de Railway: no volver a ejecutarla.
+
+`database/venti_shema2.sql` selecciona explícitamente la base `venti`. En Railway, asegurate de que `MYSQLDATABASE` (o el nombre incluido en la URL) también sea `venti`. Si Railway asigna otro nombre y no permite crear `venti`, conservá intacto el archivo original y prepará una copia revisada que cambie únicamente `CREATE DATABASE` y `USE venti` por el nombre asignado; importala solo en una base vacía o respaldada. No borres tablas ni vuelvas a importar sobre datos existentes. `npm run db:check` marca error si el nombre conectado no coincide.
 
 ## Backend, Expo y Web
 
@@ -60,7 +70,7 @@ npm run build
 npm start
 ```
 
-Desarrollo: `npm run dev`. La API valida env y conexión SQL al iniciar. No existe `/health`; comprobar `http://localhost:3000/concert-types` (JSON público).
+Desarrollo: `npm run dev`. La API valida env y conexión SQL al iniciar. No existe `/health`; comprobar `http://localhost:3000/genres` (JSON público).
 
 En otra terminal desde la raíz:
 
@@ -85,49 +95,28 @@ Abrir `http://localhost:8025` para leer verificación/reset. Si se usa SMTP real
 
 Para cada proveedor usado, completar sus tres variables `*_CLIENT_ID`, `*_CLIENT_SECRET`, `*_CALLBACK_URL`. Registrar el callback exacto `https://API/auth/oauth/google/callback` (análogos github/facebook). Dejar las tres vacías para proveedores no configurados. `WEB_OAUTH_REDIRECT_URL` debe apuntar a `https://WEB/oauth-callback`; `APP_DEEP_LINK=venti://oauth-callback`. Producción exige callbacks HTTPS. Ver detalles de state, PKCE y vinculación en [API](API.md).
 
-## Cuentas y asignaciones para la demostración
+## Cuentas y perfiles para la demostración
 
-Registrá/verificá cuatro cuentas desde la interfaz: comprador, organizador, Staff y administrador, con emails/contraseñas propios. No existen credenciales predeterminadas. Con una conexión SQL administrativa sobre la base de demo, reemplazá los emails del siguiente ejemplo por los registrados:
+No existen credenciales predeterminadas. Registrá las cuentas desde la interfaz, con emails y contraseñas propios. Todas nacen con el perfil COMPRADOR.
+
+**1. Primer ADMIN (único paso por SQL).** Mientras no hay ningún ADMIN, nadie puede asignar perfiles desde la interfaz. Con una conexión SQL administrativa, reemplazá el email por el de la cuenta registrada:
 
 ```sql
 USE venti;
-SET @demo_organizer = (SELECT id FROM users WHERE email = 'organizer@tu-dominio.test');
-SET @demo_staff = (SELECT id FROM users WHERE email = 'staff@tu-dominio.test');
 SET @demo_admin = (SELECT id FROM users WHERE email = 'admin@tu-dominio.test');
-SELECT @demo_organizer, @demo_staff, @demo_admin;
+SELECT @demo_admin; -- Continuar solo si el ID existe y es esa cuenta.
+INSERT IGNORE INTO user_roles(user_id, role_id)
+  SELECT @demo_admin, id FROM roles WHERE code = 'ADMIN';
 ```
 
-Continuá solo si los tres IDs existen y corresponden a esas cuentas:
+**2. El resto, desde la interfaz.**
 
-```sql
-START TRANSACTION;
-INSERT INTO user_roles(user_id, role_id)
-  SELECT @demo_organizer, id FROM roles WHERE code = 'ORGANIZER'
-  ON DUPLICATE KEY UPDATE user_id = user_roles.user_id;
-INSERT INTO organizer_profiles(user_id, display_name)
-  VALUES (@demo_organizer, 'Organización demo')
-  ON DUPLICATE KEY UPDATE display_name = organizer_profiles.display_name;
-INSERT INTO user_roles(user_id, role_id)
-  SELECT @demo_staff, id FROM roles WHERE code = 'STAFF'
-  ON DUPLICATE KEY UPDATE user_id = user_roles.user_id;
-INSERT INTO user_roles(user_id, role_id)
-  SELECT @demo_admin, id FROM roles WHERE code = 'ADMIN'
-  ON DUPLICATE KEY UPDATE user_id = user_roles.user_id;
-COMMIT;
-```
+- **Perfiles revisados.** El ADMIN entra en Admin → Usuarios y perfiles (`/admin/users`), busca la cuenta y asigna ORGANIZADOR, VENUE ("Espacios") o EMPRESA_SERVICIOS. Cada cambio queda en la auditoría (`/admin/audit`).
+- **Autoservicio.** COMPRADOR y ARTISTA los activa cada persona en Mi cuenta → Mis perfiles.
+- **Staff.** No es un perfil. El organizador escribe el email de una cuenta registrada en "Email del staff" del editor del concierto. Esa cuenta ve la pestaña Staff y valida las entradas mientras el concierto está publicado.
+- **Catálogos.** El ADMIN prepara provincias, distritos, ciudades y géneros. Los artistas son perfiles que crean las cuentas ARTISTA. Los espacios los gestionan las cuentas VENUE desde Espacios → Gestionar establecimientos.
 
-Cerrá sesión e ingresá para actualizar los menús. ADMIN prepara provincia, ciudad, venue, género y artista. ORGANIZER crea/publica un concierto futuro con entradas. Después, obtené su ID y asigná Staff en **la misma sesión SQL** (si la reconectaste, repetí los `SET`):
-
-```sql
-SELECT id, name FROM concerts WHERE organizer_id = @demo_organizer;
-SET @demo_concert = 123; -- Reemplazar por el ID real que acabás de verificar.
-INSERT INTO staff_assignments(concert_id, user_id, assigned_by_user_id)
-  SELECT id, @demo_staff, @demo_organizer FROM concerts
-  WHERE id = @demo_concert AND organizer_id = @demo_organizer
-  ON DUPLICATE KEY UPDATE assigned_by_user_id = staff_assignments.assigned_by_user_id;
-```
-
-Es preparación de datos para capacidades existentes; no agrega endpoints ni altera el esquema. El [manual](USER_MANUAL.md) contiene el recorrido de presentación.
+Cerrá sesión y volvé a ingresar si un menú no aparece enseguida (la app también recarga los permisos al volver al primer plano y ante un `403`). El [manual](USER_MANUAL.md) contiene el recorrido de presentación.
 
 ## Tests
 
@@ -162,7 +151,7 @@ npx expo install --check
 npx playwright install chromium
 ```
 
-Cerrar API/Expo si ocupan 3000/8081. Desde `backend`, en la terminal que conserva `TEST_DB_*`, ejecutar `npm run test:e2e`. Levanta sus propios servidores y base de datos; recorre 390/768/1440 px. En Windows con Edge instalado, se puede omitir la descarga de Chromium y establecer `$env:E2E_BROWSER_CHANNEL='msedge'`. OAuth usa un proveedor controlado; QR, navegador, API y SQL son reales. Capturas ignoradas por Git en `frontend/test-results`.
+Cerrar API/Expo si ocupan 3000/8081. Desde `backend`, en la terminal que conserva `TEST_DB_*`, ejecutar `npm run test:e2e`. Levanta sus propios servidores y una base `venti_test_*`; recorre 390/768/1440 px. **No apuntar `TEST_DB_*` a Railway ni a otra base con datos reales.** El script está actualizado al flujo de perfiles, artistas, pagos simulados, reservas aceptadas por el venue y empresas de servicios, pero esa versión todavía no se ejecutó. En Windows con Edge instalado, se puede omitir la descarga de Chromium y establecer `$env:E2E_BROWSER_CHANNEL='msedge'`. OAuth usa un proveedor controlado; QR, navegador, API y SQL son reales. Capturas ignoradas por Git en `frontend/test-results`.
 
 Al terminar, `docker compose -f compose.test.yml down` si usaste Docker. Auditoría: `npm audit --omit=dev` en backend y `npm audit` en frontend; ver los pendientes vigentes en [Etapa 8](VENTI_ETAPA_8.md).
 
@@ -185,9 +174,10 @@ Para AAB, configurar la misma variable en el entorno `production` y ejecutar `np
 
 ## Problemas habituales
 
-- API no inicia: comprobar secreto, variables SMTP obligatorias, usuario MySQL e importación del schema.
+- API no inicia: comprobar secreto, variables SMTP obligatorias, usuario MySQL (con `EXECUTE`) e importación de `venti_shema2.sql`.
 - Error de conexión en teléfono: sustituir localhost por la IP LAN; en APK usar HTTPS. Reconstruir después de cambiar la URL.
 - CORS 403: agregar el origen Web exacto y reiniciar backend.
-- Login 403: verificar email; OAuth puede requerir verificación local, especialmente Facebook.
-- No aparece Organizer/Staff: comprobar roles, perfil/asignación SQL y volver a ingresar.
+- Login 401 con la contraseña correcta: la cuenta puede estar suspendida (Admin → Usuarios y perfiles). OAuth puede requerir verificación local, especialmente Facebook.
+- No aparece Organizador, Espacios o Mis empresas de servicios: comprobar que un ADMIN asignó el perfil en `/admin/users` y volver a ingresar. Staff: comprobar la asignación en el editor del concierto y que el concierto esté publicado.
+- Error al reservar un espacio: comprobar `EXECUTE` sobre los procedimientos y `event_scheduler=ON`.
 - 429: esperar la ventana de rate limit; en desarrollo/test no reutilizar tráfico de una demo pública.

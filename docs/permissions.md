@@ -1,34 +1,67 @@
-# Roles y permisos — Etapas 2 y 3
+# Seguridad y autorización
 
-Etapa 7: `/notifications` y `/preferences` operan exclusivamente sobre `req.user.id`, incluso para ADMIN. `/organizer/statistics` y `/organizer/concerts/:id/statistics` exigen ORGANIZER y filtran siempre por ese usuario; concierto ajeno devuelve 404. `/admin/statistics` exige ADMIN. USER/STAFF no acceden a estadísticas administrativas. Los guards del frontend acompañan la autorización real del backend. [Contrato](VENTI_ETAPA_7.md).
+Resumen de cómo la API decide quién puede hacer qué. La tabla completa de permisos por perfil y por endpoint está en [Perfiles, permisos y endpoints](PERMISOS.md).
 
-Ajuste 5.1: `/favorites` siempre opera sobre la cuenta autenticada, incluido ADMIN. `/staff/assignments` permite STAFF (solo asignados) y ADMIN (global). `/concerts/:id/attendees` permite STAFF asignado, ORGANIZER propietario o ADMIN; multirol conserva la unión de permisos. No se amplía el CRUD de STAFF ni la visibilidad de `/concerts`. [Contrato 5.1](VENTI_AJUSTE_5_1.md).
+## Perfiles
 
-`USER`, `ORGANIZER`, `STAFF` y `ADMIN` son roles independientes; un usuario puede tener varios. Registro y alta OAuth asignan solamente `USER` y crean `user_preferences`, en la misma transacción que el usuario. `organizer_profiles` no se crea para usuarios comunes. No hay endpoints públicos para asignar roles ni crear organizadores en esta etapa.
+Un usuario tiene uno o más perfiles (filas en `user_roles`). Los perfiles se combinan: los permisos efectivos son la unión de los de cada uno.
 
-`authenticate(tokens, auth)` exige Bearer JWT HS256 con firma, issuer, audience y expiración válidos. Consulta usuario activo, política de email y todos los roles actuales en MySQL antes de asignar `req.user={id,roles}`. Alterar body o headers personalizados no modifica permisos.
+| Perfil | Para qué | Cómo se activa |
+| --- | --- | --- |
+| COMPRADOR | Comprar entradas, Venti Discover y notificaciones. | Automático al registrarse; también por autoservicio |
+| ARTISTA | Perfil de artista o banda: espacios, presupuestos y reservas. | Autoservicio desde `/profiles` o un ADMIN |
+| ORGANIZADOR | Conciertos propios, entradas, staff, estadísticas propias, reservas de espacios y cotizaciones de servicios. | Un ADMIN desde `/admin/users` |
+| VENUE | Organizaciones, establecimientos, espacios, presupuestos y reservas recibidas. | Un ADMIN |
+| EMPRESA_SERVICIOS | Empresa de servicios para eventos: catálogo, integrantes y respuesta de cotizaciones. | Un ADMIN |
+| ADMIN | Todos los permisos, salvo `tickets.validate` (usa `tickets.validate_all`). | Un ADMIN; el primero se carga por SQL |
+| GUEST | Invitado sin registro completo. No se asigna ni se quita a mano. | Flujo de invitado |
 
-`authorize(...roles)` exige al menos uno de los roles recibidos; sin roles requeridos deniega. La comprobación de ADMIN se hace explícitamente en las rutas que deban admitirlo.
+**STAFF ya no es un perfil.** El control de ingreso depende de la asignación por concierto en `concert_staff`, que hace el organizador desde el editor del concierto. Mientras una cuenta está asignada a un concierto publicado, la API le agrega el permiso `tickets.validate`. ADMIN valida cualquier concierto con `tickets.validate_all`.
 
-Guards reutilizados por la gestión de conciertos:
+Los cambios de perfil quedan en `admin_audit_log`:
 
-- `authorizeConcertOwner(service, parameter='concertId')`: ADMIN o ORGANIZER propietario por `concerts.organizer_id`.
-- `authorizeStaffAssignment(service, parameter='concertId')`: ADMIN o STAFF asignado en `staff_assignments`.
+- `ROLE_GRANTED` y `ROLE_REVOKED`: los hace un ADMIN.
+- `ROLE_SELF_ACTIVATED`: autoservicio de COMPRADOR y ARTISTA.
+- Si una persona pide ORGANIZADOR, VENUE o EMPRESA_SERVICIOS por sí misma, recibe `403 ADMIN_APPROVAL_REQUIRED`.
 
-Ambos requieren `authenticate` previo, comprueban existencia del concierto (404), parámetro válido (422) y pertenencia (403). Los recursos hijos resuelven su concierto desde base de datos; no se acepta un concertId del cliente como prueba de propiedad de otro recurso. Las escrituras vuelven a comprobar propiedad dentro de la transacción con el padre bloqueado, usando la regla compartida `assertConcertOwner`.
+La API impide dejar una cuenta sin perfiles (`LAST_ROLE`) y dejar la plataforma sin un ADMIN activo (`LAST_ADMIN`).
 
-La sesión SQL usa UTC y queries parametrizadas. Los identificadores SQL interpolados provienen de constantes internas de tokens y gestión; nunca de parámetros del cliente. En autenticación los bloqueos siguen el orden usuario → tokens; en gestión, concierto → hijos. Una falla revierte toda la transacción.
+## Cómo se autoriza un pedido
 
-## Gestión de Etapa 3
+1. `authenticate` exige un JWT Bearer HS256 con firma, emisor, audiencia y vencimiento válidos.
+2. En cada pedido se relee de MySQL, en una sola consulta, el usuario activo, sus perfiles y la unión de sus permisos. Por eso quitar un perfil, un permiso o una asignación de staff surte efecto en el pedido siguiente, aunque el token de acceso siga vigente.
+3. `requirePermission(...códigos)` deja pasar si el usuario tiene al menos uno de los permisos. En los servicios, `can(usuario, ...códigos)` aplica la misma regla.
+4. Encima del permiso, el servicio valida la **propiedad o la membresía**:
+   - dueño del concierto;
+   - asignación en `concert_staff`;
+   - miembro de la organización (`organization_members`: OWNER, ADMIN o STAFF), tanto de espacios como de empresas de servicios;
+   - miembro del perfil de artista (`artist_members`: OWNER o MEMBER).
 
-| Rol | Lectura de conciertos | Escritura |
-|---|---|---|
-| Público / USER / STAFF | Solo PUBLISHED | Ninguna |
-| ORGANIZER | PUBLISHED y propios en cualquier estado | Solo conciertos y entradas propios, según reglas de estado |
-| ADMIN | Todos | Conciertos, entradas y catálogos globales |
+El catálogo de códigos está en `backend/src/utils/access.util.js`. Las asignaciones de permisos a perfiles (`role_permissions`) se siembran en `database/venti_shema2.sql`.
 
-Los catálogos tienen lectura pública y escritura exclusiva de ADMIN. ORGANIZER asocia artistas/géneros existentes a sus conciertos pero no administra esos catálogos. STAFF no obtiene CRUD por una asignación. Roles combinados conservan los permisos de cada rol. La creación ORGANIZER rechaza `organizer_id`; ADMIN puede elegir un organizador activo con perfil. La propiedad no se transfiere por PATCH.
+La autorización por rol (`authorize(...)`, `roles.includes(...)`) ya no se usa. El frontend lee los permisos de `GET /auth/me` y oculta pantallas con la misma regla `can(...)`. Esos guards son solo de interfaz: la decisión real la toma la API. Ante un `403`, el frontend recarga los permisos.
 
-La lectura de entradas hereda la visibilidad del concierto. Consultas privadas requieren un JWT válido; las públicas aceptan Bearer opcional, pero rechazan tokens inválidos. Un concierto privado ajeno devuelve 404 en lectura y 403 al intentar modificarlo. Más detalles en [Etapa 3](VENTI_ETAPA_3.md).
+## Cuentas suspendidas
 
-El access corto no se revoca en logout/reset; los refresh sí. Desactivar una cuenta o retirar un rol tiene efecto inmediato en rutas autenticadas porque consultan MySQL. CORS usa lista exacta configurable; rate limiting por IP cubre `/auth` y un límite más estricto compartido de 10 solicitudes/ventana para registro, login y emails. No habilitar confianza arbitraria en `X-Forwarded-For`.
+- Un ADMIN suspende una cuenta con `POST /admin/users/:id/suspend`, indicando un motivo. La cuenta pasa a `users.status = BLOCKED` y se revocan sus refresh tokens.
+- El login, el refresh y cada pedido autenticado rechazan las cuentas que no están activas.
+- La reactivación usa `POST /admin/users/:id/reactivate`.
+- Las dos acciones se auditan (`USER_SUSPENDED` y `USER_REACTIVATED`).
+- Nadie puede suspender su propia cuenta, ni al último ADMIN activo.
+
+## Pagos simulados
+
+Venti no procesa pagos reales ni pide datos de tarjeta.
+
+- **Compras de entradas**: el pago simulado (`APPROVED` o `REJECTED`) confirma la compra o la deja pendiente. Cancelar una compra confirmada libera el stock, anula las entradas y marca el pago como reembolsado.
+- **Reservas directas de espacios**: quedan en `HOLD` después del pago, hasta que el espacio las acepta. Una reserva `CONFIRMED` solo la puede cancelar quien reservó; el espacio recibe `409 RESERVATION_CONFIRMED`.
+- **Empresas de servicios**: Venti no cobra sus servicios. Aceptar una cotización la deja contratada y el pago se arregla entre las partes.
+
+## Sesión y transporte
+
+- **Tokens**: el token de acceso dura 15 minutos por defecto. El logout y el reset de contraseña revocan los refresh tokens; no hay lista negra de tokens de acceso.
+- **CORS**: usa una lista exacta de orígenes (`CORS_ORIGINS`).
+- **Límite de pedidos**: el rate limiting por IP cubre `/auth`, con un límite más estricto para registro, login y envío de emails.
+- **Proxies**: no habilitar confianza arbitraria en `X-Forwarded-For`. `TRUST_PROXY_HOPS` tiene que coincidir con los proxies reales.
+- **SQL**: la sesión usa UTC y consultas parametrizadas. Los identificadores interpolados salen de constantes internas, nunca del cliente.
+- **Verificación de email**: el envío y la confirmación del email funcionan. Pero hoy el bloqueo de login para cuentas sin verificar está desactivado en el código (`AuthService.verified`, marcado como temporal para pruebas). Por eso `REQUIRE_EMAIL_VERIFICATION=true` todavía no impide el ingreso.

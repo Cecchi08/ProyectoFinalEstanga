@@ -37,7 +37,8 @@ Los marcados con **(nuevo)** se crearon en esta etapa.
 | `concerts.manage` | ORGANIZADOR, ADMIN | Crear y editar conciertos propios y sus entradas, y ver sus borradores |
 | `concerts.manage_all` (nuevo) | ADMIN | Gestionar y ver cualquier concierto, y elegir el organizador |
 | `concerts.staff.manage` (nuevo) | ORGANIZADOR, ADMIN | Asignar y quitar staff de conciertos propios |
-| `tickets.validate` | ADMIN | Validar entradas por QR de **cualquier** concierto. El staff común valida por asignación. |
+| `tickets.validate` | ninguno | No se otorga por perfil: la API lo agrega mientras la cuenta tiene una asignación en `concert_staff` a un concierto publicado. Valida solo esos conciertos. |
+| `tickets.validate_all` (nuevo) | ADMIN | Validar entradas por QR de **cualquier** concierto |
 | `orders.read_all` | ADMIN | Ver y operar compras y entradas de otros |
 | `statistics.own` (nuevo) | ORGANIZADOR, ADMIN | Estadísticas de conciertos propios |
 | `statistics.global` (nuevo) | ADMIN | Estadísticas de toda la plataforma |
@@ -80,10 +81,10 @@ La columna **Además** indica la regla de propiedad o membresía que se valida e
 | `PATCH/DELETE /concerts/:id`, `POST /concerts/:id/publish`, `/cancel`, `POST /concerts/:concertId/ticket-types`, `PATCH/DELETE /ticket-types/:id` | `concerts.manage` o `concerts.manage_all` | Dueño del concierto |
 | `GET/POST /concerts/:id/staff`, `DELETE /concerts/:id/staff/:userId` | `concerts.staff.manage` o `concerts.manage_all` | Dueño del concierto |
 | `GET /concerts/:id/attendees` | autenticado | Dueño, staff asignado o `concerts.manage_all` |
-| `GET /staff/assignments` | autenticado | Conciertos asignados; todos con `tickets.validate` |
+| `GET /staff/assignments` | autenticado | Conciertos asignados; todos con `tickets.validate_all` |
 | `POST /purchases` | `tickets.purchase` | — |
-| `GET /purchases/me`, `/purchases/:id`, `POST /purchases/:id/confirm`, `/cancel`, `GET /tickets`, `/tickets/:id` | autenticado | Propias, o todas con `orders.read_all` |
-| `POST /tickets/validate` | autenticado | Staff asignado al concierto, o `tickets.validate` |
+| `GET /purchases/me`, `/purchases/:id`, `POST /purchases/:id/confirm` (`outcome`: APPROVED/REJECTED), `/cancel`, `GET /tickets`, `/tickets/:id` | autenticado | Propias, o todas con `orders.read_all`. `confirm` es el pago simulado: APPROVED confirma y emite las entradas, REJECTED se registra y la compra sigue pendiente. Cancelar una compra confirmada libera el stock, anula las entradas y reembolsa el pago (auditado) |
+| `POST /tickets/validate` | `tickets.validate` o `tickets.validate_all` | Con `tickets.validate`, solo conciertos asignados en `concert_staff` |
 
 ### Catálogos
 | Endpoint | Acceso |
@@ -152,4 +153,6 @@ La empresa es una organización (`organizations` + `organization_members`) con p
 | `GET /admin/users` (`q`, `role`), `GET /admin/users/:id` | `users.manage` | — |
 | `POST /admin/users/:id/roles` (`role`, `reason`) | `users.manage` | Idempotente; no asigna GUEST; solo a cuentas activas registradas; se registra en `admin_audit_log` en la misma transacción |
 | `DELETE /admin/users/:id/roles/:role` (`reason`) | `users.manage` | No deja a nadie sin perfil (`LAST_ROLE`) ni a la plataforma sin ADMIN activo (`LAST_ADMIN`); se audita |
+| `POST /admin/users/:id/suspend` (`reason`), `POST /admin/users/:id/reactivate` | `users.manage` | Suspender pasa la cuenta a BLOCKED y revoca sus refresh tokens; no se suspende la propia cuenta ni al último ADMIN activo; se audita (`USER_SUSPENDED`, `USER_REACTIVATED`) |
 | `GET /admin/audit` (`target_user_id`, `actor_user_id`) | `users.manage` | — |
+| `GET /admin/organizations` | `users.manage` o `marketplace.admin` | Solo lectura: organizaciones de espacios y empresas de servicios |
