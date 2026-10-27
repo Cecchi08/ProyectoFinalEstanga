@@ -57,7 +57,7 @@ Si la cuenta también puede pedir o reservar (por ejemplo, ORGANIZADOR y VENUE a
 
 ## ADMIN
 
-1. **Admin → Usuarios y perfiles**: buscá cuentas, asigná o quitá perfiles, y suspendé o reactivá cuentas con un motivo. Cada cambio queda en **Auditoría**. Nadie puede suspender su propia cuenta, ni dejar la plataforma sin un ADMIN activo.
+1. **Admin → Usuarios y perfiles**: buscá cuentas, asigná o quitá perfiles, y suspendé o reactivá cuentas con un motivo. Nadie puede suspender su propia cuenta, ni dejar la plataforma sin un ADMIN activo. **Auditoría** registra esos cambios, los pagos y reembolsos simulados, la verificación de empresas, la aprobación de establecimientos, la publicación y cancelación de conciertos y los reembolsos de reservas. Se puede filtrar por tipo.
 2. **Catálogos**: provincias, distritos, ciudades y géneros. Un registro en uso puede rechazar la eliminación.
 3. **Organizaciones**: listado de organizaciones de espacios y de empresas de servicios. Desde la ficha de una empresa podés verificarla o quitarle la verificación.
 4. **Establecimientos en revisión**: aprobá (se publica) o rechazá con motivo (vuelve a borrador) los establecimientos que envían los dueños.

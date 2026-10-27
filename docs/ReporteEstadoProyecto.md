@@ -13,7 +13,7 @@ Revisión del 2026-10-27 sobre `main` en `8243a55`, actualizada el mismo día co
 
 Los pagos son siempre simulados (`README.md`).
 
-**Qué está listo.** Los once módulos de la sección 4 tienen backend, pantallas y autorización por permisos. Con el esquema vigente pasan **170/170 tests de backend, 13/13 de frontend y 8/8 casos del e2e** (sección 11). Typecheck y lint pasan en el backend y en el frontend.
+**Qué está listo.** Los once módulos de la sección 4 tienen backend, pantallas y autorización por permisos. Con el esquema vigente pasan **176/176 tests de backend, 13/13 de frontend y 9/9 casos del e2e** (sección 15). Typecheck y lint pasan en el backend y en el frontend.
 
 **Qué falta:**
 
@@ -152,7 +152,7 @@ El pool no configura TLS (no hay `ssl` en `db.config.js`). Ver la sección 8.
 | Módulo | Estado | Respaldo y observaciones |
 | --- | --- | --- |
 | Autenticación y verificación de email | **Hecho** | `auth.routes.js`, `services/auth.service.js`. Bcrypt, JWT de acceso de 15 minutos con refresh token, OAuth Google/GitHub/Facebook con PKCE, rate limit. La verificación de email se reactivó en `27f3f24`: con `REQUIRE_EMAIL_VERIFICATION=true`, login, refresh, OAuth y cada pedido autenticado devuelven `403 EMAIL_VERIFICATION_REQUIRED`. El envío real depende de un SMTP configurado. |
-| Cuentas y perfiles | **Hecho** | `admin.service.ts`, `features/auth/ProfilesScreen.tsx`, `features/admin/UsersScreen.tsx`. Autoservicio de COMPRADOR y ARTISTA; asignación y quita por ADMIN; suspensión que revoca sesiones. Todo queda auditado. La suspensión de **organizaciones** (`organizations.status` = `SUSPENDED`) existe en el esquema, pero no tiene endpoint: se puede ver, no cambiar. |
+| Cuentas y perfiles | **Parcial** | `admin.service.ts`, `features/auth/ProfilesScreen.tsx`, `features/admin/UsersScreen.tsx`. Autoservicio de COMPRADOR y ARTISTA; asignación y quita por ADMIN; suspensión que revoca sesiones. Todo queda auditado. **Falta un endpoint para solicitar ORGANIZADOR, VENUE o EMPRESA_SERVICIOS desde la app** (hoy `POST /me/profiles` responde `403 ADMIN_APPROVAL_REQUIRED` y se piden por fuera). La suspensión de **organizaciones** (`organizations.status` = `SUSPENDED`) existe en el esquema, pero no tiene endpoint: se puede ver, no cambiar. |
 | Conciertos | **Hecho** | `management.service.ts`, `features/organizer/ConcertEditor.tsx`, `features/concerts/`. CRUD, publicación y cancelación con avisos. Lugar en texto libre o desde una reserva confirmada. Desde `c3e69b8`, un concierto en un espacio del marketplace solo se publica con una reserva propia `CONFIRMED` que cubra la fecha, revalidada al publicar (`management.service.ts`, `booked`). Filtros por texto, artista, género, espacio, ciudad, fechas y precio (`min_price`/`max_price`). |
 | Entradas | **Hecho** | `commerce.service.ts`, `features/purchases/`. Compra en estado PENDING con vencimiento. Pago simulado APPROVED o REJECTED. Cancelar una compra confirmada libera el stock, anula las entradas y marca el pago como reembolsado. |
 | QR | **Hecho** | `utils/qr.util.ts`, `features/tickets/TicketsScreen.tsx`, `features/staff/StaffScreen.tsx`. QR de 64 caracteres hexadecimales, un solo uso (`ticket_validations`). Escaneo con cámara en Android e iOS; en Web, entrada manual o lector USB. En `4f2f698` se corrigió la autorización de `POST /tickets/validate` (sección 11). |
@@ -545,3 +545,49 @@ Se eligió la red privada. No se agregó `DB_SSL_CA` ni se desactivó la verific
   - `tests/helpers.js` (`testEnv`) arma un objeto explícito con `DB_HOST`, `DB_PORT`, `DB_USER` y `DB_PASSWORD` tomados de `TEST_DB_*`, por defecto `127.0.0.1`, sin ninguna variable `MYSQL_*` ni `RAILWAY_*`;
   - `tests/db-config.test.js` agrega 3 tests unitarios sin base de datos que cubren los dos entornos y los errores de configuración.
 - **Pendiente en Railway, fuera del código.** En el servicio de la API puede quitarse la variable `MYSQL_PUBLIC_URL`, aunque el código ya la ignora ahí. No se tocó la configuración de Railway.
+
+## 15. Cierre de pendientes (2026-10-27, rama `cierre-pendientes`, sin push)
+
+Cada punto se verificó contra el código antes de tocarlo. Los que ya estaban hechos no se rehicieron.
+
+| # | Pendiente | Estado | Respaldo |
+| --- | --- | --- | --- |
+| 1 | Frontend de empresas de servicios (empresa, servicios, alta de servicios, miembros, permisos) | **Hecho antes** (`f5b401d`) | `features/services/ProvidersScreen.tsx` (`ProviderForm`, `OfferingForm`, `MembersPanel`), `app/(app)/services/providers/[id].tsx`, `app/(app)/services/mine.tsx` |
+| 2 | Selector de artistas en el editor y en la ficha | **Hecho antes** (`e405f13`) | `ConcertEditor.tsx` (`ArtistPicker`), `ConcertDetail.tsx` ("En el cartel") |
+| 3 | Actuaciones en el perfil de artista | **Hecho antes** (`e405f13`) | `ArtistsScreen.tsx` (`Performances`, `GET /artists/:id/concerts`) |
+| 4 | Filtro por precio en el listado público | **Hecho antes** (`e405f13`) | `ConcertList.tsx` ("Precio mínimo" y "Precio máximo"), `management.schemas.ts` (`min_price`, `max_price`) |
+| 5 | Enlace en notificaciones de cotizaciones de empresas | **Hecho antes** (`c3e69b8`) | `notifications.repository.ts` (`service_quote_id`) y `NotificationsScreen.tsx`. El botón dice **"Ver cotización"**, como el resto de la sección de servicios; "Ver presupuesto" es el de los presupuestos de espacios. |
+| 6 | Guards de presupuestos y reservas; refresco de la sesión al cambiar roles | **Hecho**, con un cambio | Los guards ya existían (`app/(app)/marketplace/quotes/_layout.tsx`, `reservations/_layout.tsx`, `services/quotes/_layout.tsx`). Los permisos se releían al volver a primer plano y ante un 403, pero un perfil **asignado** con la app abierta no aparecía hasta recargar. Ahora `AuthContext.tsx` además los relee cada 60 s mientras la app está activa. |
+| 7 | Listado global de organizaciones para ADMIN | **Hecho antes** | `GET /admin/organizations` (`admin.routes.ts`), `features/admin/OrganizationsScreen.tsx` |
+| 8 | Auditoría más allá de los cambios de rol | **Hecho**, completado | Ya registraba suspensiones, pagos y reembolsos de compras, verificación de empresas y aprobación de establecimientos. Se agregaron `CONCERT_PUBLISHED` y `CONCERT_CANCELLED` (`management.service.ts`) y `RESERVATION_REFUNDED` (`marketplace.service.ts`, helper `refund`). Se corrigió además un bug: el filtro **Establecimientos** de la pantalla de auditoría enviaba `entity_type=ESTABLISHMENT`, que el backend rechazaba con 422 (`admin.schemas.ts`). Tests en `management.test.js` y `marketplace.test.js`. |
+| 9 | Aprobación de espacios | **Hecho antes** (`c3e69b8`) | Sección 11; test en `marketplace.test.js` ("revisión de establecimientos"). |
+| 10 | Publicar un concierto exige reserva confirmada del espacio en la fecha | **Hecho antes** (`c3e69b8`) | `management.service.ts` (`booked`); test en `marketplace.test.js`. |
+| 11 | Perfiles: autoservicio y aprobación de ADMIN; varios perfiles por cuenta | **Parcial** | Coincide con el código: `SELF_SERVICE_ROLES` (`types/auth.types.js`), `403 ADMIN_APPROVAL_REQUIRED` y varios perfiles por cuenta (`user_roles`). **No existe un endpoint para *solicitar* un perfil**: la persona lo pide por fuera y un ADMIN lo asigna en `/admin/users`. Según la consigna, no se inventó: queda anotado. |
+| 12 | Visibilidad del frontend por perfil | **Hecho** (verificado) | Pestañas en `Shell.tsx`, guards de layouts y botones por `can(...)`: Espacios (`MarketplaceScreen.tsx`, `VenueScreen.tsx`), Servicios (`ServicesScreen.tsx`, `ProvidersScreen.tsx`), Admin (`AdminScreen.tsx`). Una cuenta solo VENUE ve "Presupuestos recibidos" y "Reservas recibidas" (`8243a55`). Los selectores que piden permisos ajenos (concierto propio, reserva confirmada) ya estaban condicionados. No se encontraron accesos de más ni de menos. |
+| 13 | E2E del flujo actual | **Hecho** | `stage5-e2e.mjs`, caso nuevo "flujo completo": espacio aprobado, reserva de una productora (ORGANIZADOR asignado por el ADMIN), aceptación del venue, concierto creado desde la reserva y publicado, bloqueo de la cancelación de la reserva, compra con pago simulado, cancelación con reembolso y auditoría vista por el ADMIN. |
+| 14 | Limpieza de carpetas | **Hecho antes** (`84bb351`) | `diagnostico_marketplace/` y `perfiles_y_pagos/` ya no existen: no había nada para listar ni borrar. La raíz tiene solo `backend`, `database`, `docs` y `frontend`. |
+| 15 | Documentación | **Hecho** | Este reporte, `PERMISOS.md` (`/admin/audit`) y `USER_MANUAL.md` (Auditoría). |
+
+**Nota sobre el stack.** El frontend no es React con Vite: es Expo / React Native con Expo Router, exportado también a Web (`frontend/package.json`).
+
+**Pruebas del cierre**, todas contra MySQL 8.0.46 local y aislado, creado con `database/venti_shema2.sql`; nunca contra Railway:
+
+| Suite | Resultado |
+| --- | --- |
+| Backend | **176/176** (2 tests nuevos de auditoría) |
+| Frontend | **13/13** |
+| E2E | **9/9** (1 caso nuevo) |
+
+Check, lint y typecheck pasan en el backend y en el frontend.
+
+**Fuera de alcance**, anotado y no implementado:
+
+- favoritos;
+- sectores y condiciones del venue;
+- varias imágenes y mensajería del artista (sección 7);
+- verificación de email con un servicio de envío real (hoy depende de un SMTP configurado).
+
+**Endpoints que faltan**, anotados sin inventarlos:
+
+- solicitud de perfiles con aprobación de ADMIN (punto 11);
+- cambio de estado de organizaciones (`organizations.status = SUSPENDED` existe en el esquema, pero no tiene endpoint).
