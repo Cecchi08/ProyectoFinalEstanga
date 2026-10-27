@@ -16,7 +16,7 @@ before(async () => {
   await db.open(); db.env.AUTH_RATE_LIMIT_MAX = 10000; db.env.AUTH_RATE_LIMIT_WINDOW_MS = 1000; context = db.context();
   // Registration grants COMPRADOR. Staff is not a profile: the staff account is a COMPRADOR assigned in concert_staff.
   // Only the first ADMIN is seeded in SQL (nobody can grant it yet); every other profile goes through the UI below.
-  for (const name of ['admin','organizer','staff','artist','services','crew']) {
+  for (const name of ['admin','organizer','staff','artist','services','crew','producer']) {
     const account = await context.auth.register({...registration,email:`${name}@e2e.example`,first_name:name});
     await context.auth.verifyEmail(context.mailer.last('verification').token);
     if (name === 'admin') await db.rows("INSERT INTO user_roles(user_id,role_id) SELECT ?,id FROM roles WHERE code='ADMIN'",[account.user.id]);
@@ -35,6 +35,7 @@ before(async () => {
     await grant(page,'organizer',['Organizador','Espacios']);
     await grant(page,'services',['Empresa de servicios']);
     await grant(page,'crew',['Empresa de servicios']);
+    await grant(page,'producer',['Organizador']);
     await logout(page);
     // ARTISTA is self-service from /profiles; the artist then creates and publishes the profile billed in the concerts.
     await login(page,'artist'); await page.getByRole('tab',{name:'Mi cuenta',exact:true}).click();
@@ -433,6 +434,65 @@ test('servicios: empresa, integrantes, catálogo, cotización, contratación y d
     await page.getByLabel('Fecha (AAAA-MM-DD)',{exact:true}).first().fill(eventDate); await page.getByRole('button',{name:'Consultar disponibilidad',exact:true}).click();
     await expect(page.getByText(/^Contratado: /)).toBeVisible();
     await page.screenshot({path:'../frontend/test-results/services-quote-1440.png',fullPage:true});
+    await logout(page);
+    assert.deepEqual(errors,[]);
+  } finally { await browserContext.close(); }
+});
+
+test('flujo completo: espacio aprobado, reserva, concierto en el espacio, compra con pago simulado, reembolso y auditoría', {timeout:180000}, async () => {
+  const browserContext = await browser.newContext({viewport:{width:1440,height:1000}}); const page = await browserContext.newPage();
+  const errors = []; page.on('pageerror', error => errors.push(error.message));
+  // Same Argentine calendar day as the marketplace test, a later slot of the space it approved (Sala E2E).
+  const date = new Date(Date.now()+10*86400000).toLocaleDateString('en-CA',{timeZone:'America/Argentina/Buenos_Aires'});
+  try {
+    // A producer (ORGANIZADOR) books the approved space and pays; the venue accepts the booking.
+    await login(page,'producer'); await page.getByRole('tab',{name:'Espacios',exact:true}).click();
+    await page.getByLabel('Buscar espacios',{exact:true}).fill('Sala E2E'); await page.getByRole('button',{name:'Aplicar búsqueda',exact:true}).click();
+    await page.getByRole('button',{name:'Ver Sala E2E',exact:true}).click();
+    await page.getByLabel('Fecha (AAAA-MM-DD)',{exact:true}).fill(date);
+    await page.getByLabel('Inicio del evento (HH:MM)',{exact:true}).fill('21:00'); await page.getByLabel('Fin del evento (HH:MM)',{exact:true}).fill('23:00');
+    await page.getByLabel('Nombre del evento',{exact:true}).fill('Show Productora'); await page.getByRole('button',{name:'Reservar al precio de lista',exact:true}).click();
+    await expect(page.getByText('Show Productora · HOLD · pendiente de pago',{exact:true})).toBeVisible();
+    await page.getByRole('button',{name:'Simular pago aprobado',exact:true}).click();
+    await expect(page.getByText('Show Productora · HOLD · pagada, espera aceptación del espacio',{exact:true})).toBeVisible();
+    await logout(page);
+    await login(page,'organizer'); await page.goto('http://localhost:8081/marketplace/reservations');
+    await page.getByRole('button',{name:'Recibidos en mis espacios',exact:true}).click(); await page.getByRole('button',{name:'HOLD',exact:true}).click();
+    await page.getByRole('button',{name:/^Ver reserva /}).click();
+    await page.getByRole('button',{name:'Aceptar reserva',exact:true}).click(); await expect(page.getByText('Reserva aceptada y confirmada.',{exact:true})).toBeVisible();
+    await logout(page);
+    // The producer bills the concert on that confirmed booking: the place comes from the space, and it can be published.
+    await login(page,'producer'); await page.getByRole('tab',{name:'Organizador',exact:true}).click(); await page.getByRole('button',{name:'Crear concierto',exact:true}).click();
+    await page.getByLabel('Nombre del concierto',{exact:true}).fill('Show Productora E2E'); await page.getByLabel('Inicio (ISO con zona horaria)',{exact:true}).fill(`${date}T21:30:00-03:00`);
+    await page.getByLabel('Artista (texto del cartel)',{exact:true}).fill('Productora Live');
+    await page.getByRole('button',{name:'Reserva confirmada (opcional)',exact:true}).click(); await page.getByRole('button',{name:/^Show Productora · Sala E2E · /}).click();
+    await choose(page,'Géneros','Rock 1440'); await page.getByRole('button',{name:'Guardar concierto',exact:true}).click();
+    await expect(page.getByRole('button',{name:'Agregar tipo de entrada',exact:true})).toBeVisible();
+    const concertId = new URL(page.url()).pathname.split('/').pop();
+    await page.getByRole('button',{name:'Agregar tipo de entrada',exact:true}).click(); await page.getByLabel('Nombre de entrada',{exact:true}).fill('General'); await page.getByLabel('Precio',{exact:true}).fill('1500'); await page.getByLabel('Cupo total',{exact:true}).fill('10'); await page.getByRole('button',{name:'Guardar tipo de entrada',exact:true}).click();
+    await page.getByRole('button',{name:'Publicar concierto',exact:true}).click(); await expect(page.getByText(`#${concertId} · PUBLISHED`,{exact:true})).toBeVisible();
+    // While the concert is billed on it, the booking cannot be cancelled (option A).
+    await page.goto('http://localhost:8081/marketplace/reservations'); await page.getByRole('button',{name:/^Ver reserva /}).click();
+    await page.getByRole('button',{name:'Cancelar reserva',exact:true}).click(); await page.getByRole('button',{name:'Confirmar cancelación de la reserva',exact:true}).click();
+    await expect(page.getByText(/Primero cancelá el concierto o desvinculalo/)).toBeVisible();
+    await expect(page.getByText('Show Productora · CONFIRMED',{exact:true})).toBeVisible();
+    await logout(page);
+    // A buyer purchases with the simulated payment, then cancels: the purchase is refunded.
+    await login(page,'user390');
+    await page.getByLabel('Buscar conciertos').fill('Show Productora E2E'); await page.getByRole('button',{name:'Buscar',exact:true}).click();
+    await page.getByRole('button',{name:'Ver Show Productora E2E',exact:true}).click();
+    await page.getByLabel('Cantidad General').fill('1'); await page.getByRole('button',{name:'Reservar entradas',exact:true}).click();
+    await page.getByRole('button',{name:'Simular pago aprobado',exact:true}).click();
+    await expect(page.getByText('Pago aprobado y compra confirmada. Tus QR están en Entradas.',{exact:true})).toBeVisible();
+    await page.getByRole('button',{name:'Cancelar compra',exact:true}).click(); await page.getByRole('button',{name:'Sí, cancelar la compra',exact:true}).click();
+    await expect(page.getByText('Compra cancelada.',{exact:true})).toBeVisible();
+    await expect(page.getByText('Pagos (simulados) · reembolsada',{exact:true})).toBeVisible();
+    await logout(page);
+    // The ADMIN sees the concert status change and the refund in the audit log.
+    await login(page,'admin'); await page.goto('http://localhost:8081/admin/audit');
+    await page.getByRole('button',{name:'Conciertos',exact:true}).click(); await expect(page.getByText('Concierto publicado',{exact:true}).first()).toBeVisible();
+    await page.getByRole('button',{name:'Compras',exact:true}).click(); await expect(page.getByText('Compra reembolsada',{exact:true}).first()).toBeVisible();
+    await page.screenshot({path:'../frontend/test-results/full-flow-audit-1440.png',fullPage:true});
     await logout(page);
     assert.deepEqual(errors,[]);
   } finally { await browserContext.close(); }
