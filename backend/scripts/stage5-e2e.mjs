@@ -332,7 +332,11 @@ test('marketplace: gestión del establecimiento, búsqueda, disponibilidad, rese
     await page.getByLabel('Precio por hora',{exact:true}).fill('1500'); await page.getByRole('button',{name:'Backline',exact:true}).click();
     await page.getByRole('button',{name:'Guardar espacio',exact:true}).click();
     await page.getByRole('button',{name:'Publicar espacio Sala E2E',exact:true}).click(); await expect(page.getByRole('button',{name:'Archivar espacio Sala E2E',exact:true})).toBeVisible();
-    await page.getByRole('button',{name:'Publicar Complejo E2E',exact:true}).click(); await expect(page.getByText('Complejo E2E · PUBLISHED',{exact:true})).toBeVisible();
+    // The owner sends the establishment to review; it is not public until an ADMIN approves it.
+    await page.getByRole('button',{name:'Enviar a revisión Complejo E2E',exact:true}).click(); await expect(page.getByText('Complejo E2E · PENDING_REVIEW',{exact:true})).toBeVisible();
+    await logout(page);
+    await login(page,'admin'); await page.goto('http://localhost:8081/admin/establishments');
+    await page.getByRole('button',{name:'Aprobar Complejo E2E',exact:true}).click(); await expect(page.getByText('Complejo E2E aprobado y publicado.',{exact:true})).toBeVisible();
     await logout(page);
     // An artist finds the space, checks the slot, books it (HOLD) and approves the simulated payment.
     // Booking needs marketplace.reservations.create: the buyer activates the ARTISTA profile on its own from /profiles.
