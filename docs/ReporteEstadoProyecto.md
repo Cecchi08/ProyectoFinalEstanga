@@ -13,7 +13,7 @@ Revisión del 2026-10-27 sobre `main` en `8243a55`, actualizada el mismo día co
 
 Los pagos son siempre simulados (`README.md`).
 
-**Qué está listo.** Los once módulos de la sección 4 tienen backend, pantallas y autorización por permisos. Con el esquema vigente pasan **165/165 tests de backend, 13/13 de frontend y 8/8 casos del e2e** (sección 11). Typecheck y lint pasan en el backend y en el frontend.
+**Qué está listo.** Los once módulos de la sección 4 tienen backend, pantallas y autorización por permisos. Con el esquema vigente pasan **170/170 tests de backend, 13/13 de frontend y 8/8 casos del e2e** (sección 11). Typecheck y lint pasan en el backend y en el frontend.
 
 **Qué falta:**
 
@@ -173,7 +173,7 @@ El pool no configura TLS (no hay `ssl` en `db.config.js`). Ver la sección 8.
 
   | Suite | Resultado |
   | --- | --- |
-  | Backend (`npm test`, 11 archivos de `backend/tests/`) | **165/165** (162 originales y 3 nuevos) |
+  | Backend (`npm test`, 12 archivos de `backend/tests/`) | **170/170** (162 originales y 8 nuevos) |
   | Frontend (`npm test`, `frontend/tests/http.test.ts`) | **13/13** |
   | E2E (`npm run test:e2e`, `backend/scripts/stage5-e2e.mjs`, Edge) | **8/8** casos |
 
@@ -185,10 +185,11 @@ El pool no configura TLS (no hay `ssl` en `db.config.js`). Ver la sección 8.
   `npm run lint` tolera cero advertencias (`frontend/package.json`).
 - **Cobertura aproximada.** No hay herramienta de cobertura. Según la búsqueda de endpoints en los tests:
   - **Cubiertos:** autenticación (incluido `login exige email verificado`, `auth.test.js:72`), conciertos, compras, QR y staff, marketplace (incluidas aceptación y rechazo de reservas, revisión de establecimientos y regla de publicación de conciertos), perfiles, `/admin/users` y `service_quote_id` en notificaciones.
-  - **Sin tests de API, cubiertos solo por el e2e:**
-    - empresas de servicios (ningún test de API llama a `/services/`; el e2e recorre alta, integrante, servicio, cotización, contratación y disponibilidad);
-    - filtro `min_price`/`max_price` y `artist_profile_ids` en conciertos (los recorre el e2e).
-  - **Sin cobertura:** suspensión de cuentas (`/suspend`) y resultado REJECTED del pago de compras.
+  - **Agregados el 2026-10-27:**
+    - empresas de servicios (`tests/services.test.js`): alta y catálogo, visibilidad pública, verificación auditada, integrantes y reglas de OWNER, y el ciclo completo de cotizaciones (pedir, responder, contratar, vencer, rechazar, cancelar y disponibilidad);
+    - suspensión de cuentas (`profiles.test.js`): permiso, motivo, `SELF_SUSPEND`, corte inmediato de acceso, login y refresh, reactivación y auditoría;
+    - pago REJECTED de compras (`commerce.test.js`): la compra queda PENDING sin entradas, APPROVED la confirma, y cancelar reembolsa y audita.
+  - **Cubiertos solo por el e2e:** filtro `min_price`/`max_price` y `artist_profile_ids` en conciertos.
 - **Deuda técnica:**
   - **Backend mixto JavaScript y TypeScript:** autenticación, configuración y middleware siguen en `.js`.
   - **Tablas sin uso en el backend:** `device_push_tokens`, `reservation_statuses` (se usan códigos directamente) y `user_genre_preferences`.
@@ -205,9 +206,10 @@ Varios puntos de la lista original ya se resolvieron. Se indican para cerrarlos.
 | --- | --- | --- |
 | 1 | Aplicar `database/migrations/20261027_revision_establecimientos.sql` en Railway, con respaldo, **antes** de desplegar el backend nuevo | **Pendiente, requiere tu confirmación.** Sin la migración, enviar un establecimiento a revisión falla en la base. No es idempotente. |
 | 2 | Conexión TLS a MySQL | **Requiere tu decisión.** Ver la sección 8. |
-| 3 | Tests de API para empresas de servicios, suspensión y pago REJECTED de compras | **Pendiente.** Hoy los cubre solo el e2e, o nada. |
+| 3 | Tests de API para el filtro de precio y los artistas del cartel | **Pendiente.** Hoy los cubre solo el e2e. |
 | 4 | Qué pasa con un concierto publicado si se cancela su reserva | **Para decidir.** La regla nueva revalida la reserva al publicar o editar. Un concierto ya publicado sigue publicado si después se cancela la reserva. |
-| — | Correr tests de backend, frontend y e2e contra MySQL 8 aislado | **Hecho** el 2026-10-27: 165/165, 13/13 y 8/8 (sección 11). |
+| — | Correr tests de backend, frontend y e2e contra MySQL 8 aislado | **Hecho** el 2026-10-27: 170/170, 13/13 y 8/8 (sección 11). |
+| — | Tests de API para empresas de servicios, suspensión y pago REJECTED | **Hecho** el 2026-10-27 (5 tests nuevos, sección 11). |
 | — | Notificaciones de empresas de servicios | **Hecho** en `c3e69b8` (`service_quote_id` y botón **Ver cotización**). |
 | — | Frontend de empresas de servicios | **Hecho** en `f5b401d` (`features/services/`). |
 | — | Selector de artistas en conciertos | **Hecho** en `e405f13` (`ConcertEditor.tsx`, `ArtistPicker`). |
@@ -376,7 +378,7 @@ npm run web             # http://localhost:8081   (npm start para Expo en el tel
 
 Con las reglas nuevas también cambiaron fixtures que publicaban sin aprobación o sin reserva: `provision()` en `marketplace.test.js` y el concierto con `venue_id` de `management.test.js`.
 
-**Corrida final:** backend **165/165**, frontend **13/13** y e2e **8/8**:
+**Corrida del 2026-10-27, después de las reglas nuevas:** backend **165/165**, frontend **13/13** y e2e **8/8**:
 
 | Caso del e2e | Duración |
 | --- | --- |
@@ -399,3 +401,23 @@ Con las reglas nuevas también cambiaron fixtures que publicaban sin aprobación
 - la opción de TLS de la sección 8;
 - qué hacer con conciertos publicados cuya reserva se cancela después (sección 6);
 - el push de `main`.
+
+**Segunda corrida del 2026-10-27, con los tests agregados.** Se ejecutó sobre el mismo MySQL 8 local, con la base creada desde `database/venti_shema2.sql` (nunca contra Railway):
+
+| Suite | Resultado |
+| --- | --- |
+| Backend | **170/170** |
+| Frontend | **13/13** |
+| E2E | **8/8** |
+
+Los 5 tests nuevos pasaron en la primera ejecución:
+
+| Archivo | Test |
+| --- | --- |
+| `services.test.js` | Empresa y catálogo |
+| `services.test.js` | Integrantes |
+| `services.test.js` | Cotizaciones |
+| `profiles.test.js` | Suspensión |
+| `commerce.test.js` | Pago REJECTED |
+
+Para soportarlos, `tests/helpers.js` borra `service_quote_items` y `service_quotes` antes que las demás tablas: `service_quotes` no tiene borrado en cascada hacia usuarios ni empresas.

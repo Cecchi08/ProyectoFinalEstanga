@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { after, before, beforeEach, test } from 'node:test';
 import request from 'supertest';
-import { TestDatabase, resetData } from './helpers.js';
+import { TestDatabase, password, registration, resetData } from './helpers.js';
 
 const db = new TestDatabase();
 let ctx;
@@ -152,4 +152,30 @@ test('autoservicio: COMPRADOR y ARTISTA se activan solos y se auditan; el resto 
         [['ROLE_SELF_ACTIVATED', ids.buyer, ids.buyer, 'ARTISTA'], ['ROLE_SELF_ACTIVATED', ids.organizer, ids.organizer, 'COMPRADOR']]);
     await db.rows('UPDATE users SET is_guest = 1, email = NULL WHERE id = ?', [ids.artist2]);
     await error(call('post', '/me/profiles', 'artist2', { role: 'COMPRADOR' }), 422, 'USER_NOT_ELIGIBLE');
+});
+
+test('suspensión: solo users.manage y con motivo; corta acceso, login y sesiones; reactivar lo devuelve; todo auditado', async () => {
+    const email = 'suspendida@profiles.example';
+    const { user } = await ctx.auth.register({ ...registration, email });
+    await ctx.auth.verifyEmail(ctx.mailer.last('verification').token);
+    const login = () => request(ctx.app).post('/auth/login').send({ email, password });
+    const session = (await login().expect(200)).body.data;
+    const me = () => request(ctx.app).get('/auth/me').set('Authorization', `Bearer ${session.accessToken}`);
+    await me().expect(200);
+    const path = `/admin/users/${user.id}`;
+    for (const role of ['buyer', 'organizer']) await call('post', `${path}/suspend`, role, { reason: 'Fraude' }).expect(403);
+    await call('post', `${path}/suspend`, 'admin', {}).expect(422);
+    await error(call('post', `/admin/users/${ids.admin}/suspend`, 'admin', { reason: 'Prueba' }), 409, 'SELF_SUSPEND');
+    assert.equal((await call('post', `${path}/suspend`, 'admin', { reason: 'Reclamos de fraude' }).expect(200)).body.data.status, 'BLOCKED');
+    // The still-valid access token, the password and the refresh token stop working at once.
+    await me().expect(401);
+    await login().expect(401);
+    await request(ctx.app).post('/auth/refresh').send({ refreshToken: session.refreshToken }).expect(401);
+    await error(call('post', `${path}/suspend`, 'admin', { reason: 'Otra vez' }), 409, 'INVALID_STATE');
+    assert.equal((await call('post', `${path}/reactivate`, 'admin', {}).expect(200)).body.data.status, 'ACTIVE');
+    await login().expect(200);
+    await error(call('post', `${path}/reactivate`, 'admin', {}), 409, 'INVALID_STATE');
+    const rows = (await audit()).filter(row => row.target === String(user.id));
+    assert.deepEqual(rows.map(row => row.action), ['USER_SUSPENDED', 'USER_REACTIVATED']);
+    assert.deepEqual([rows[0].actor, rows[0].details.reason, rows[0].details.revoked_sessions], [ids.admin, 'Reclamos de fraude', 1]);
 });

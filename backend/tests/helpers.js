@@ -34,7 +34,7 @@ export class FakeProvider {
 }
 export { SCHEMA_FILE, schemaStatements };
 // Business tables in child-to-parent order; catalogs from the schema seed (roles, geography, genres...) stay.
-const BUSINESS_TABLES = ['ticket_validations', 'tickets', 'order_items', 'order_payments', 'notifications', 'recommendations', 'orders', 'concert_staff',
+const BUSINESS_TABLES = ['service_quote_items', 'service_quotes', 'ticket_validations', 'tickets', 'order_items', 'order_payments', 'notifications', 'recommendations', 'orders', 'concert_staff',
     'ticket_types', 'concert_genres', 'concerts', 'payments', 'reservations', 'quote_items', 'quotes', 'venue_blocks', 'venues',
     'establishments', 'organization_members', 'organizations', 'artist_profiles', 'admin_audit_log', 'users'];
 export async function resetData(database) {

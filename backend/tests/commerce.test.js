@@ -339,3 +339,22 @@ test('rollback real: error al cancelar compra revierte también la invalidación
     assert.equal((await call('get', `/purchases/${purchase.id}`).expect(200)).body.data.status, 'CONFIRMED');
     for (const ticket of await tickets()) assert.equal(ticket.status, 'VALID');
 });
+
+test('pago simulado de compras: REJECTED queda PENDING sin entradas; APPROVED confirma; cancelar reembolsa; todo auditado', async () => {
+    const purchase = await reserve();
+    const pay = outcome => call('post', `/purchases/${purchase.id}/confirm`, 'user', outcome === undefined ? {} : { outcome });
+    for (const body of [{ card_number: '4111111111111111' }, { outcome: 'MAYBE' }]) await call('post', `/purchases/${purchase.id}/confirm`, 'user', body).expect(422);
+    assert.equal((await pay('REJECTED').expect(200)).body.data.status, 'PENDING');
+    assert.equal((await tickets()).length, 0);
+    assert.equal((await pay('APPROVED').expect(200)).body.data.status, 'CONFIRMED');
+    assert.equal((await tickets()).length, 2);
+    await error(pay('REJECTED'), 409, 'INVALID_STATE');
+    await transition(purchase.id, 'cancel').expect(200);
+    const payments = await db.rows('SELECT status, CAST(amount AS CHAR) AS amount, refunded_at FROM order_payments WHERE order_id = ? ORDER BY id', [purchase.id]);
+    assert.deepEqual(payments.map(payment => [payment.status, payment.amount]), [['REJECTED', '20.50'], ['REFUNDED', '20.50']]);
+    assert.equal(payments[0].refunded_at, null); assert.ok(payments[1].refunded_at);
+    const [order] = await db.rows('SELECT status, refund_status FROM orders WHERE id = ?', [purchase.id]);
+    assert.deepEqual([order.status, order.refund_status], ['CANCELLED', 'REFUNDED']);
+    const actions = await db.rows("SELECT action FROM admin_audit_log WHERE entity_type = 'ORDER' AND entity_id = ? ORDER BY id", [purchase.id]);
+    assert.deepEqual(actions.map(row => row.action), ['ORDER_PAYMENT_REJECTED', 'ORDER_PAYMENT_APPROVED', 'ORDER_REFUNDED']);
+});
