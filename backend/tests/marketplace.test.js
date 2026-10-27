@@ -417,3 +417,20 @@ test('cancelar una reserva confirmada con concierto vinculado no cancelado falla
     const free = await confirmed(venues.room, 2, 4);
     assert.equal((await cancel(free.id, 'admin').expect(200)).body.data.status, 'CANCELLED');
 });
+
+test('auditoría: el reembolso de una reserva queda registrado y la auditoría filtra por establecimiento y reserva', async () => {
+    const reservation = await held(venues.room, 2, 4);
+    await call('post', `/marketplace/reservations/${reservation.id}/payments`, 'customer', {}).expect(201);
+    await call('post', `/marketplace/reservations/${reservation.id}/reject`, 'provider', { reason: 'Sala en mantenimiento' }).expect(200);
+    const rows = await db.rows("SELECT action, CAST(actor_user_id AS CHAR) AS actor, CAST(target_user_id AS CHAR) AS target, details FROM admin_audit_log WHERE entity_type = 'RESERVATION' AND entity_id = ?", [reservation.id]);
+    assert.deepEqual(rows.map(row => [row.action, row.actor, row.target, row.details.cause, row.details.refunded_payments]),
+        [['RESERVATION_REFUNDED', ids.provider, ids.customer, 'CANCELLED', 1]]);
+    // A booking without an approved payment refunds nothing and adds no row.
+    const unpaid = await held(venues.room, 6, 8);
+    await call('post', `/marketplace/reservations/${unpaid.id}/cancel`, 'customer', {}).expect(200);
+    assert.equal(Number((await db.rows("SELECT COUNT(*) AS total FROM admin_audit_log WHERE entity_type = 'RESERVATION' AND entity_id = ?", [unpaid.id]))[0].total), 0);
+    for (const entity of ['RESERVATION', 'ESTABLISHMENT']) {
+        const listed = (await call('get', `/admin/audit?entity_type=${entity}`, 'admin').expect(200)).body.data;
+        assert.ok(listed.length > 0 && listed.every(entry => entry.entity_type === entity));
+    }
+});

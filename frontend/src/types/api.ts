@@ -242,8 +242,11 @@ export type AuditAction =
   | "SERVICE_PROVIDER_VERIFIED"
   | "SERVICE_PROVIDER_UNVERIFIED"
   | "ESTABLISHMENT_APPROVED"
-  | "ESTABLISHMENT_REJECTED";
-export type AuditEntity = "USER" | "ORDER" | "SERVICE_PROVIDER" | "ESTABLISHMENT";
+  | "ESTABLISHMENT_REJECTED"
+  | "CONCERT_PUBLISHED"
+  | "CONCERT_CANCELLED"
+  | "RESERVATION_REFUNDED";
+export type AuditEntity = "USER" | "ORDER" | "SERVICE_PROVIDER" | "ESTABLISHMENT" | "CONCERT" | "RESERVATION";
 export interface AuditEntry {
   id: string;
   action: AuditAction;

@@ -382,3 +382,13 @@ test('JSON inválido da 400 y CORS admite PATCH/DELETE; respuestas no se cachean
     assert.match(response.headers['access-control-allow-methods'], /PATCH/); assert.match(response.headers['access-control-allow-methods'], /DELETE/);
     assert.equal((await call('get', '/concerts').expect(200)).headers['cache-control'], 'no-store');
 });
+
+test('auditoría: publicar y cancelar un concierto quedan registrados con el dueño como destinatario', async () => {
+    const concert = await create(); await publish(concert.id);
+    await call('post', `/concerts/${concert.id}/cancel`, 'owner', {}).expect(200);
+    const rows = await db.rows("SELECT action, CAST(actor_user_id AS CHAR) AS actor, CAST(target_user_id AS CHAR) AS target, details FROM admin_audit_log WHERE entity_type = 'CONCERT' AND entity_id = ? ORDER BY id", [concert.id]);
+    assert.deepEqual(rows.map(row => [row.action, row.actor, row.target, row.details.previous_status]),
+        [['CONCERT_PUBLISHED', ids.owner, ids.owner, 'DRAFT'], ['CONCERT_CANCELLED', ids.owner, ids.owner, 'PUBLISHED']]);
+    const listed = (await call('get', `/admin/audit?entity_type=CONCERT&entity_id=${concert.id}`, 'admin').expect(200)).body.data;
+    assert.deepEqual(listed.map(entry => entry.action).sort(), ['CONCERT_CANCELLED', 'CONCERT_PUBLISHED']);
+});

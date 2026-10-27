@@ -303,8 +303,11 @@ export const ACTIONS: Record<AuditAction, string> = {
   SERVICE_PROVIDER_UNVERIFIED: "Verificación quitada",
   ESTABLISHMENT_APPROVED: "Establecimiento aprobado",
   ESTABLISHMENT_REJECTED: "Establecimiento rechazado",
+  CONCERT_PUBLISHED: "Concierto publicado",
+  CONCERT_CANCELLED: "Concierto cancelado",
+  RESERVATION_REFUNDED: "Reserva de espacio reembolsada",
 };
-const ENTITIES: Record<AuditEntity, string> = { USER: "Cuentas", ORDER: "Compras", SERVICE_PROVIDER: "Empresas de servicios", ESTABLISHMENT: "Establecimientos" };
+const ENTITIES: Record<AuditEntity, string> = { USER: "Cuentas", ORDER: "Compras", SERVICE_PROVIDER: "Empresas de servicios", ESTABLISHMENT: "Establecimientos", CONCERT: "Conciertos", RESERVATION: "Reservas de espacios" };
 // GET /admin/audit (users.manage), newest first, filterable by target or actor.
 export function AuditScreen() {
   const [page, setPage] = useState(1);
@@ -340,13 +343,13 @@ export function AuditScreen() {
   return (
     <Page
       title="Auditoría"
-      subtitle="Perfiles, suspensiones, pagos simulados y verificaciones, de lo más nuevo a lo más viejo."
+      subtitle="Perfiles, suspensiones, pagos y reembolsos simulados, verificaciones, aprobación de espacios y estados de conciertos, de lo más nuevo a lo más viejo."
     >
       <View style={styles.row}>
         <Button title="Ver usuarios" secondary onPress={() => router.push("/admin/users")} />
       </View>
       <View style={styles.row}>
-        {(["", "USER", "ORDER", "SERVICE_PROVIDER", "ESTABLISHMENT"] as const).map((value) => (
+        {(["", "USER", "ORDER", "SERVICE_PROVIDER", "ESTABLISHMENT", "CONCERT", "RESERVATION"] as const).map((value) => (
           <Button
             key={value || "all"}
             title={value ? ENTITIES[value] : "Todo"}

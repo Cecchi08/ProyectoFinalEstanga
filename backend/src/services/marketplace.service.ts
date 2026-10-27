@@ -410,13 +410,21 @@ export class MarketplaceService {
         if (query.as === 'provider' && !can(user, P.reservationsManage, P.marketplaceAdmin)) fail(403, 'FORBIDDEN', 'Permisos insuficientes.');
         return this.run(false, repo => repo.reservations(user.id, query, admin(user)));
     }
+    // Returns the approved simulated payments of a booking; when there was any, the refund is audited.
+    private async refund(repo: MarketplaceRepository, reservation: Row, user: Principal, cause: 'CANCELLED' | 'EXPIRED'): Promise<number> {
+        const id = String(reservation.id);
+        const refunded = await repo.refundPayments(id);
+        if (refunded) await audit(repo.connection, { actor: user.id, action: 'RESERVATION_REFUNDED', target: String(reservation.user_id),
+            entity: { type: 'RESERVATION', id }, details: { reservation_id: id, refunded_payments: refunded, cause, simulated: true } });
+        return refunded;
+    }
     async cancelReservation(id: string, reason: string | null | undefined, user: Principal) {
         const outcome = await this.run(true, async repo => {
             const locked = required(await repo.lockReservation(id), 'Reserva inexistente.');
             const { reservation, provider } = await this.reservationAccess(repo, id, user);
             if (locked.status === 'EXPIRED' && locked.status_code === 'HOLD') {
                 await repo.setReservationStatus(id, user.id, 'EXPIRED');
-                await repo.refundPayments(id);
+                await this.refund(repo, locked, user, 'EXPIRED');
                 return { expired: true as const };
             }
             if (!['HOLD', 'CONFIRMED'].includes(String(locked.status_code))) fail(409, 'INVALID_STATE', 'La reserva ya está cerrada.');
@@ -431,7 +439,7 @@ export class MarketplaceService {
                 `La reserva tiene un concierto vinculado (${concerts.map(concert => String(concert.name)).join(', ')}). `
                 + 'Primero cancelá el concierto o desvinculalo de la reserva cambiando su lugar.');
             await repo.setReservationStatus(id, user.id, 'CANCELLED', reason);
-            const refunded = await repo.refundPayments(id);
+            const refunded = await this.refund(repo, locked, user, 'CANCELLED');
             const note = refunded ? ' El pago simulado se marcó como reembolsado.' : '';
             if (reservation.user_id === user.id) await repo.notifyProviders(String(reservation.venue_id), 'RESERVATION_UPDATE', { reservation_id: id },
                 'Reserva cancelada', `${String(reservation.event_name)} fue cancelada por el cliente.${note}`);
@@ -451,7 +459,7 @@ export class MarketplaceService {
             if (!provider) fail(403, 'FORBIDDEN', 'Solo el espacio acepta la reserva.');
             if (locked.status === 'EXPIRED' && locked.status_code === 'HOLD') {
                 await repo.setReservationStatus(id, user.id, 'EXPIRED');
-                await repo.refundPayments(id);
+                await this.refund(repo, locked, user, 'EXPIRED');
                 return { expired: true as const };
             }
             if (locked.status_code !== 'HOLD') fail(409, 'INVALID_STATE', 'Solo se acepta una reserva pendiente.');
@@ -481,7 +489,7 @@ export class MarketplaceService {
                 const locked = await repo.lockReservation(id);
                 if (locked?.status_code === 'HOLD' && locked.status === 'EXPIRED') {
                     await repo.setReservationStatus(id, user.id, 'EXPIRED');
-                    await repo.refundPayments(id);
+                    await this.refund(repo, locked, user, 'EXPIRED');
                 }
             });
             fail(409, 'HOLD_EXPIRED', 'La reserva temporal venció y no puede pagarse.');

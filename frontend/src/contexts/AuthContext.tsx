@@ -92,7 +92,8 @@ export function AuthProvider({ children }: PropsWithChildren) {
     };
   }, [loadAccess]);
   // Profiles change on the server (an ADMIN grants or revokes one): permissions are read again when the
-  // app comes back to the foreground and after a 403, at most once every few seconds.
+  // app comes back to the foreground, after a 403 and every minute while it is in use (a granted profile
+  // never produces a 403), at most once every few seconds.
   const lastReload = useRef(0);
   useEffect(() => {
     if (!userId) return;
@@ -105,9 +106,11 @@ export function AuthProvider({ children }: PropsWithChildren) {
     const subscription = AppState.addEventListener("change", (state) => {
       if (state === "active") refresh();
     });
+    const timer = setInterval(() => { if (AppState.currentState === "active") refresh(); }, 60000);
     return () => {
       api.onForbidden = () => {};
       subscription.remove();
+      clearInterval(timer);
     };
   }, [userId, loadAccess]);
   const permissions = access?.permissions ?? [];

@@ -3,6 +3,7 @@ import { PERMISSIONS as P, can } from '../utils/access.util.js';
 import { assertConcertOwner } from './permissions.service.js';
 import { ManagementRepository, slugify } from '../repositories/management.repository.ts';
 import { NotificationsRepository } from '../repositories/notifications.repository.ts';
+import { audit } from '../repositories/audit.repository.ts';
 import type { Catalog, ConcertRow, Database, Fields, Principal, TicketRow, Row } from '../types/management.types.ts';
 import type { CatalogQuery, ConcertInput, ConcertPatch, ConcertQuery, StaffInput, TicketInput, TicketPatch } from '../validators/management.schemas.ts';
 
@@ -46,9 +47,11 @@ interface LocationInput { venue_id?: string | null; reservation_id?: string | nu
 
 export class ManagementService {
     constructor(private readonly db: Database) {}
-    private async run<T>(write: boolean, work: (repo: ManagementRepository, notifications: NotificationsRepository) => Promise<T>): Promise<T> {
+    private async run<T>(write: boolean, work: (repo: ManagementRepository, notifications: NotificationsRepository,
+        connection: ConstructorParameters<typeof ManagementRepository>[0]) => Promise<T>): Promise<T> {
         try {
-            const execute = (repo: { connection: ConstructorParameters<typeof ManagementRepository>[0] }) => work(new ManagementRepository(repo.connection), new NotificationsRepository(repo.connection));
+            const execute = (repo: { connection: ConstructorParameters<typeof ManagementRepository>[0] }) =>
+                work(new ManagementRepository(repo.connection), new NotificationsRepository(repo.connection), repo.connection);
             return await (write ? this.db.transaction(execute) : this.db.read(execute));
         } catch (error) {
             const code = typeof error === 'object' && error !== null && 'code' in error ? error.code : undefined;
@@ -199,17 +202,22 @@ export class ManagementService {
         });
     }
     async concertTransition(id: string, action: 'publish' | 'cancel', user: Principal) {
-        return this.run(true, async (repo, notifications) => {
+        return this.run(true, async (repo, notifications, connection) => {
             const concert = await this.owned(repo, id, user);
+            // Status changes are audited with the owner as target, whether the owner or concerts.manage_all acts.
+            const record = (action: 'CONCERT_PUBLISHED' | 'CONCERT_CANCELLED') => audit(connection, { actor: user.id, action, target: concert.organizer_id,
+                entity: { type: 'CONCERT', id }, details: { concert_id: id, name: concert.name, previous_status: concert.status } });
             if (action === 'publish') {
                 if (concert.status !== 'DRAFT') fail(409, 'INVALID_STATE', 'Solo se publican borradores.');
                 await this.publishable(repo, concert);
                 await repo.update('concerts', id, { status: 'PUBLISHED', published_at: new Date() });
+                await record('CONCERT_PUBLISHED');
             } else if (concert.status !== 'CANCELLED') {
                 // chk_concerts_published: a concert leaves DRAFT only by publishing; drafts are deleted instead.
                 if (concert.status === 'DRAFT') fail(409, 'INVALID_STATE', 'Los borradores se eliminan; solo se cancelan conciertos publicados.');
                 if (concert.status !== 'PUBLISHED') fail(409, 'INVALID_STATE', 'El concierto finalizado no se puede cancelar.');
                 await repo.update('concerts', id, { status: 'CANCELLED' });
+                await record('CONCERT_CANCELLED');
                 await notifications.concert(id, 'CONCERT_CANCELLED', 'Concierto cancelado', `${String(concert.name)} fue cancelado. Consultá el estado de tus entradas en tu compra.`);
             }
             return (await repo.concertDetails([required(await repo.concert(id))]))[0];
