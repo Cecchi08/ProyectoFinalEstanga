@@ -340,7 +340,8 @@ test('listado usa cantidad constante de consultas para relaciones (sin N+1)', as
     t.mock.method(ManagementRepository.prototype, 'rows', function (...args) { count++; return original.apply(this, args); });
     await call('get', '/concerts?limit=1').expect(200); const one = count; count = 0;
     await call('get', '/concerts?limit=100').expect(200);
-    assert.equal(count, one); assert.equal(count, 4);
+    // Concert, genres, ticket types, billed artists and the count: constant whatever the page size.
+    assert.equal(count, one); assert.equal(count, 5);
 });
 
 test('IDs BIGINT seguros y rechazo de campos/IDs/fechas/filtros malformados', async () => {

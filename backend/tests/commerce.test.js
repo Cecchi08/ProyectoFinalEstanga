@@ -34,7 +34,7 @@ async function error(response, status, code) {
 before(async () => { await db.open(); });
 after(async () => { await db.close(); });
 beforeEach(async () => {
-    for (const table of ['ticket_validations', 'tickets', 'order_items', 'orders', 'ticket_types', 'concert_staff', 'notifications', 'concerts', 'users']) await db.rows(`DELETE FROM ${table}`);
+    for (const table of ['ticket_validations', 'tickets', 'order_items', 'order_payments', 'orders', 'ticket_types', 'concert_staff', 'notifications', 'concerts', 'users']) await db.rows(`DELETE FROM ${table}`);
     ctx = db.context();
     for (const [role, id] of Object.entries(ids)) {
         await db.rows('INSERT INTO users (id, first_name, last_name, email, email_verified_at) VALUES (?, ?, ?, ?, NOW())', [id, role, 'Test', `${role}@commerce.example`]);

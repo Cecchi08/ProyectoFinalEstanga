@@ -19,9 +19,10 @@ export function commerceRoutes(database: Database, authenticate: RequestHandler)
     router.post('/purchases/:id/confirm', validateRequest(purchasePaymentSchema), controller.transition('confirm'));
     router.post('/purchases/:id/cancel', validateRequest(emptySchema.default({})), controller.transition('cancel'));
     router.get('/tickets', controller.list('tickets'));
-    // tickets.validate comes from a concert_staff assignment (never from a profile); the service also checks that the
-    // assignment is for this concert. tickets.validate_all (ADMIN) validates any concert.
-    router.post('/tickets/validate', requirePermission(P.ticketsValidate, P.ticketsValidateAll), validateRequest(validationSchema), controller.validate);
+    // Authorized per concert in the service: a concert_staff assignment for this concert, or tickets.validate_all (ADMIN).
+    // No route-level permission: tickets.validate is derived only for published concerts, so gating here would turn a
+    // scan for a cancelled concert into FORBIDDEN instead of CANCELLED and skip logging the rejected attempt.
+    router.post('/tickets/validate', validateRequest(validationSchema), controller.validate);
     router.get('/tickets/:id', controller.ticket);
     return router;
 }

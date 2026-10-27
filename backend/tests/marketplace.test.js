@@ -189,7 +189,7 @@ test('choques de horario: el mismo espacio se superpone, otro espacio del establ
     for (const query of [`from=${at(0)}`, `date=${date}&from=${at(0)}&to=${at(1)}`, `from=${at(0)}&to=${at(24 * 40)}`]) await call('get', `/marketplace/venues/${venues.room}/availability?${query}`).expect(422);
 });
 
-test('pago simulado: no acepta datos de tarjeta; rechazado mantiene HOLD, aprobado confirma una sola vez', async () => {
+test('pago simulado: no acepta datos de tarjeta; rechazado mantiene HOLD, aprobado espera al espacio, que confirma una sola vez', async () => {
     const reservation = await held(venues.room, 2, 4);
     const pay = (body, role = 'customer') => call('post', `/marketplace/reservations/${reservation.id}/payments`, role, body);
     for (const body of [{ card_number: '4111111111111111' }, { outcome: 'APPROVED', cvv: '123' }, { outcome: 'MAYBE' }, { amount: 1 }]) await pay(body).expect(422);
@@ -202,8 +202,11 @@ test('pago simulado: no acepta datos de tarjeta; rechazado mantiene HOLD, aproba
     const approved = (await pay({}).expect(201)).body.data;
     assert.deepEqual([approved.payment.status, approved.payment.amount], ['APPROVED', '3001.00']);
     assert.match(approved.payment.simulated_reference, /^SIM-[0-9A-F]{16}$/);
-    assert.equal(approved.reservation.status, 'CONFIRMED'); assert.ok(approved.reservation.confirmed_at);
-    assert.deepEqual(approved.reservation.history.map(h => [h.to_status, h.changed_by_user_id]), [['HOLD', ids.customer], ['CONFIRMED', ids.customer]]);
+    // A direct booking (no quote) stays HOLD once paid: the venue's acceptance confirms it.
+    assert.equal(approved.reservation.status, 'HOLD');
+    const accepted = (await call('post', `/marketplace/reservations/${reservation.id}/accept`, 'provider').expect(200)).body.data;
+    assert.equal(accepted.status, 'CONFIRMED'); assert.ok(accepted.confirmed_at);
+    assert.deepEqual(accepted.history.map(h => [h.to_status, h.changed_by_user_id]), [['HOLD', ids.customer], ['CONFIRMED', ids.provider]]);
     await error(pay({}), 409, 'INVALID_STATUS');
     const stored = await db.rows('SELECT * FROM payments WHERE reservation_id = ?', [reservation.id]);
     assert.equal(stored.length, 2);
@@ -333,6 +336,9 @@ test('concierto vinculado a una reserva confirmada del organizador toma el espac
         start_datetime: at(start), end_datetime: at(end), reservation_id: reservation.id, genre_ids: ['1'], ...extra });
     await error(concert(21, 23), 409, 'RESERVATION_NOT_CONFIRMED');
     await call('post', `/marketplace/reservations/${reservation.id}/payments`, 'rival', {}).expect(201);
+    // Paid but not yet accepted by the venue: still not confirmed.
+    await error(concert(21, 23), 409, 'RESERVATION_NOT_CONFIRMED');
+    await call('post', `/marketplace/reservations/${reservation.id}/accept`, 'provider').expect(200);
     await error(concert(19, 23), 422, 'OUTSIDE_RESERVATION');
     await error(concert(21, 23, { venue_id: venues.room }), 422, 'INVALID_RESERVATION');
     await error(call('post', '/concerts', 'provider', { name: 'Ajeno', artist_name: 'X', start_datetime: at(21), reservation_id: reservation.id }), 422, 'INVALID_RESERVATION');
