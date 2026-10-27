@@ -263,6 +263,10 @@ export class MarketplaceRepository {
         return (await this.rows(`SELECT r.id, r.user_id, r.quote_id, r.status_code, r.hold_expires_at, r.event_start_at, ${reservationStatus} AS status
             FROM reservations r WHERE r.id = ? FOR UPDATE`, [id]))[0];
     }
+    // Concerts still billed on a reservation (any status but CANCELLED), locked so a concurrent link or cancel waits.
+    linkedConcerts(reservationId: string) {
+        return this.rows("SELECT id, title AS name, status FROM concerts WHERE reservation_id = ? AND status <> 'CANCELLED' ORDER BY id FOR SHARE", [reservationId]);
+    }
     async approvedPayments(reservationId: string): Promise<number> {
         return Number((await this.rows("SELECT COUNT(*) AS total FROM payments WHERE reservation_id = ? AND status = 'APPROVED'", [reservationId]))[0].total);
     }

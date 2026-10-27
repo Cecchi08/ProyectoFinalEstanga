@@ -424,6 +424,12 @@ export class MarketplaceService {
             if (locked.status_code === 'CONFIRMED' && reservation.user_id !== user.id && !admin(user))
                 fail(409, 'RESERVATION_CONFIRMED', 'El espacio no puede cancelar una reserva confirmada.');
             if (locked.status_code === 'CONFIRMED' && (locked.event_start_at as Date) <= new Date()) fail(409, 'CANCELLATION_CLOSED', 'El evento ya comenzó.');
+            // A concert billed on this booking keeps it: for the client and for marketplace.admin alike, the concert is cancelled
+            // or moved to another place first, so no published concert is left without its space.
+            const concerts = locked.status_code === 'CONFIRMED' ? await repo.linkedConcerts(id) : [];
+            if (concerts.length) fail(409, 'RESERVATION_HAS_CONCERT',
+                `La reserva tiene un concierto vinculado (${concerts.map(concert => String(concert.name)).join(', ')}). `
+                + 'Primero cancelá el concierto o desvinculalo de la reserva cambiando su lugar.');
             await repo.setReservationStatus(id, user.id, 'CANCELLED', reason);
             const refunded = await repo.refundPayments(id);
             const note = refunded ? ' El pago simulado se marcó como reembolsado.' : '';

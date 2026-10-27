@@ -389,9 +389,31 @@ test('concierto en un espacio del marketplace: publicar exige reserva propia con
     await publish((await draft(21, 23, { venue_name: 'Bar del Puerto', city_id: '1' })).id).expect(200);
     const hall = await confirmed(venues.hall, 20, 26);
     await publish((await draft(21, 23, { reservation_id: hall.id })).id).expect(200);
-    // The booking is cancelled after linking it: the concert can no longer be published.
-    const room = await confirmed(venues.room, 2, 4);
-    const pending = await draft(2, 4, { reservation_id: room.id });
-    await call('post', `/marketplace/reservations/${room.id}/cancel`, 'rival', {}).expect(200);
-    await error(publish(pending.id), 409, 'RESERVATION_NOT_CONFIRMED');
+});
+
+test('cancelar una reserva confirmada con concierto vinculado no cancelado falla para el organizador y el ADMIN; sin concierto, funciona', async () => {
+    const confirmed = async (venue, from, to) => {
+        const reservation = await held(venue, from, to, {}, 'rival');
+        await call('post', `/marketplace/reservations/${reservation.id}/payments`, 'rival', {}).expect(201);
+        await call('post', `/marketplace/reservations/${reservation.id}/accept`, 'provider').expect(200);
+        return reservation;
+    };
+    const cancel = (id, role) => call('post', `/marketplace/reservations/${id}/cancel`, role, {});
+    const linked = await confirmed(venues.hall, 20, 26);
+    const concert = (await call('post', '/concerts', 'rival', { name: 'Show en Sala Grande', artist_name: 'La Banda', start_datetime: at(21),
+        end_datetime: at(23), reservation_id: linked.id, genre_ids: ['1'], ticket_types: [{ name: 'General', price: 1000, stock_total: 10 }] }).expect(201)).body.data;
+    // A linked draft already keeps the booking, and so does the published concert.
+    for (const role of ['rival', 'admin']) await error(cancel(linked.id, role), 409, 'RESERVATION_HAS_CONCERT');
+    await call('post', `/concerts/${concert.id}/publish`, 'rival', {}).expect(200);
+    for (const role of ['rival', 'admin']) {
+        const body = await error(cancel(linked.id, role), 409, 'RESERVATION_HAS_CONCERT');
+        assert.match(body.error.message, /Show en Sala Grande.*cancelá el concierto o desvinculalo/);
+    }
+    assert.equal((await call('get', `/marketplace/reservations/${linked.id}`, 'rival').expect(200)).body.data.status, 'CONFIRMED');
+    // Once the concert is cancelled, the booking can be cancelled.
+    await call('post', `/concerts/${concert.id}/cancel`, 'rival', {}).expect(200);
+    assert.equal((await cancel(linked.id, 'rival').expect(200)).body.data.status, 'CANCELLED');
+    // Without a linked concert, the ADMIN cancels a confirmed booking directly.
+    const free = await confirmed(venues.room, 2, 4);
+    assert.equal((await cancel(free.id, 'admin').expect(200)).body.data.status, 'CANCELLED');
 });

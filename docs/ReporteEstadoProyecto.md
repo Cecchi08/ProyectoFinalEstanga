@@ -17,8 +17,7 @@ Los pagos son siempre simulados (`README.md`).
 
 **Qué falta:**
 
-- Decidir la conexión TLS a MySQL (sección 8).
-- Decidir qué pasa con un concierto publicado cuando se cancela su reserva (sección 12).
+- TLS verificado hacia MySQL: Railway no entrega una CA verificable (sección 13).
 - Algunas decisiones de producto (sección 7).
 
 **Riesgo principal.** La conexión a MySQL no usa TLS. El servidor de Railway lo acepta, pero la app se conecta sin cifrar y, desde fuera de Railway, lo hace por Internet (sección 8). La migración de revisión de establecimientos ya está aplicada en Railway desde el 2026-10-27 (sección 12).
@@ -205,9 +204,9 @@ Varios puntos de la lista original ya se resolvieron. Se indican para cerrarlos.
 | Prioridad | Pendiente | Estado y motivo |
 | --- | --- | --- |
 | — | Aplicar `database/migrations/20261027_revision_establecimientos.sql` en Railway | **Hecho** el 2026-10-27, con respaldo previo y verificación (sección 12). No volver a ejecutarla: no es idempotente. |
-| 1 | Conexión TLS a MySQL | **Requiere tu decisión.** Railway acepta TLS 1.2 y 1.3 con un certificado autofirmado; la app hoy no lo usa (secciones 8 y 12). |
+| 1 | Conexión TLS a MySQL con verificación | **Detenido, requiere tu decisión.** Railway no entrega una CA verificable: el servidor presenta una CA autogenerada por MySQL y sin nombres de host. La conexión no se cambió (sección 13). |
 | 3 | Tests de API para el filtro de precio y los artistas del cartel | **Pendiente.** Hoy los cubre solo el e2e. |
-| 2 | Qué pasa con un concierto publicado si se cancela su reserva | **Para decidir.** Casos y opciones en la sección 12. |
+| — | Concierto publicado cuya reserva se cancela | **Resuelto con la opción A** en la rama `tls-y-cancelaciones`, sin merge todavía: se bloquea la cancelación (sección 13). |
 | — | Correr tests de backend, frontend y e2e contra MySQL 8 aislado | **Hecho** el 2026-10-27: 170/170, 13/13 y 8/8 (sección 11). |
 | — | Tests de API para empresas de servicios, suspensión y pago REJECTED | **Hecho** el 2026-10-27 (5 tests nuevos, sección 11). |
 | — | Notificaciones de empresas de servicios | **Hecho** en `c3e69b8` (`service_quote_id` y botón **Ver cotización**). |
@@ -398,8 +397,7 @@ Con las reglas nuevas también cambiaron fixtures que publicaban sin aprobación
 
 **Necesita tu decisión o confirmación:**
 
-- la opción de TLS de la sección 8;
-- qué hacer con conciertos publicados cuya reserva se cancela después (sección 12).
+- la opción de TLS de la sección 8, actualizada en la sección 13.
 
 La migración y el push quedaron resueltos el mismo día (sección 12).
 
@@ -485,10 +483,49 @@ Sin efecto:
 - rechazar y vencer solo aplican a reservas en `HOLD`, que no se pueden vincular a un concierto;
 - en Railway hoy hay 0 conciertos, así que no existe ningún caso real todavía.
 
-**Opciones, para que elijas:**
+**Opciones** (el 2026-10-27 se eligió la A; ver la sección 13):
 
 | Opción | Qué hace | A favor | En contra |
 | --- | --- | --- | --- |
 | A. Bloquear la cancelación | `cancelReservation` responde `409` si hay un concierto no cancelado vinculado a la reserva. El organizador primero cancela el concierto o lo mueve a otro lugar. Se puede dejar a `marketplace.admin` como excepción. | Nunca queda un concierto publicado sin espacio. Es simple y explícito. | El organizador hace dos pasos. Si se permite la excepción del ADMIN, ese caso necesita otra de las opciones. |
 | B. Avisar al organizador | Permite la cancelación y crea una notificación al organizador ("tu concierto X quedó sin reserva"). El concierto queda publicado y bloqueado para edición hasta que cambie el lugar. | Es el cambio más chico y no rompe el flujo actual. | El concierto sigue a la venta en un lugar que ya no tiene reservado, y los compradores no se enteran. |
 | C. Despublicar el concierto | Al cancelar, el concierto vinculado pasa a `CANCELLED` por el flujo existente, que avisa a los compradores. | Es coherente para el público. | Es la consecuencia más fuerte: una cancelación de reserva, quizás por error, cancela un concierto con entradas vendidas. El reembolso de esas entradas no es automático. |
+
+## 13. Rama `tls-y-cancelaciones` (2026-10-27, sin merge ni push)
+
+### TLS con verificación: detenido
+
+Se pidió exigir TLS y verificar el certificado con la CA que entrega Railway, sin bajar a una conexión sin verificación. Railway no entrega una CA verificable, así que **no se cambió la conexión** (`backend/src/config/db.config.js` sigue igual).
+
+Evidencia de solo lectura (sesión `READ ONLY`, sin escrituras):
+
+- **Cadena que presenta el servidor** (TLSv1.3):
+  - `MySQL_Server_8.4.11_Auto_Generated_Server_Certificate`;
+  - emitido por `MySQL_Server_8.4.11_Auto_Generated_CA_Certificate`, CA autofirmada.
+  - Ambos son los certificados que genera MySQL solo al iniciar. Vigencia: 12/10/2026 a 9/10/2036. Huella SHA-256 de la CA: `9D:FC:80:95:…:AD:E5:D2`.
+- **Contra las CA del sistema:** `SELF_SIGNED_CERT_IN_CHAIN`.
+- **Sin nombres de host:** el certificado del servidor no tiene SAN y su CN es genérico. Aunque se fijara esa CA, no se puede verificar la identidad del host (`VERIFY_IDENTITY`); solo la cadena (`VERIFY_CA`).
+- **Railway:** no publica esa CA en su documentación. En su foro, el equipo indica que el TCP proxy no ofrece certificados firmados por una CA y recomienda la red privada.
+
+**Opciones, para que decidas:**
+
+1. **Red privada:** cuando la API corre en Railway, usar solo `MYSQL_URL` (`*.railway.internal`), que viaja por túneles WireGuard cifrados por Railway. Es lo que recomienda Railway. Requiere que `db.config.js` no priorice `MYSQL_PUBLIC_URL`, o quitar esa variable del servicio.
+2. **Fijar la CA autogenerada** (`DB_SSL_CA`), tomada del propio servidor.
+   - Verifica la cadena (equivalente a `VERIFY_CA`), pero no el nombre del host.
+   - Esa CA no la entrega Railway por un canal confiable: se obtiene por la misma conexión que se quiere proteger.
+   - Si el volumen de MySQL se regenera, la CA cambia y la API deja de conectar.
+3. **Cifrar sin verificar** (`rejectUnauthorized: false`). Quedó descartado por tu indicación.
+
+### Opción A: la reserva confirmada con concierto vinculado no se cancela
+
+- **Regla.** `MarketplaceService.cancelReservation` responde `409 RESERVATION_HAS_CONCERT` si la reserva está `CONFIRMED` y tiene algún concierto vinculado que no esté `CANCELLED`.
+  - Vale para cualquier actor: el cliente que reservó y `marketplace.admin`.
+  - El mensaje nombra los conciertos e indica qué hacer: primero cancelar el concierto o desvincularlo cambiando su lugar.
+- **Concurrencia.** Los conciertos se leen con `FOR SHARE` dentro de la misma transacción que bloquea la reserva (`marketplace.repository.ts`, `linkedConcerts`).
+- **Test** (`marketplace.test.js`, "cancelar una reserva confirmada con concierto vinculado…"). Comprueba que:
+  - con el concierto en borrador o publicado, cancelar falla para el organizador y para el ADMIN, y la reserva sigue `CONFIRMED`;
+  - después de cancelar el concierto, la reserva se cancela;
+  - una reserva confirmada sin concierto la cancela el ADMIN.
+- **Test ajustado.** El test de la sección 11 que cancelaba una reserva con un borrador vinculado dejó de ser posible con esta regla. Ese caso lo cubre ahora el test nuevo. La revalidación al publicar sigue en el código como defensa.
+
+**Resultado:** contra MySQL 8 local aislado, backend **171/171** y frontend **13/13**. Check, lint y typecheck pasan en el backend y en el frontend.
