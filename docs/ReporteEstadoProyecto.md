@@ -17,10 +17,9 @@ Los pagos son siempre simulados (`README.md`).
 
 **Qué falta:**
 
-- TLS verificado hacia MySQL: Railway no entrega una CA verificable (sección 13).
 - Algunas decisiones de producto (sección 7).
 
-**Riesgo principal.** La conexión a MySQL no usa TLS. El servidor de Railway lo acepta, pero la app se conecta sin cifrar y, desde fuera de Railway, lo hace por Internet (sección 8). La migración de revisión de establecimientos ya está aplicada en Railway desde el 2026-10-27 (sección 12).
+**Riesgo principal.** El tráfico a MySQL desde fuera de Railway (desarrollo local y scripts) va sin TLS por el proxy público. Dentro de Railway, la API usa solo la red privada cifrada (sección 14). La migración de revisión de establecimientos ya está aplicada en Railway desde el 2026-10-27 (sección 12).
 
 ## 2. Arquitectura
 
@@ -204,7 +203,8 @@ Varios puntos de la lista original ya se resolvieron. Se indican para cerrarlos.
 | Prioridad | Pendiente | Estado y motivo |
 | --- | --- | --- |
 | — | Aplicar `database/migrations/20261027_revision_establecimientos.sql` en Railway | **Hecho** el 2026-10-27, con respaldo previo y verificación (sección 12). No volver a ejecutarla: no es idempotente. |
-| 1 | Conexión TLS a MySQL con verificación | **Detenido, requiere tu decisión.** Railway no entrega una CA verificable: el servidor presenta una CA autogenerada por MySQL y sin nombres de host. La conexión no se cambió (sección 13). |
+| — | Conexión de la API a MySQL en Railway | **Resuelto** con la red privada: dentro de Railway la API usa solo `MYSQL_URL` (`*.railway.internal`), sin `DB_SSL_CA` ni TLS sin verificación (sección 14). |
+| 1 | Tráfico local hacia Railway por el proxy público | **Pendiente, a decidir.** Va sin TLS. Railway no entrega una CA verificable (sección 13). |
 | 3 | Tests de API para el filtro de precio y los artistas del cartel | **Pendiente.** Hoy los cubre solo el e2e. |
 | — | Concierto publicado cuya reserva se cancela | **Resuelto con la opción A** en la rama `tls-y-cancelaciones`, sin merge todavía: se bloquea la cancelación (sección 13). |
 | — | Correr tests de backend, frontend y e2e contra MySQL 8 aislado | **Hecho** el 2026-10-27: 170/170, 13/13 y 8/8 (sección 11). |
@@ -529,3 +529,19 @@ Evidencia de solo lectura (sesión `READ ONLY`, sin escrituras):
 - **Test ajustado.** El test de la sección 11 que cancelaba una reserva con un borrador vinculado dejó de ser posible con esta regla. Ese caso lo cubre ahora el test nuevo. La revalidación al publicar sigue en el código como defensa.
 
 **Resultado:** contra MySQL 8 local aislado, backend **171/171** y frontend **13/13**. Check, lint y typecheck pasan en el backend y en el frontend.
+
+## 14. Conexión de la API a MySQL en Railway (2026-10-27)
+
+Se eligió la red privada. No se agregó `DB_SSL_CA` ni se desactivó la verificación.
+
+- **Detección de Railway.** `backend/src/config/db.config.js` detecta que la API corre en Railway por `RAILWAY_SERVICE_ID` o `RAILWAY_ENVIRONMENT_ID`, que Railway inyecta en cada servicio ([variables de Railway](https://docs.railway.com/reference/variables)).
+- **Dentro de Railway:**
+  - usa **solo** `MYSQL_URL` e ignora `MYSQL_PUBLIC_URL`;
+  - sin URL, acepta `MYSQLHOST` y las variables relacionadas;
+  - si el host resultante no termina en `.railway.internal`, la API no arranca y muestra un mensaje claro. Así una variable mal configurada no puede llevarla al proxy público.
+- **Fuera de Railway** (desarrollo local y scripts de respaldo, migración y control) no cambia nada: `MYSQL_PUBLIC_URL` va primero, porque `*.railway.internal` solo resuelve dentro del proyecto.
+- **Comprobación local** con el `.env` real, sin imprimir hosts ni credenciales: sin variables `RAILWAY_*` elige la URL pública; simulando Railway elige el host interno e ignora la pública.
+- **Tests.** Siguen usando solo la base local aislada:
+  - `tests/helpers.js` (`testEnv`) arma un objeto explícito con `DB_HOST`, `DB_PORT`, `DB_USER` y `DB_PASSWORD` tomados de `TEST_DB_*`, por defecto `127.0.0.1`, sin ninguna variable `MYSQL_*` ni `RAILWAY_*`;
+  - `tests/db-config.test.js` agrega 3 tests unitarios sin base de datos que cubren los dos entornos y los errores de configuración.
+- **Pendiente en Railway, fuera del código.** En el servicio de la API puede quitarse la variable `MYSQL_PUBLIC_URL`, aunque el código ya la ignora ahí. No se tocó la configuración de Railway.

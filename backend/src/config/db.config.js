@@ -6,13 +6,18 @@ function decode(value) {
     catch { throw new Error('MYSQL_URL contiene codificación porcentual inválida.'); }
 }
 
+// Railway injects RAILWAY_SERVICE_ID / RAILWAY_ENVIRONMENT_ID into every deployed service.
+const onRailway = source => Boolean(source.RAILWAY_SERVICE_ID?.trim() || source.RAILWAY_ENVIRONMENT_ID?.trim());
 export function databaseConfig(source = process.env) {
-    const connectionUrl = source.MYSQL_PUBLIC_URL?.trim() || source.MYSQL_URL?.trim();
+    // Inside Railway the API reaches MySQL only through the private network (MYSQL_URL, *.railway.internal, encrypted
+    // by Railway): MYSQL_PUBLIC_URL is ignored. Outside Railway (local scripts and development) the public URL goes first.
+    const railway = onRailway(source);
+    const connectionUrl = railway ? source.MYSQL_URL?.trim() : source.MYSQL_PUBLIC_URL?.trim() || source.MYSQL_URL?.trim();
     let config;
     if (connectionUrl) {
         let url;
         try { url = new URL(connectionUrl); }
-        catch { throw new Error('MYSQL_PUBLIC_URL o MYSQL_URL no es una URL válida.'); }
+        catch { throw new Error(railway ? 'MYSQL_URL no es una URL válida.' : 'MYSQL_PUBLIC_URL o MYSQL_URL no es una URL válida.'); }
         if (!['mysql:', 'mysql2:'].includes(url.protocol) || !url.hostname || !url.username || !url.pathname || url.pathname === '/')
             throw new Error('La URL MySQL debe incluir host, usuario y nombre de base.');
         config = {
@@ -35,6 +40,8 @@ export function databaseConfig(source = process.env) {
     }
     if (!config.host || !config.user || !config.database || !Number.isInteger(config.port) || config.port < 1 || config.port > 65535)
         throw new Error('Configuración MySQL incompleta: configure URL o host, puerto, usuario y base.');
+    if (railway && !config.host.toLowerCase().endsWith('.railway.internal'))
+        throw new Error('En Railway la API usa la red privada: MYSQL_URL (o MYSQLHOST) debe apuntar a *.railway.internal, no al proxy público.');
     return config;
 }
 

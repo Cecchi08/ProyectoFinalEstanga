@@ -23,7 +23,7 @@ Copiá el secreto generado en `JWT_ACCESS_SECRET`. En macOS/Linux reemplazá `Co
 
 | Archivo/variables | Configuración |
 | --- | --- |
-| backend: `MYSQL_PUBLIC_URL`, `MYSQL_URL` | URL completa; prioridad externa y luego interna de Railway. Las credenciales URL codificadas se decodifican. |
+| backend: `MYSQL_PUBLIC_URL`, `MYSQL_URL` | URL completa; las credenciales codificadas se decodifican. **Fuera de Railway** (desarrollo y scripts locales) se usa `MYSQL_PUBLIC_URL` si existe, y si no `MYSQL_URL`. **Dentro de Railway**, que se detecta por `RAILWAY_SERVICE_ID` o `RAILWAY_ENVIRONMENT_ID`, la API usa solo `MYSQL_URL` de la red privada (`*.railway.internal`, cifrada por Railway) e ignora `MYSQL_PUBLIC_URL`. Si el host no es `*.railway.internal`, la API no arranca. |
 | backend: `MYSQLHOST`, `MYSQLPORT`, `MYSQLUSER`, `MYSQLPASSWORD`, `MYSQLDATABASE` | Alternativa Railway. Se acepta también `MYSQL_DATABASE` y la configuración anterior `DB_HOST`, `DB_PORT`, `DB_USER`, `DB_PASSWORD`, `DB_NAME`. La aplicación requiere host, usuario y base; no usa `MYSQL_ROOT_PASSWORD`. |
 | `JWT_ACCESS_SECRET` | Valor aleatorio propio, nunca el placeholder. TTL de access por defecto 15m, refresh 30 días. |
 | `SMTP_HOST`, `SMTP_PORT`, `SMTP_SECURE`, `SMTP_FROM` | Ejemplo local: 127.0.0.1:1025, false, no-reply@venti.example. |
