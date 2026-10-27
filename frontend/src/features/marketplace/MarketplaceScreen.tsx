@@ -77,13 +77,16 @@ export default function MarketplaceScreen() {
       setInvalid(e instanceof Error ? e.message : "Filtros inválidos.");
     }
   };
-  // Asking for a quote and booking are separate permissions; either one gets the lists.
+  // Each list opens for whoever asks (requester) or answers for a space (provider); a provider-only account
+  // (VENUE) lands on what its spaces received.
   const requester = can("marketplace.quotes.request", "marketplace.reservations.create", "marketplace.admin");
+  const quotes = can("marketplace.quotes.request", "marketplace.quotes.respond", "marketplace.admin");
+  const reservations = can("marketplace.reservations.create", "marketplace.reservations.manage", "marketplace.admin");
   return (
     <Page title="Espacios para tu evento" subtitle="Salas de ensayo, estudios y escenarios. Reservá o pedí presupuesto.">
       <View style={styles.row}>
-        {requester && <Button title="Mis presupuestos" secondary onPress={() => router.push("/marketplace/quotes")} />}
-        {requester && <Button title="Mis reservas de espacios" secondary onPress={() => router.push("/marketplace/reservations")} />}
+        {quotes && <Button title={requester ? "Mis presupuestos" : "Presupuestos recibidos"} secondary onPress={() => router.push("/marketplace/quotes")} />}
+        {reservations && <Button title={requester ? "Mis reservas de espacios" : "Reservas recibidas"} secondary onPress={() => router.push("/marketplace/reservations")} />}
         {can("marketplace.establishments.manage", "marketplace.admin") && (
           <Button title="Gestionar establecimientos" secondary onPress={() => router.push("/marketplace/manage")} />
         )}

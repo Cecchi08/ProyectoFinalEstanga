@@ -33,6 +33,9 @@ export default function NotificationsScreen() {
         {!item.read_at && <Button title={`Marcar como leída: ${item.title}`} secondary disabled={action.busy} onPress={() => void read(item.id)} />}
         {item.purchase_id ? <Button title="Ver compra" onPress={() => router.push(`/purchases/${item.purchase_id}`)} /> :
           item.concert_id && item.concert_status === 'PUBLISHED' ? <Button title="Ver concierto" onPress={() => router.push(`/concerts/${item.concert_id}`)} /> : null}
+        {/* Marketplace events carry the space quote or reservation; the detail checks access for either side. */}
+        {item.reservation_id && <Button title="Ver reserva" onPress={() => router.push(`/marketplace/reservations/${item.reservation_id}`)} />}
+        {item.quote_id && <Button title="Ver presupuesto" onPress={() => router.push(`/marketplace/quotes/${item.quote_id}`)} />}
       </View>
     </Card>)}
     <Pager pagination={resource.result?.pagination} onPage={setPage} />

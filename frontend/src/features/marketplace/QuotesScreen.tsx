@@ -10,8 +10,8 @@ import { ActionFeedback, Button, Card, Copy, Field, Page, Pager, ResourceState, 
 import { at, isDate, range } from "./time";
 
 // Shared by quotes and reservations: requester view by default, provider view for organization members.
-// `as=provider` is authorized by a different permission on each list, so the caller passes it. When the requester view
-// also needs a permission (service quotes), an account without it only gets the provider view.
+// `as=provider` is authorized by a different permission on each list, so the caller passes it. The requester view also
+// needs a permission, so an account without it (a VENUE or EMPRESA_SERVICIOS that only answers) gets the provider view.
 export function useListView(statuses: string[], providerPermissions: Permission[],
   { requesterPermissions, providerLabel = "Recibidos en mis espacios" }: { requesterPermissions?: Permission[]; providerLabel?: string } = {}) {
   const { can } = useAuth();
@@ -42,7 +42,8 @@ export function useListView(statuses: string[], providerPermissions: Permission[
 }
 
 export default function QuotesScreen() {
-  const view = useListView(["REQUESTED", "SENT", "ACCEPTED", "REJECTED", "EXPIRED", "CANCELLED"], ["marketplace.quotes.respond", "marketplace.admin"]);
+  const view = useListView(["REQUESTED", "SENT", "ACCEPTED", "REJECTED", "EXPIRED", "CANCELLED"], ["marketplace.quotes.respond", "marketplace.admin"],
+    { requesterPermissions: ["marketplace.quotes.request", "marketplace.admin"] });
   const resource = useResource<Quote[]>(`/marketplace/quotes${view.params}`);
   return (
     <Page title="Presupuestos" subtitle="Pedidos de presupuesto para espacios del marketplace.">

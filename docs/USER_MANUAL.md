@@ -42,10 +42,11 @@ Toda cuenta nace como **COMPRADOR**. En **Mi cuenta → Mis perfiles** ves tus p
 
 1. **Espacios → Gestionar establecimientos**: creá una organización (quedás como Dueño), sumá miembros con perfil VENUE y cargá establecimientos, espacios y bloqueos de agenda.
 2. Publicá cada espacio y el establecimiento para que aparezcan en la búsqueda.
-3. Los presupuestos recibidos están en `/marketplace/quotes`. Ahí respondés con ítems, cargos, descuento y validez, o rechazás el pedido.
-4. Las reservas recibidas están en `/marketplace/reservations`, en la vista **Recibidos en mis espacios**. Una reserva directa pagada se **acepta** (pasa a CONFIRMED) o se **rechaza** con motivo (se reembolsa el pago simulado). El espacio no puede cancelar una reserva confirmada.
+3. En **Espacios → Presupuestos recibidos** respondés cada pedido con ítems, cargos, descuento y validez, o lo rechazás.
+4. En **Espacios → Reservas recibidas**, una reserva directa pagada se **acepta** (pasa a CONFIRMED) o se **rechaza** con motivo (se reembolsa el pago simulado). El espacio no puede cancelar una reserva confirmada.
+5. Los avisos de **Notificaciones** sobre presupuestos y reservas tienen **Ver presupuesto** o **Ver reserva** para abrir el detalle.
 
-Hoy los botones **Mis presupuestos** y **Mis reservas de espacios** solo aparecen si la cuenta también puede pedir o reservar (por ejemplo, ORGANIZADOR o ARTISTA). Una cuenta que es solo VENUE entra con esas direcciones; los avisos de Notificaciones todavía no enlazan a la reserva ni al presupuesto.
+Si la cuenta también puede pedir o reservar (por ejemplo, ORGANIZADOR y VENUE a la vez), los botones se llaman **Mis presupuestos** y **Mis reservas de espacios**. Adentro se elige entre **Pedidos míos** y **Recibidos en mis espacios**.
 
 ## EMPRESA_SERVICIOS
 

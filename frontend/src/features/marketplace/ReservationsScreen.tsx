@@ -15,7 +15,8 @@ const stateLabel = (reservation: Reservation) =>
   reservation.awaiting_venue ? `${reservation.status} · pagada, espera aceptación del espacio`
     : reservation.status === "HOLD" && reservation.requires_venue_acceptance ? `${reservation.status} · pendiente de pago` : reservation.status;
 export default function ReservationsScreen() {
-  const view = useListView(["HOLD", "CONFIRMED", "COMPLETED", "CANCELLED", "EXPIRED"], ["marketplace.reservations.manage", "marketplace.admin"]);
+  const view = useListView(["HOLD", "CONFIRMED", "COMPLETED", "CANCELLED", "EXPIRED"], ["marketplace.reservations.manage", "marketplace.admin"],
+    { requesterPermissions: ["marketplace.reservations.create", "marketplace.admin"] });
   const resource = useResource<Reservation[]>(`/marketplace/reservations${view.params}`);
   return (
     <Page title="Reservas de espacios" subtitle="Reservas temporales, confirmadas y su historial.">
