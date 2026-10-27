@@ -2,11 +2,14 @@ import { AppError } from '../utils/app-error.util.js';
 import { AdminRepository } from '../repositories/admin.repository.ts';
 import { MysqlAuthRepository } from '../repositories/mysql.repository.js';
 import { SELF_SERVICE_ROLES } from '../types/auth.types.js';
+import { REQUESTABLE_ROLES } from '../types/auth.types.js';
 import type { Database, Principal } from '../types/management.types.ts';
-import type { AuditQuery, OrganizationQuery, UserQuery } from '../validators/admin.schemas.ts';
+import type { AuditQuery, OrganizationQuery, ProfileRequestQuery, UserQuery } from '../validators/admin.schemas.ts';
 
 const fail = (status: number, code: string, message: string): never => { throw new AppError(status, code, message, undefined); };
 const SELF_SERVICE = new Set(SELF_SERVICE_ROLES);
+const REQUESTABLE = new Set(REQUESTABLE_ROLES);
+const required = <T>(value: T | undefined, message: string): T => value ?? fail(404, 'NOT_FOUND', message);
 
 // Role changes take effect on the user's next request: the principal is rebuilt from user_roles every time.
 export class AdminService {
@@ -69,12 +72,65 @@ export class AdminService {
         });
     }
     // Self-service profiles (SELF_SERVICE_ROLES): the person activates them for their own account, audited like an admin grant.
+    // Requestable profiles (REQUESTABLE_ROLES) stay pending until an ADMIN decides; `pending` tells the app which ones wait.
     profiles(user: Principal) {
         const held = new Set(user.roles);
-        return this.run(false, async repo => ({
-            roles: user.roles, permissions: user.permissions,
-            self_service: (await repo.roleCatalog(SELF_SERVICE_ROLES)).map(role => ({ ...role, active: held.has(String(role.code)) })),
-        }));
+        return this.run(false, async repo => {
+            const requests = await repo.myProfileRequests(user.id);
+            const pending = new Set(requests.filter(request => request.status === 'PENDING').map(request => String(request.role)));
+            return {
+                roles: user.roles, permissions: user.permissions,
+                self_service: (await repo.roleCatalog(SELF_SERVICE_ROLES)).map(role => ({ ...role, active: held.has(String(role.code)) })),
+                requestable: (await repo.roleCatalog(REQUESTABLE_ROLES)).map(role => ({ ...role, active: held.has(String(role.code)), pending: pending.has(String(role.code)) })),
+                requests,
+            };
+        });
+    }
+    // The person asks for a business profile; nothing changes until an ADMIN approves it.
+    requestProfile(role: string, reason: string | null | undefined, user: Principal) {
+        return this.run(true, async repo => {
+            if (SELF_SERVICE.has(role)) fail(422, 'SELF_SERVICE_PROFILE', 'Ese perfil se activa directamente desde Mis perfiles.');
+            if (!REQUESTABLE.has(role)) fail(422, 'NOT_REQUESTABLE', 'Ese perfil no se puede solicitar.');
+            const target = await this.lock(repo, role, user.id);
+            if (target.user.is_guest || target.user.status !== 'ACTIVE') fail(422, 'USER_NOT_ELIGIBLE', 'Solo una cuenta registrada y activa solicita perfiles.');
+            if (await repo.hasRole(user.id, target.role.id)) fail(409, 'ALREADY_HELD', 'La cuenta ya tiene ese perfil.');
+            // Locked on the user above: two concurrent requests for the same profile cannot both pass this check.
+            if (await repo.pendingRequest(user.id, target.role.id)) fail(409, 'REQUEST_PENDING', 'Ya tenés una solicitud pendiente para ese perfil.');
+            const id = await repo.createProfileRequest(user.id, target.role.id, reason);
+            await repo.audit({ actor: user.id, action: 'PROFILE_REQUESTED', target: user.id, roleId: target.role.id,
+                entity: { type: 'PROFILE_REQUEST', id }, details: { request_id: id, role, reason: reason ?? null } });
+            return repo.profileRequest(id);
+        });
+    }
+    myProfileRequests(user: Principal) { return this.run(false, repo => repo.myProfileRequests(user.id)); }
+    profileRequests(query: ProfileRequestQuery) { return this.run(false, repo => repo.profileRequests(query)); }
+    // Approving grants the profile in the same transaction; the audit rows commit with it.
+    approveProfileRequest(id: string, note: string | null | undefined, actor: Principal) {
+        return this.run(true, async repo => {
+            const request = required(await repo.lockProfileRequest(id), 'Solicitud inexistente.');
+            if (request.status !== 'PENDING') fail(409, 'INVALID_STATE', 'La solicitud ya fue decidida.');
+            const role = await repo.roleById(String(request.role_id));
+            const target = await this.lock(repo, String(role.code), String(request.user_id));
+            if (target.user.is_guest || target.user.status !== 'ACTIVE') fail(422, 'USER_NOT_ELIGIBLE', 'La cuenta ya no está activa para recibir el perfil.');
+            const changed = await repo.grant(String(request.user_id), target.role.id) === 1;
+            if (changed) await repo.audit({ actor: actor.id, action: 'ROLE_GRANTED', target: String(request.user_id), roleId: target.role.id,
+                details: { role: role.code, reason: note ?? null, target_email: target.user.email, profile_request_id: id } });
+            await repo.decideProfileRequest(id, 'APPROVED', actor.id, note);
+            await repo.audit({ actor: actor.id, action: 'PROFILE_REQUEST_APPROVED', target: String(request.user_id), roleId: target.role.id,
+                entity: { type: 'PROFILE_REQUEST', id }, details: { request_id: id, role: role.code, note: note ?? null, target_email: target.user.email } });
+            return repo.profileRequest(id);
+        });
+    }
+    rejectProfileRequest(id: string, reason: string, actor: Principal) {
+        return this.run(true, async repo => {
+            const request = required(await repo.lockProfileRequest(id), 'Solicitud inexistente.');
+            if (request.status !== 'PENDING') fail(409, 'INVALID_STATE', 'La solicitud ya fue decidida.');
+            const role = await repo.roleById(String(request.role_id));
+            await repo.decideProfileRequest(id, 'REJECTED', actor.id, reason);
+            await repo.audit({ actor: actor.id, action: 'PROFILE_REQUEST_REJECTED', target: String(request.user_id), roleId: String(request.role_id),
+                entity: { type: 'PROFILE_REQUEST', id }, details: { request_id: id, role: role.code, reason } });
+            return repo.profileRequest(id);
+        });
     }
     activate(role: string, user: Principal) {
         return this.run(true, async repo => {

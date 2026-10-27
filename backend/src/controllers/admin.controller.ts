@@ -2,7 +2,8 @@ import type { Request, Response } from 'express';
 import { unauthorized } from '../utils/app-error.util.js';
 import { AdminService } from '../services/admin.service.ts';
 import { idSchema } from '../validators/management.schemas.ts';
-import { auditQuerySchema, organizationQuerySchema, reactivateSchema, revokeSchema, roleCodeSchema, userQuerySchema } from '../validators/admin.schemas.ts';
+import { auditQuerySchema, organizationQuerySchema, profileRequestApprovalSchema, profileRequestDecisionSchema, profileRequestQuerySchema,
+    profileRequestSchema, reactivateSchema, revokeSchema, roleCodeSchema, userQuerySchema } from '../validators/admin.schemas.ts';
 
 const principal = (req: Request) => { if (!req.user) throw unauthorized(); return req.user; };
 const id = (req: Request) => idSchema.parse(req.params.id);
@@ -27,6 +28,22 @@ export class AdminController {
         res.status(result.changed ? 201 : 200).json({ success: true, data: result });
     };
     audit = async (req: Request, res: Response) => { const query = auditQuerySchema.parse(req.query); page(res, await this.service.auditLog(query), query); };
+    requestProfile = async (req: Request, res: Response) => {
+        const { role, reason } = profileRequestSchema.parse(req.body);
+        res.status(201).json({ success: true, data: await this.service.requestProfile(role, reason, principal(req)) });
+    };
+    myProfileRequests = async (req: Request, res: Response) => { res.json({ success: true, data: await this.service.myProfileRequests(principal(req)) }); };
+    profileRequests = async (req: Request, res: Response) => {
+        const query = profileRequestQuerySchema.parse(req.query); page(res, await this.service.profileRequests(query), query);
+    };
+    approveProfileRequest = async (req: Request, res: Response) => {
+        const { reason } = profileRequestApprovalSchema.parse(req.body ?? {});
+        res.json({ success: true, data: await this.service.approveProfileRequest(id(req), reason, principal(req)) });
+    };
+    rejectProfileRequest = async (req: Request, res: Response) => {
+        const { reason } = profileRequestDecisionSchema.parse(req.body ?? {});
+        res.json({ success: true, data: await this.service.rejectProfileRequest(id(req), reason, principal(req)) });
+    };
     suspend = async (req: Request, res: Response) => { res.json({ success: true, data: await this.service.suspend(id(req), req.body.reason, principal(req)) }); };
     reactivate = async (req: Request, res: Response) => {
         res.json({ success: true, data: await this.service.reactivate(id(req), reactivateSchema.parse(req.body ?? {}).reason, principal(req)) });

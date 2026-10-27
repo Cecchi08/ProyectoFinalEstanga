@@ -155,6 +155,28 @@ CREATE TABLE admin_audit_log (
   CONSTRAINT fk_audit_role FOREIGN KEY (role_id) REFERENCES roles (id)
 ) ENGINE=InnoDB;
 
+-- Solicitudes de perfiles de un usuario registrado (ORGANIZADOR, VENUE, EMPRESA_SERVICIOS). Quedan PENDING hasta que
+-- un ADMIN las aprueba (se concede el perfil) o rechaza (con motivo). Una sola PENDING por usuario y perfil: lo controla
+-- la aplicacion dentro de una transaccion que bloquea al usuario.
+CREATE TABLE profile_requests (
+  id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+  user_id BIGINT UNSIGNED NOT NULL,
+  role_id SMALLINT UNSIGNED NOT NULL,
+  status ENUM('PENDING','APPROVED','REJECTED') NOT NULL DEFAULT 'PENDING',
+  reason VARCHAR(255) NULL,
+  decided_by_user_id BIGINT UNSIGNED NULL,
+  decided_at DATETIME NULL,
+  decision_note VARCHAR(255) NULL,
+  created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (id),
+  KEY idx_profile_requests_status (status, created_at),
+  KEY idx_profile_requests_user_role (user_id, role_id, status),
+  KEY idx_profile_requests_decided_by (decided_by_user_id),
+  CONSTRAINT fk_profile_requests_user FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE,
+  CONSTRAINT fk_profile_requests_role FOREIGN KEY (role_id) REFERENCES roles (id),
+  CONSTRAINT fk_profile_requests_decided_by FOREIGN KEY (decided_by_user_id) REFERENCES users (id) ON DELETE SET NULL
+) ENGINE=InnoDB;
+
 CREATE TABLE device_push_tokens (
   id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
   user_id BIGINT UNSIGNED NOT NULL,

@@ -24,6 +24,12 @@ export function adminRoutes(database: Database, authenticate: RequestHandler): R
     router.post('/admin/users/:id/suspend', validateRequest(suspendSchema), controller.suspend);
     router.post('/admin/users/:id/reactivate', controller.reactivate);
     router.get('/admin/audit', controller.audit);
+    // Profile requests: anyone signed in asks for a business profile; only users.manage (ADMIN) lists and decides them.
+    router.post('/me/profile-requests', authenticate, controller.requestProfile);
+    router.get('/me/profile-requests', authenticate, controller.myProfileRequests);
+    router.get('/admin/profile-requests', authenticate, requirePermission(P.usersManage), controller.profileRequests);
+    router.post('/admin/profile-requests/:id/approve', authenticate, requirePermission(P.usersManage), controller.approveProfileRequest);
+    router.post('/admin/profile-requests/:id/reject', authenticate, requirePermission(P.usersManage), controller.rejectProfileRequest);
     // Read-only list of every organization (venues and service companies); marketplace.admin also reaches it.
     router.get('/admin/organizations', authenticate, requirePermission(P.usersManage, P.marketplaceAdmin), (_req, res, next) => {
         res.setHeader('Cache-Control', 'no-store'); next();

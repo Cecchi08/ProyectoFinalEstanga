@@ -12,7 +12,13 @@ export const revokeSchema = z.strictObject({ reason: z.string().trim().max(255).
 // Any assignable code is accepted so the service can explain which profiles need an ADMIN (403) instead of a bare 422.
 export const selfProfileSchema = z.strictObject({ role: roleCodeSchema });
 export const auditQuerySchema = z.strictObject({ ...paginationShape, target_user_id: idSchema.optional(), actor_user_id: idSchema.optional(),
-    action: z.string().regex(/^[A-Z_]{1,40}$/).optional(), entity_type: z.enum(['USER', 'ORDER', 'SERVICE_PROVIDER', 'ESTABLISHMENT', 'CONCERT', 'RESERVATION']).optional(), entity_id: idSchema.optional() });
+    action: z.string().regex(/^[A-Z_]{1,40}$/).optional(), entity_type: z.enum(['USER', 'ORDER', 'SERVICE_PROVIDER', 'ESTABLISHMENT', 'CONCERT', 'RESERVATION', 'PROFILE_REQUEST']).optional(), entity_id: idSchema.optional() });
+// Profiles that an account asks for; an ADMIN decides. Any assignable code is accepted so the service can explain which
+// ones are not requestable (self-service profiles, ADMIN) instead of a bare 422.
+export const profileRequestSchema = z.strictObject({ role: roleCodeSchema, reason: z.string().trim().max(255).nullable().optional() });
+export const profileRequestDecisionSchema = z.strictObject({ reason: z.string().trim().min(3).max(255) });
+export const profileRequestApprovalSchema = z.strictObject({ reason: z.string().trim().max(255).nullable().optional() }).default({});
+export const profileRequestQuerySchema = z.strictObject({ ...paginationShape, status: z.enum(['PENDING', 'APPROVED', 'REJECTED']).optional() });
 // Suspending needs a reason: it is the record the account owner and other admins will read.
 export const suspendSchema = z.strictObject({ reason: z.string().trim().min(3).max(255) });
 export const reactivateSchema = z.strictObject({ reason: z.string().trim().max(255).nullable().optional() }).default({});
@@ -20,4 +26,5 @@ export const organizationQuerySchema = z.strictObject({ ...paginationShape, q: n
     kind: z.enum(['VENUE', 'SERVICES']).optional() });
 export type UserQuery = z.output<typeof userQuerySchema>;
 export type AuditQuery = z.output<typeof auditQuerySchema>;
+export type ProfileRequestQuery = z.output<typeof profileRequestQuerySchema>;
 export type OrganizationQuery = z.output<typeof organizationQuerySchema>;

@@ -179,3 +179,58 @@ test('suspensión: solo users.manage y con motivo; corta acceso, login y sesione
     assert.deepEqual(rows.map(row => row.action), ['USER_SUSPENDED', 'USER_REACTIVATED']);
     assert.deepEqual([rows[0].actor, rows[0].details.reason, rows[0].details.revoked_sessions], [ids.admin, 'Reclamos de fraude', 1]);
 });
+
+test('solicitud de perfil: queda pendiente, el ADMIN la aprueba y el perfil se activa; la cuenta conserva los demas perfiles', async () => {
+    const requested = (await call('post', '/me/profile-requests', 'buyer', { role: 'ORGANIZADOR', reason: 'Productora de festivales' }).expect(201)).body.data;
+    assert.deepEqual([requested.status, requested.role, requested.user_id], ['PENDING', 'ORGANIZADOR', ids.buyer]);
+    // Still a buyer and not an organizer while it waits.
+    assert.deepEqual((await call('get', '/me/profiles', 'buyer').expect(200)).body.data.requestable.map(role => [role.code, role.active, role.pending]),
+        [['ORGANIZADOR', false, true], ['VENUE', false, false], ['EMPRESA_SERVICIOS', false, false]]);
+    await call('get', '/organizer/statistics', 'buyer').expect(403);
+    const pending = (await call('get', '/admin/profile-requests?status=PENDING', 'admin').expect(200)).body;
+    assert.deepEqual(pending.data.map(item => [item.id, item.email, item.role]), [[requested.id, 'buyer@profiles.example', 'ORGANIZADOR']]);
+    const approved = (await call('post', `/admin/profile-requests/${requested.id}/approve`, 'admin', { reason: 'Documentación revisada' }).expect(200)).body.data;
+    assert.deepEqual([approved.status, String(approved.decided_by_user_id)], ['APPROVED', ids.admin]);
+    const me = (await call('get', '/me/profiles', 'buyer').expect(200)).body.data;
+    assert.deepEqual(me.roles, ['COMPRADOR', 'ORGANIZADOR']);
+    assert.ok(me.permissions.includes('concerts.manage'));
+    await call('get', '/organizer/statistics', 'buyer').expect(200);
+    const audit = await db.rows("SELECT action FROM admin_audit_log WHERE entity_type = 'PROFILE_REQUEST' AND entity_id = ? ORDER BY id", [requested.id]);
+    assert.deepEqual(audit.map(row => row.action), ['PROFILE_REQUESTED', 'PROFILE_REQUEST_APPROVED']);
+    const grant = await db.rows("SELECT action FROM admin_audit_log WHERE target_user_id = ? AND action = 'ROLE_GRANTED'", [ids.buyer]);
+    assert.equal(grant.length, 1);
+});
+
+test('solicitud de perfil: el ADMIN la rechaza con motivo, no se activa, no se puede decidir dos veces y queda auditado', async () => {
+    const requested = (await call('post', '/me/profile-requests', 'artist', { role: 'VENUE' }).expect(201)).body.data;
+    await error(call('post', '/me/profile-requests', 'artist', { role: 'VENUE' }), 409, 'REQUEST_PENDING');
+    await error(call('post', `/admin/profile-requests/${requested.id}/reject`, 'admin', {}), 422, 'VALIDATION_ERROR');
+    const rejected = (await call('post', `/admin/profile-requests/${requested.id}/reject`, 'admin', { reason: 'Falta el CUIT del espacio' }).expect(200)).body.data;
+    assert.deepEqual([rejected.status, rejected.decision_note], ['REJECTED', 'Falta el CUIT del espacio']);
+    assert.deepEqual((await call('get', '/me/profiles', 'artist').expect(200)).body.data.roles, ['ARTISTA']);
+    await error(call('post', `/admin/profile-requests/${requested.id}/approve`, 'admin', {}), 409, 'INVALID_STATE');
+    const mine = (await call('get', '/me/profile-requests', 'artist').expect(200)).body.data;
+    assert.deepEqual(mine.map(item => [item.role, item.status]), [['VENUE', 'REJECTED']]);
+    const audit = await db.rows("SELECT action, details FROM admin_audit_log WHERE entity_type = 'PROFILE_REQUEST' AND entity_id = ? ORDER BY id", [requested.id]);
+    assert.deepEqual(audit.map(row => [row.action, row.details.reason]), [['PROFILE_REQUESTED', null], ['PROFILE_REQUEST_REJECTED', 'Falta el CUIT del espacio']]);
+});
+
+test('solicitud de perfil: reglas de entrada y permisos', async () => {
+    // Self-service profiles are activated directly, never requested; ADMIN and GUEST are not requestable.
+    await error(call('post', '/me/profile-requests', 'buyer', { role: 'ARTISTA' }), 422, 'SELF_SERVICE_PROFILE');
+    await error(call('post', '/me/profile-requests', 'buyer', { role: 'ADMIN' }), 422, 'NOT_REQUESTABLE');
+    await error(call('post', '/me/profile-requests', 'buyer', { role: 'GUEST' }), 422, 'VALIDATION_ERROR');
+    // A profile already held cannot be requested again.
+    await call('post', '/admin/users/105/roles', 'admin', { role: 'VENUE' }).expect(201);
+    await error(call('post', '/me/profile-requests', 'buyer', { role: 'VENUE' }), 409, 'ALREADY_HELD');
+    // Only users.manage decides: a buyer cannot list or approve, and the request stays pending.
+    const requested = (await call('post', '/me/profile-requests', 'buyer', { role: 'EMPRESA_SERVICIOS' }).expect(201)).body.data;
+    for (const path of ['/admin/profile-requests', `/admin/profile-requests/${requested.id}/approve`]) {
+        await error(call(path.endsWith('approve') ? 'post' : 'get', path, 'buyer', {}), 403, 'FORBIDDEN');
+    }
+    await error(call('post', `/admin/profile-requests/${requested.id}/reject`, 'buyer', { reason: 'Intento' }), 403, 'FORBIDDEN');
+    assert.equal((await db.rows('SELECT status FROM profile_requests WHERE id = ?', [requested.id]))[0].status, 'PENDING');
+    // Unknown request and unauthenticated access.
+    await error(call('post', '/admin/profile-requests/999/approve', 'admin', {}), 404, 'NOT_FOUND');
+    await call('post', '/me/profile-requests', null, { role: 'VENUE' }).expect(401);
+});

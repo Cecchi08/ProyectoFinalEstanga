@@ -59,6 +59,45 @@ export class AdminRepository {
             WHERE ur.role_id = ? AND u.status = 'ACTIVE'`, [roleId]))[0].total);
     }
     audit(entry: AuditEntry) { return audit(this.connection, entry); }
+    // Locked request: a decision and a second decision on the same request cannot interleave.
+    async lockProfileRequest(id: string): Promise<Row | undefined> {
+        return (await this.rows('SELECT id, user_id, role_id, status FROM profile_requests WHERE id = ? FOR UPDATE', [id]))[0];
+    }
+    async roleById(id: string): Promise<Row> {
+        return (await this.rows('SELECT id, code FROM roles WHERE id = ?', [id]))[0];
+    }
+    async profileRequest(id: string): Promise<Row | undefined> {
+        return (await this.rows(`SELECT pr.id, pr.status, pr.reason, pr.decision_note, pr.created_at, pr.decided_at, pr.user_id,
+            pr.decided_by_user_id, r.code AS role FROM profile_requests pr JOIN roles r ON r.id = pr.role_id WHERE pr.id = ?`, [id]))[0];
+    }
+    async pendingRequest(userId: string, roleId: string): Promise<boolean> {
+        return (await this.rows("SELECT id FROM profile_requests WHERE user_id = ? AND role_id = ? AND status = 'PENDING'", [userId, roleId])).length > 0;
+    }
+    async createProfileRequest(userId: string, roleId: string, reason: string | null | undefined): Promise<string> {
+        const [result] = await this.connection.execute<ResultSetHeader>(
+            'INSERT INTO profile_requests (user_id, role_id, reason) VALUES (?, ?, ?)', [userId, roleId, reason ?? null]);
+        return String(result.insertId);
+    }
+    decideProfileRequest(id: string, status: 'APPROVED' | 'REJECTED', actorId: string, note: string | null | undefined) {
+        return this.execute("UPDATE profile_requests SET status = ?, decided_by_user_id = ?, decided_at = UTC_TIMESTAMP(), decision_note = ? WHERE id = ?",
+            [status, actorId, note ?? null, id]);
+    }
+    // The account's own requests, newest first: what the person sees next to each profile.
+    myProfileRequests(userId: string) {
+        return this.rows(`SELECT pr.id, r.code AS role, pr.status, pr.reason, pr.decision_note, pr.created_at, pr.decided_at
+            FROM profile_requests pr JOIN roles r ON r.id = pr.role_id WHERE pr.user_id = ? ORDER BY pr.id DESC`, [userId]);
+    }
+    async profileRequests(query: { status?: string; page: number; limit: number }) {
+        const where: string[] = []; const values: Value[] = [];
+        if (query.status) { where.push('pr.status = ?'); values.push(query.status); }
+        const clause = where.length ? ` WHERE ${where.join(' AND ')}` : '';
+        const total = Number((await this.rows(`SELECT COUNT(*) AS total FROM profile_requests pr${clause}`, values))[0].total);
+        const data = await this.rows(`SELECT pr.id, pr.status, pr.reason, pr.decision_note, pr.created_at, pr.decided_at, pr.user_id, pr.decided_by_user_id,
+            u.email, u.first_name, u.last_name, u.status AS user_status, r.code AS role
+            FROM profile_requests pr JOIN users u ON u.id = pr.user_id JOIN roles r ON r.id = pr.role_id${clause}
+            ORDER BY pr.created_at, pr.id LIMIT ? OFFSET ?`, [...values, ...page(query)]);
+        return { data, total };
+    }
     setStatus(userId: string, status: 'ACTIVE' | 'BLOCKED') { return this.execute('UPDATE users SET status = ? WHERE id = ?', [status, userId]); }
     // A suspended account loses its sessions at once; access tokens already stop working because every request rebuilds the principal.
     revokeSessions(userId: string) {
