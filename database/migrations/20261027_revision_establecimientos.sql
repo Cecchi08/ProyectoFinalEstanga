@@ -1,5 +1,6 @@
 -- Migracion sobre una base cargada con venti_shema2.sql anterior a la revision de establecimientos.
--- NO APLICADA en Railway. Aplicarla ANTES de desplegar el backend que la usa: ese backend escribe
+-- APLICADA en Railway el 2026-10-27 (respaldo previo: venti-20261027-pre-revision-establecimientos.sql). NO volver a ejecutarla ahi.
+-- En otra base vieja, aplicarla ANTES de desplegar el backend que la usa: ese backend escribe
 -- status = 'PENDING_REVIEW', que la base vieja rechaza.
 -- No borra datos. Los establecimientos ya PUBLISHED quedan publicados (se consideran aprobados).
 -- Se ejecuta UNA vez: los ALTER TABLE ... ADD COLUMN fallan si ya se aplico.

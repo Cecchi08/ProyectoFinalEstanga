@@ -17,11 +17,11 @@ Los pagos son siempre simulados (`README.md`).
 
 **Qué falta:**
 
-- Aplicar en Railway la migración `20261027_revision_establecimientos.sql` **antes** de desplegar este backend.
 - Decidir la conexión TLS a MySQL (sección 8).
+- Decidir qué pasa con un concierto publicado cuando se cancela su reserva (sección 12).
 - Algunas decisiones de producto (sección 7).
 
-**Riesgo principal.** El orden del despliegue. El backend nuevo escribe `status = 'PENDING_REVIEW'` en `establishments`, un valor que la base de Railway todavía no admite. Si se despliega el código antes de la migración, enviar un establecimiento a revisión falla con error de base.
+**Riesgo principal.** La conexión a MySQL no usa TLS. El servidor de Railway lo acepta, pero la app se conecta sin cifrar y, desde fuera de Railway, lo hace por Internet (sección 8). La migración de revisión de establecimientos ya está aplicada en Railway desde el 2026-10-27 (sección 12).
 
 ## 2. Arquitectura
 
@@ -204,10 +204,10 @@ Varios puntos de la lista original ya se resolvieron. Se indican para cerrarlos.
 
 | Prioridad | Pendiente | Estado y motivo |
 | --- | --- | --- |
-| 1 | Aplicar `database/migrations/20261027_revision_establecimientos.sql` en Railway, con respaldo, **antes** de desplegar el backend nuevo | **Pendiente, requiere tu confirmación.** Sin la migración, enviar un establecimiento a revisión falla en la base. No es idempotente. |
-| 2 | Conexión TLS a MySQL | **Requiere tu decisión.** Ver la sección 8. |
+| — | Aplicar `database/migrations/20261027_revision_establecimientos.sql` en Railway | **Hecho** el 2026-10-27, con respaldo previo y verificación (sección 12). No volver a ejecutarla: no es idempotente. |
+| 1 | Conexión TLS a MySQL | **Requiere tu decisión.** Railway acepta TLS 1.2 y 1.3 con un certificado autofirmado; la app hoy no lo usa (secciones 8 y 12). |
 | 3 | Tests de API para el filtro de precio y los artistas del cartel | **Pendiente.** Hoy los cubre solo el e2e. |
-| 4 | Qué pasa con un concierto publicado si se cancela su reserva | **Para decidir.** La regla nueva revalida la reserva al publicar o editar. Un concierto ya publicado sigue publicado si después se cancela la reserva. |
+| 2 | Qué pasa con un concierto publicado si se cancela su reserva | **Para decidir.** Casos y opciones en la sección 12. |
 | — | Correr tests de backend, frontend y e2e contra MySQL 8 aislado | **Hecho** el 2026-10-27: 170/170, 13/13 y 8/8 (sección 11). |
 | — | Tests de API para empresas de servicios, suspensión y pago REJECTED | **Hecho** el 2026-10-27 (5 tests nuevos, sección 11). |
 | — | Notificaciones de empresas de servicios | **Hecho** en `c3e69b8` (`service_quote_id` y botón **Ver cotización**). |
@@ -255,15 +255,16 @@ Varios puntos de la lista original ya se resolvieron. Se indican para cerrarlos.
 - **Transporte (TLS hacia MySQL).** Verificado por lectura; no se cambió la conexión.
   - **Qué hace el código.** `backend/src/config/db.config.js` no configura `ssl`, así que mysql2 no exige TLS. Además, **prioriza `MYSQL_PUBLIC_URL` sobre `MYSQL_URL`**: si las dos están definidas en el servicio de Railway, la API sale por el proxy público aunque corra dentro de Railway.
   - **Red privada de Railway.** `MYSQL_URL` (`*.railway.internal`) viaja dentro de la red privada del proyecto, que Railway cifra con túneles WireGuard ([documentación de Railway](https://docs.railway.com/guides/private-networking)).
-  - **Proxy público.** `MYSQL_PUBLIC_URL` sale por Internet a través del TCP proxy. Según respuestas del equipo de Railway en su foro (sobre Postgres), el proxy usa certificados autofirmados y no ofrece certificados firmados por una CA, así que no se puede verificar al servidor (`verify-full`). La alternativa que recomiendan es la red privada ([hilo 1](https://station.railway.com/questions/verify-full-ssl-mode-on-postgres-databse-4d035b2c), [hilo 2](https://station.railway.com/questions/postgre-sql-ssl-connection-self-signed-33f0d3b6)). No encontré documentación específica de MySQL, y esta revisión no se conectó a Railway para comprobar si el servidor MySQL acepta TLS.
+  - **Proxy público.** `MYSQL_PUBLIC_URL` sale por Internet a través del TCP proxy. Según respuestas del equipo de Railway en su foro (sobre Postgres), el proxy usa certificados autofirmados y no ofrece certificados firmados por una CA, así que no se puede verificar al servidor (`verify-full`). La alternativa que recomiendan es la red privada ([hilo 1](https://station.railway.com/questions/verify-full-ssl-mode-on-postgres-databse-4d035b2c), [hilo 2](https://station.railway.com/questions/postgre-sql-ssl-connection-self-signed-33f0d3b6)). No encontré documentación específica de MySQL; el resultado medido sobre el servidor está en la sección 12.
   - **Opciones, a decidir:**
     1. **API desplegada en Railway:** usar solo `MYSQL_URL` (red privada cifrada) y quitar `MYSQL_PUBLIC_URL` de ese servicio, o invertir la prioridad en `db.config.js`.
-    2. **Conexiones desde fuera (desarrollo local con `MYSQL_PUBLIC_URL`):** agregar `ssl` en mysql2. Con certificado autofirmado, la única opción que funciona es `ssl: { rejectUnauthorized: false }`: cifra el tráfico, pero no autentica al servidor. Primero hay que confirmar que el MySQL de Railway acepte TLS.
+    2. **Conexiones desde fuera (desarrollo local con `MYSQL_PUBLIC_URL`):** agregar `ssl` en mysql2. Con certificado autofirmado, la única opción que funciona es `ssl: { rejectUnauthorized: false }`: cifra el tráfico, pero no autentica al servidor. La sección 12 confirma que el MySQL de Railway acepta TLS.
 
 ### Datos
 
 - La base de Railway se recreó desde el esquema el 2026-10-26 y después recibió la migración de perfiles y pagos.
-- Según lo informado, tiene solo el primer ADMIN y los catálogos. El control posterior a la migración, registrado en la sesión de ese día, mostraba **2 usuarios**. **Esta revisión no se conectó a la base y no lo verificó.** Conviene confirmarlo, porque si la segunda cuenta no está verificada no va a poder ingresar.
+- Según el control de solo lectura del 2026-10-27, tiene **2 usuarios** (3 asignaciones de perfil), los catálogos, 0 establecimientos y 0 conciertos. Si la segunda cuenta no tiene el email verificado, no va a poder ingresar.
+- La migración de revisión de establecimientos se aplicó el 2026-10-27 (sección 12).
 - Faltan datos de demostración: provincias, ciudades, géneros, conciertos y espacios se cargan desde la interfaz (`docs/INSTALLATION.md`, "Cuentas y perfiles para la demostración").
 - `20261026_perfiles_y_pagos.sql` no es idempotente: volver a ejecutarla falla en los `ALTER TABLE ... ADD COLUMN`.
 
@@ -397,10 +398,10 @@ Con las reglas nuevas también cambiaron fixtures que publicaban sin aprobación
 
 **Necesita tu decisión o confirmación:**
 
-- aplicar la migración `20261027_revision_establecimientos.sql` en Railway, antes del despliegue;
 - la opción de TLS de la sección 8;
-- qué hacer con conciertos publicados cuya reserva se cancela después (sección 6);
-- el push de `main`.
+- qué hacer con conciertos publicados cuya reserva se cancela después (sección 12).
+
+La migración y el push quedaron resueltos el mismo día (sección 12).
 
 **Segunda corrida del 2026-10-27, con los tests agregados.** Se ejecutó sobre el mismo MySQL 8 local, con la base creada desde `database/venti_shema2.sql` (nunca contra Railway):
 
@@ -421,3 +422,73 @@ Los 5 tests nuevos pasaron en la primera ejecución:
 | `commerce.test.js` | Pago REJECTED |
 
 Para soportarlos, `tests/helpers.js` borra `service_quote_items` y `service_quotes` antes que las demás tablas: `service_quotes` no tiene borrado en cascada hacia usuarios ni empresas.
+
+## 12. Railway: migración, TLS y reservas canceladas (2026-10-27)
+
+### Migración de revisión de establecimientos
+
+1. **Control previo, de solo lectura.**
+   - `establishments.status` era `enum('DRAFT','PUBLISHED','ARCHIVED')` y no existían las columnas nuevas.
+   - La base tenía 57 tablas, 2 usuarios, 0 establecimientos y 0 conciertos.
+2. **Respaldo** con `backend/scripts/db-backup.mjs`, que trabaja en una transacción de solo lectura.
+   - **Archivo:** `C:/Users/Mateo/venti_backups/venti-20261027-pre-revision-establecimientos.sql`, fuera del repositorio.
+   - **Tamaño y huella:** 94.714 bytes; SHA-256 `81d31aa8660aa7673dd9863f52adef700226e6ddbc559b5c9ab1895119a5301d`.
+   - **Contenido:** 56 tablas con su estructura, 186 filas, 1 vista, 5 procedimientos, 9 triggers y 1 evento.
+   - **Comprobación:** el archivo va de `CREATE DATABASE`/`USE venti` a `SET FOREIGN_KEY_CHECKS = 1` y conserva `establishments` con el `ENUM` anterior. Incluye hashes de contraseñas y tokens, así que no debe subirse a Git ni compartirse.
+3. **Aplicación** con `backend/scripts/db-migrate.mjs --file ../database/migrations/20261027_revision_establecimientos.sql --backup <respaldo> --confirm venti`.
+   - El script exige que el respaldo exista y no esté vacío, y que `--confirm` coincida con el nombre de la base.
+   - Resultado: `Migración aplicada en venti: 4 sentencias.`
+4. **Verificación con `SELECT`** sobre `information_schema`, en una sesión de solo lectura:
+   - `establishments.status`: `enum('DRAFT','PENDING_REVIEW','PUBLISHED','ARCHIVED') NOT NULL`;
+   - `reviewed_at`: `datetime NULL`;
+   - `reviewed_by_user_id`: `bigint unsigned NULL`;
+   - `review_note`: `varchar(500) NULL`;
+   - restricción `fk_establishments_reviewed_by` hacia `users`, e índice `idx_establishments_reviewed_by`;
+   - sin cambios en el resto: 57 tablas y 2 usuarios.
+
+### Modo SSL que acepta Railway
+
+Se midió con conexiones de solo lectura, sin cambiar la conexión de la app. Se usó la URL configurada en `backend/.env`, que pasa por el proxy público.
+
+| Prueba | Resultado |
+| --- | --- |
+| Variables del servidor | `require_secure_transport = 0` (acepta conexiones sin cifrar); `tls_version = TLSv1.2,TLSv1.3`; `ssl_cert = server-cert.pem`, `ssl_ca = ca.pem` (los certificados que genera MySQL) |
+| Conexión de la app, tal como está hoy | `Ssl_cipher` vacío: **sin TLS** |
+| mysql2 con `ssl: { rejectUnauthorized: false }` | Conecta con **TLSv1.3**, `TLS_AES_256_GCM_SHA384` |
+| mysql2 con `ssl: { rejectUnauthorized: true }` | Falla con `HANDSHAKE_SSL_ERROR`: el certificado no está firmado por una CA pública |
+
+Equivalencias con los modos SSL de MySQL:
+
+- `DISABLED` y `PREFERRED`/`REQUIRED` funcionan; `REQUIRED` equivale a `rejectUnauthorized: false`.
+- `VERIFY_CA` y `VERIFY_IDENTITY` necesitarían el `ca.pem` del servidor, que Railway no publica.
+
+Las opciones siguen siendo las de la sección 8 y no se cambió nada.
+
+### Cancelación de una reserva con concierto publicado
+
+Hoy, cancelar una reserva no consulta los conciertos. `MarketplaceService.cancelReservation` cambia el estado, reembolsa el pago simulado y notifica a la otra parte, y nada más. Un concierto solo se vincula a una reserva `CONFIRMED` o `COMPLETED`.
+
+**Casos afectados:**
+
+| # | Caso | Qué pasa hoy |
+| --- | --- | --- |
+| 1 | El organizador (quien reservó) cancela su reserva `CONFIRMED` antes del evento, con el concierto `PUBLISHED` | La reserva queda `CANCELLED` y se reembolsa. El concierto **sigue publicado**, con el lugar del espacio y las entradas a la venta, aunque la franja quedó libre y otro cliente puede reservarla. |
+| 2 | Un ADMIN (`marketplace.admin`) cancela la reserva `CONFIRMED` como moderación | Igual que el caso 1. El organizador solo recibe el aviso de la reserva cancelada, no del concierto. |
+| 3 | Reserva confirmada por un presupuesto aceptado | Igual que los casos 1 y 2: la cancelación sigue el mismo camino. |
+| 4 | Después de la cancelación, el organizador edita el concierto publicado o sus tipos de entrada | Falla con `409 RESERVATION_NOT_CONFIRMED`, porque `publishable` revalida la reserva (`management.service.ts:179` y `:274`). Puede cancelar el concierto o cambiar el lugar a texto libre. |
+| 5 | Compradores con entradas de ese concierto | No reciben ningún aviso, porque el concierto no cambió. |
+| 6 | Un borrador vinculado a una reserva que se cancela | No se puede publicar (`409 RESERVATION_NOT_CONFIRMED`). Ya está cubierto por un test. |
+
+Sin efecto:
+
+- el espacio no puede cancelar una reserva `CONFIRMED` (`409 RESERVATION_CONFIRMED`);
+- rechazar y vencer solo aplican a reservas en `HOLD`, que no se pueden vincular a un concierto;
+- en Railway hoy hay 0 conciertos, así que no existe ningún caso real todavía.
+
+**Opciones, para que elijas:**
+
+| Opción | Qué hace | A favor | En contra |
+| --- | --- | --- | --- |
+| A. Bloquear la cancelación | `cancelReservation` responde `409` si hay un concierto no cancelado vinculado a la reserva. El organizador primero cancela el concierto o lo mueve a otro lugar. Se puede dejar a `marketplace.admin` como excepción. | Nunca queda un concierto publicado sin espacio. Es simple y explícito. | El organizador hace dos pasos. Si se permite la excepción del ADMIN, ese caso necesita otra de las opciones. |
+| B. Avisar al organizador | Permite la cancelación y crea una notificación al organizador ("tu concierto X quedó sin reserva"). El concierto queda publicado y bloqueado para edición hasta que cambie el lugar. | Es el cambio más chico y no rompe el flujo actual. | El concierto sigue a la venta en un lugar que ya no tiene reservado, y los compradores no se enteran. |
+| C. Despublicar el concierto | Al cancelar, el concierto vinculado pasa a `CANCELLED` por el flujo existente, que avisa a los compradores. | Es coherente para el público. | Es la consecuencia más fuerte: una cancelación de reserva, quizás por error, cancela un concierto con entradas vendidas. El reembolso de esas entradas no es automático. |
