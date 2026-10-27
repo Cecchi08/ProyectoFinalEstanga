@@ -15,7 +15,7 @@ La API autoriza **por permiso**. Cada cuenta tiene uno o más perfiles, y sus pe
 | EMPRESA_SERVICIOS | Empresa de servicios, su catálogo, integrantes y respuesta a cotizaciones. | Un ADMIN |
 | ADMIN | Usuarios, perfiles y suspensiones con auditoría; catálogos; estadísticas globales; verificación de empresas; control de ingreso de cualquier concierto. | Un ADMIN; el primero por SQL |
 
-**STAFF ya no es un perfil.** El organizador asigna cuentas a un concierto desde el editor, y esas cuentas validan las entradas de ese concierto. Los perfiles que asigna un ADMIN se gestionan en `/admin/users`. Cada cambio queda en la auditoría (`/admin/audit`). Detalle en [Seguridad y autorización](docs/permissions.md) y [Perfiles, permisos y endpoints](docs/PERMISOS.md).
+**Control de ingreso.** No depende de un perfil. El organizador asigna cuentas a un concierto desde el editor (`concert_staff`), y esas cuentas validan las entradas de ese concierto mientras esté publicado. Los perfiles que asigna un ADMIN se gestionan en `/admin/users`. Cada cambio queda en la auditoría (`/admin/audit`). Detalle en [Seguridad y autorización](docs/permissions.md) y [Perfiles, permisos y endpoints](docs/PERMISOS.md).
 
 ## Tecnologías y arquitectura
 
@@ -31,7 +31,6 @@ backend/tests/              Pruebas HTTP con MySQL real
 backend/scripts/            Checks, respaldo/migración de la base y recorrido E2E en navegador
 database/venti_shema2.sql   Esquema vigente: tablas, triggers, procedimientos y datos iniciales
 database/migrations/        Migraciones para bases creadas con una versión anterior del esquema
-database/schema.sql         Esquema anterior (no usar en instalaciones nuevas)
 frontend/app/               Rutas Expo Router
 frontend/src/               Pantallas, componentes, tema, contextos y cliente HTTP
 frontend/tests/             Pruebas unitarias del cliente
@@ -96,6 +95,6 @@ El script se actualizó al flujo actual pero **todavía no se ejecutó**. Nunca 
 - [Perfiles, permisos y endpoints](docs/PERMISOS.md)
 - [Etapa 8: resultados y pendientes](docs/VENTI_ETAPA_8.md)
 
-SMTP/OAuth reales y APK firmado requieren configuración externa. El login hoy no exige el email verificado, aunque `REQUIRE_EMAIL_VERIFICATION` esté activo. El bloqueo está desactivado temporalmente en `backend/src/services/auth.service.js`. Antes de exposición pública, revisar los avisos transitivos de Expo detallados en el informe de entrega.
+SMTP/OAuth reales y APK firmado requieren configuración externa. Con `REQUIRE_EMAIL_VERIFICATION=true` (valor por defecto), el login exige el email verificado. Antes de exposición pública, revisar los avisos transitivos de Expo detallados en el informe de entrega.
 
 La operación actual admite una instancia Node: estados OAuth y rate limiting están en memoria. Access JWT de 15 minutos por defecto; logout/reset revocan refresh, sin blacklist de access. SMTP se envía después del commit sin cola persistente. Producción requiere TLS, CORS exacto y `TRUST_PROXY_HOPS` acorde al proxy real. No registrar cuerpos de autenticación, Authorization, QR ni URLs con tokens.

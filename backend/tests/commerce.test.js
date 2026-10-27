@@ -207,7 +207,7 @@ test('Staff asignado valida QR, persiste USED/validador/fecha y rechaza segundo 
     assert.deepEqual(log.map(entry => [entry.result, entry.by_user]), [['ACCEPTED', ids.staff], ['ALREADY_USED', ids.staff]]);
 });
 
-test('Staff no asignado y Organizer/User no pueden validar; Admin tiene acceso global', async () => {
+test('sin asignación al concierto, ni el organizador ni un comprador validan; ADMIN tiene acceso global', async () => {
     const { tickets: [ticket] } = await confirmed(input(1));
     for (const role of ['unassigned', 'user', 'organizer']) await error(scan(ticket.qr_token, role), 403, 'STAFF_NOT_ASSIGNED');
     await db.rows('DELETE FROM concert_staff WHERE user_id = ?', [ids.staff]);

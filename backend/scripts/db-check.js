@@ -8,7 +8,7 @@ try {
     const actual = rows[0]?.database_name;
     console.info(`MySQL: conexión OK; SELECT 1=${rows[0]?.connected}; base=${actual ?? '(sin seleccionar)'}.`);
     if (actual !== 'venti') {
-        console.error(`schema.sql usa la base "venti"; la conexión usa "${actual ?? '(sin seleccionar)'}". Configure Railway con una base venti e importe schema.sql allí.`);
+        console.error(`database/venti_shema2.sql usa la base "venti"; la conexión usa "${actual ?? '(sin seleccionar)'}". Configure Railway con una base venti e importe database/venti_shema2.sql allí.`);
         process.exitCode = 1;
     }
 } catch (error) {

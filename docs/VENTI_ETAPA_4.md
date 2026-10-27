@@ -1,5 +1,7 @@
 # VENTI — Etapa 4: compras, entradas y QR
 
+> **Documento histórico.** Describe esta etapa tal como se entregó, con los roles y el esquema de ese momento (`USER`, `ORGANIZER`, `STAFF`, `database/schema.sql`). Ya no aplican: hoy la API autoriza por permisos con los perfiles ADMIN, COMPRADOR, ARTISTA, ORGANIZADOR, VENUE, EMPRESA_SERVICIOS y GUEST, el control de ingreso se asigna por concierto y el esquema vigente es `database/venti_shema2.sql`. Ver [Seguridad y autorización](permissions.md) y [Perfiles, permisos y endpoints](PERMISOS.md).
+
 Se reutilizan autenticación, roles vigentes, errores y transacciones MySQL. Código nuevo en TypeScript estricto con rutas → controller → service → repository. Sin cambios de schema, frontend, pagos externos ni otros módulos.
 
 ## API

@@ -16,7 +16,7 @@ Un usuario tiene uno o más perfiles (filas en `user_roles`). Los perfiles se co
 | ADMIN | Todos los permisos, salvo `tickets.validate` (usa `tickets.validate_all`). | Un ADMIN; el primero se carga por SQL |
 | GUEST | Invitado sin registro completo. No se asigna ni se quita a mano. | Flujo de invitado |
 
-**STAFF ya no es un perfil.** El control de ingreso depende de la asignación por concierto en `concert_staff`, que hace el organizador desde el editor del concierto. Mientras una cuenta está asignada a un concierto publicado, la API le agrega el permiso `tickets.validate`. ADMIN valida cualquier concierto con `tickets.validate_all`.
+**Control de ingreso.** No se otorga por perfil: depende de la asignación por concierto en `concert_staff`, que hace el organizador desde el editor del concierto. Mientras una cuenta está asignada a un concierto publicado, la API le agrega el permiso `tickets.validate`. ADMIN valida cualquier concierto con `tickets.validate_all`.
 
 Los cambios de perfil quedan en `admin_audit_log`:
 
@@ -34,7 +34,7 @@ La API impide dejar una cuenta sin perfiles (`LAST_ROLE`) y dejar la plataforma 
 4. Encima del permiso, el servicio valida la **propiedad o la membresía**:
    - dueño del concierto;
    - asignación en `concert_staff`;
-   - miembro de la organización (`organization_members`: OWNER, ADMIN o STAFF), tanto de espacios como de empresas de servicios;
+   - miembro de la organización (`organization_members`), tanto de espacios como de empresas de servicios. El rol de miembro es OWNER, ADMIN o STAFF: es un rol dentro de esa organización, no un perfil de la cuenta;
    - miembro del perfil de artista (`artist_members`: OWNER o MEMBER).
 
 El catálogo de códigos está en `backend/src/utils/access.util.js`. Las asignaciones de permisos a perfiles (`role_permissions`) se siembran en `database/venti_shema2.sql`.
@@ -64,4 +64,4 @@ Venti no procesa pagos reales ni pide datos de tarjeta.
 - **Límite de pedidos**: el rate limiting por IP cubre `/auth`, con un límite más estricto para registro, login y envío de emails.
 - **Proxies**: no habilitar confianza arbitraria en `X-Forwarded-For`. `TRUST_PROXY_HOPS` tiene que coincidir con los proxies reales.
 - **SQL**: la sesión usa UTC y consultas parametrizadas. Los identificadores interpolados salen de constantes internas, nunca del cliente.
-- **Verificación de email**: el envío y la confirmación del email funcionan. Pero hoy el bloqueo de login para cuentas sin verificar está desactivado en el código (`AuthService.verified`, marcado como temporal para pruebas). Por eso `REQUIRE_EMAIL_VERIFICATION=true` todavía no impide el ingreso.
+- **Verificación de email**: con `REQUIRE_EMAIL_VERIFICATION=true` (valor por defecto), el login, el refresh, las sesiones OAuth y cada pedido autenticado de una cuenta sin email verificado responden `403 EMAIL_VERIFICATION_REQUIRED`. El enlace de verificación lleva el token en el fragmento de la URL.

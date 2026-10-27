@@ -16,7 +16,7 @@ beforeEach(async () => { await database.clear(); ctx = database.context(); });
 after(async () => { await database.close(); });
 const login = () => request(ctx.app).post('/auth/login').send({ email: registration.email, password });
 async function session() { await verifiedUser(ctx.auth, ctx.mailer); return (await login().expect(200)).body.data; }
-test('register: normaliza email, bcrypt, rol USER, preferencias y token hasheado', async () => {
+test('register: normaliza email, bcrypt, perfil COMPRADOR, preferencias y token hasheado', async () => {
     const response = await request(ctx.app).post('/auth/register').send({ ...registration, email: ' ANA@EXAMPLE.COM ' }).expect(201);
     assert.equal(response.body.data.user.email, registration.email);
     assert.deepEqual(response.body.data.roles, ['COMPRADOR']);

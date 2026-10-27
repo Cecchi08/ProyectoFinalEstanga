@@ -85,7 +85,7 @@ for (const viewport of [{width:1440,height:1000},{width:768,height:1024},{width:
     await catalog('Distritos',`Distrito ${suffix}`,() => choose(page,'Provincia',`Provincia ${suffix}`));
     await catalog('Ciudades',`Ciudad ${suffix}`,async () => {await choose(page,'Provincia',`Provincia ${suffix}`); await choose(page,'Distrito',`Distrito ${suffix}`);});
     await catalog('Géneros',`Rock ${suffix}`); await logout(page);
-    // Organizer's multi-role menu and CRUD/publication.
+    // ORGANIZADOR (with VENUE): concert CRUD and publication.
     await login(page,'organizer'); await page.getByRole('tab',{name:'Organizador',exact:true}).click(); await page.getByRole('button',{name:'Crear concierto',exact:true}).click();
     await page.getByLabel('Nombre del concierto',{exact:true}).fill(`VENTI Live ${suffix}`); await page.getByLabel('Inicio (ISO con zona horaria)',{exact:true}).fill(new Date(Date.now()+30*86400000).toISOString());
     // Free-text place in the city created above; marketplace spaces and reservations are optional.

@@ -1,13 +1,13 @@
 # API — VENTI
 
-Contrato consolidado de las rutas existentes en `backend/src/routes`. No hay endpoints de pagos, administración de usuarios/roles, creación de asignaciones Staff ni recordatorios programados.
+Contrato de las rutas de `backend/src/routes`: bodies, respuestas y errores. Los permisos exactos de cada endpoint, incluidos los del marketplace, las empresas de servicios, los perfiles de artista y la administración de usuarios, están en [Perfiles, permisos y endpoints](PERMISOS.md). Los pagos son siempre simulados. No hay recordatorios programados.
 
 Base: `http://localhost:3000`. JSON (`Content-Type: application/json` al enviar body); bodies con esquema estricto. Emails normalizados a minúsculas y sin espacios exteriores. Contraseña nueva: mínimo 12 caracteres, máximo 72 bytes UTF-8 (límite de bcrypt). IDs como strings; importes de respuesta como decimal string. Fechas de conciertos ISO 8601 con zona; respuestas UTC.
 
 Éxito: `{ "success": true, "data": ... }`.
 Error: `{ "success": false, "error": { "code": "...", "message": "...", "details": [...] } }`. `details` solo aparece cuando corresponde. Sin stack traces, SQL ni secretos.
 
-**Público**: sin Bearer. **Sesión**: cualquier usuario autenticado activo, según política de verificación. **Opcional**: se puede enviar Bearer para ampliar visibilidad; un Bearer inválido devuelve 401. **O/A**: ORGANIZER propietario o ADMIN. Los roles se consultan en MySQL; el cliente no puede asignarlos.
+**Público**: sin Bearer. **Sesión**: cualquier usuario autenticado activo, según política de verificación. **Opcional**: se puede enviar Bearer para ampliar visibilidad; un Bearer inválido devuelve 401. **O/A**: dueño del concierto con `concerts.manage`, o `concerts.manage_all` (ADMIN). La API autoriza **por permiso**: perfiles y permisos se releen de MySQL en cada pedido y el cliente no puede asignarlos.
 
 Listados paginados: query `page=1&limit=20`, máximo 100; respuesta `{success:true,data:[...],pagination:{page,limit,total,total_pages}}`. Notificaciones usa otro `data` indicado abajo. Sin resultados: array vacío y `total_pages:0`. Todos los errores pueden incluir 500; rutas de sesión pueden devolver 401/403. No reintentar escrituras automáticamente ante pérdida de conexión: consultar antes su resultado.
 
@@ -15,7 +15,7 @@ Listados paginados: query `page=1&limit=20`, máximo 100; respuesta `{success:tr
 
 | Método y ruta | Body / autenticación | Resultado |
 |---|---|---|
-| POST `/auth/register` | `{first_name,last_name,email,password}` | 201: usuario público, `roles:["USER"]`, mensaje. Envía verificación. |
+| POST `/auth/register` | `{first_name,last_name,email,password}` | 201: usuario público, `roles:["COMPRADOR"]`, mensaje. Envía verificación. |
 | POST `/auth/verify-email` | `{token}` | 200: email verificado; token de un solo uso. |
 | POST `/auth/resend-verification` | `{email}` | 200: mensaje genérico; invalida verificaciones anteriores. |
 | POST `/auth/login` | `{email,password}` | 200: sesión. |
@@ -89,7 +89,7 @@ En esta tabla `{catalog}` representa **cada una** de estas rutas reales: `artist
 
 ## Conciertos y tipos de entrada
 
-`ConcertInput`: `{name,venue_id,concert_type_id,start_datetime,end_datetime?,description?,image_url?,artist_ids?,genre_ids?,ticket_types?,organizer_id?}`. `organizer_id` solo ADMIN, con organizador activo y perfil; ORGANIZER usa su propia identidad. Arrays sin IDs duplicados; `artist_ids` conserva orden. `TicketInput`: `{name,price,stock_total,sale_start?,sale_end?,max_per_purchase?}`. Precio numérico no negativo de hasta dos decimales, stock entero no negativo; máximo positivo o null. Fin posterior al inicio; ventana de venta anterior/al inicio del concierto.
+`ConcertInput`: `{name,artist_name,start_datetime,end_datetime?,description?,image_url?,venue_id?,reservation_id?,venue_name?,address_line?,city_id?,genre_ids?,artist_profile_ids?,ticket_types?,organizer_id?}`. El lugar es un espacio del marketplace (opcionalmente vía una reserva confirmada propia) o un lugar en texto libre con ciudad. `organizer_id` solo con `concerts.manage_all`; con `concerts.manage` el organizador es la propia cuenta. Arrays sin IDs duplicados; `artist_profile_ids` acepta solo perfiles publicados y conserva el orden del cartel (el primero es el principal). `TicketInput`: `{name,price,stock_total,sale_start?,sale_end?,max_per_purchase?}`. Precio numérico no negativo de hasta dos decimales, stock entero no negativo; máximo positivo o null. Fin posterior al inicio; ventana de venta anterior/al inicio del concierto.
 
 `Concert` incluye id, estado/tipo, organizador, venue, ciudad/provincia, fechas, descripción, imagen y arrays `artists`, `genres`, `ticket_types`. Un tipo de entrada incluye id, concert_id, precio, stock total, ventana y máximo. Stock disponible se revalida transaccionalmente al reservar.
 
@@ -97,7 +97,7 @@ En esta tabla `{catalog}` representa **cada una** de estas rutas reales: `artist
 | --- | --- | --- | --- | --- |
 | GET | `/concerts` | Opcional | Paginación y filtros indicados abajo | 200 lista Concert; 403 filtro privado, 422. |
 | GET | `/concerts/:id` | Opcional | — | 200 Concert; 404 inexistente/no visible. |
-| POST | `/concerts` | ORGANIZER o ADMIN | ConcertInput | 201 Concert DRAFT; 403, 422 referencia/fecha/perfil. |
+| POST | `/concerts` | `concerts.manage` o `concerts.manage_all` | ConcertInput | 201 Concert DRAFT; 403, 422 referencia/fecha/perfil. |
 | PATCH | `/concerts/:id` | O/A | ConcertInput parcial sin organizer_id ni ticket_types | 200 Concert; 403, 404, 409 estado/inicio, 422. |
 | DELETE | `/concerts/:id` | O/A | Sin body | 204; 403, 404, 409 si no es borrador eliminable. |
 | POST | `/concerts/:id/publish` | O/A | `{}` o sin body | 200 Concert; 409 estado, 422 incompleto/fecha. |
@@ -107,7 +107,7 @@ En esta tabla `{catalog}` representa **cada una** de estas rutas reales: `artist
 | PATCH | `/ticket-types/:id` | O/A del padre | TicketInput parcial | 200 TicketType; 403, 404, 409 estado/stock comprometido, 422. |
 | DELETE | `/ticket-types/:id` | O/A del padre | Sin body | 204; 403, 404, 409 uso/estado/última entrada requerida. |
 
-Filtros `/concerts`: `q`, `name`, `artist_id`, `genre_id`, `venue_id`, `city_id`, `concert_type_id`, `type=CONCERT|FESTIVAL|LIVE_SHOW`, `date_from`, `date_to`, `status=DRAFT|PUBLISHED|CANCELLED|FINISHED`, `mine=true|false`. Fechas ISO con zona. Público/USER/STAFF solo ven PUBLISHED; ORGANIZER también propios; ADMIN todos. `mine=true` y estados privados requieren ORGANIZER/ADMIN.
+Filtros `/concerts`: `q`, `name`, `artist`, `artist_profile_id`, `genre_id`, `venue_id`, `city_id`, `min_price`, `max_price`, `date_from`, `date_to`, `status=DRAFT|PUBLISHED|CANCELLED|FINISHED`, `mine=true|false`. Fechas ISO con zona. `min_price`/`max_price` devuelven conciertos con al menos un tipo de entrada activo en el rango. Sin permisos de gestión solo se ven conciertos PUBLISHED; con `concerts.manage`, también los propios; con `concerts.manage_all`, todos. `mine=true` y estados privados requieren `concerts.manage` o `concerts.manage_all`.
 
 Publicar exige artista, género y al menos un tipo de entrada válido; para permitir reservas debe haber cupo disponible. Conciertos iniciados/cancelados/finalizados no admiten edición ordinaria. Cancelar preserva historial y emite avisos; no reembolsa automáticamente.
 
@@ -122,7 +122,7 @@ Publicar exige artista, género y al menos un tipo de entrada válido; para perm
 | POST | `/purchases/:id/cancel` | Propietario o ADMIN | `{}` o sin body | 200 compra CANCELLED o REFUNDED e invalida tickets; 404, 409 estado/usadas/inicio. |
 | GET | `/tickets` | Sesión, propios incluso ADMIN | Paginación | 200 lista de tickets con qr_token y datos del concierto/venue. |
 | GET | `/tickets/:id` | Propietario o ADMIN | — | 200 ticket; 404 ajeno/inexistente. |
-| POST | `/tickets/validate` | STAFF asignado o ADMIN | `{concertId,qrToken}` | 200 `{result:"VALID",ticket_id,concert_id,status:"USED"}`; errores debajo. |
+| POST | `/tickets/validate` | Cuenta asignada al concierto (`tickets.validate`, vía `concert_staff`) o `tickets.validate_all` | `{concertId,qrToken}` | 200 `{result:"VALID",ticket_id,concert_id,status:"USED"}`; errores debajo. |
 
 Cantidad entera 1–100; máximo 100 unidades por compra, tipos no repetidos y del mismo concierto. Reserva hasta 15 minutos, acortada por inicio/cierre de venta. Confirmación no integra una pasarela. Segunda confirmación: 409 `INVALID_STATE`; reserva vencida: 409 `RESERVATION_EXPIRED`. Cancelar una confirmada devuelve internamente y libera stock si no hay tickets utilizados y el estado/fecha lo permite.
 
@@ -135,8 +135,8 @@ QR es un token de 64 caracteres hex, no una URL. Validación: 403 `STAFF_NOT_ASS
 | GET | `/favorites` | Sesión, propios | Paginación, `concert_id?` | 200 lista Concert visible; 422. |
 | POST | `/favorites/:concertId` | Sesión | `{}` o sin body, sin query | 200 `{concert_id,favorite:true}`; idempotente; 404 no visible, 422. |
 | DELETE | `/favorites/:concertId` | Sesión | `{}` o sin body, sin query | 200 `{concert_id,favorite:false}`; idempotente; 404 concierto inexistente. |
-| GET | `/staff/assignments` | STAFF o ADMIN | Paginación | 200 Concert asignados; ADMIN global; 403, 422. |
-| GET | `/concerts/:id/attendees` | STAFF asignado, ORGANIZER propietario o ADMIN | Paginación | 200 lista `{ticket_id,ticket_type_name,first_name,last_name,status,purchase_status,used_at}`; 403 ámbito, 404 concierto. |
+| GET | `/staff/assignments` | Sesión | Paginación | 200 Concert asignados; todos con `tickets.validate_all`; 403, 422. |
+| GET | `/concerts/:id/attendees` | Cuenta asignada al concierto, dueño con `concerts.manage` o `concerts.manage_all` | Paginación | 200 lista `{ticket_id,ticket_type_name,first_name,last_name,status,purchase_status,used_at}`; 403 ámbito, 404 concierto. |
 
 Asistentes incluye una fila por ticket emitido; no expone email, QR ni credenciales. No existe endpoint para crear/modificar asignaciones.
 
@@ -164,10 +164,10 @@ Item: `{id,type,title,message,concert_id,purchase_id,read_at,created_at,concert_
 
 | Método | Ruta | Auth/rol | Query | Respuesta / errores |
 | --- | --- | --- | --- | --- |
-| GET | `/organizer/statistics` | ORGANIZER | `from?`, `to?`, `concert_id?` | 200 resumen propio; 403, 404 concierto ajeno, 422. |
-| GET | `/organizer/concerts/:id/statistics` | ORGANIZER propietario | Igual; ID del path prevalece | 200 resumen del concierto; 403, 404, 422. |
+| GET | `/organizer/statistics` | `statistics.own` | `from?`, `to?`, `concert_id?` | 200 resumen propio; 403, 404 concierto ajeno, 422. |
+| GET | `/organizer/concerts/:id/statistics` | `statistics.own`, concierto propio | Igual; ID del path prevalece | 200 resumen del concierto; 403, 404, 422. |
 | GET | `/admin/statistics` | ADMIN | Igual | 200 resumen global + users/organizers; 403, 404 concierto, 422. |
 
 `from`/`to`: AAAA-MM-DD, inclusivos en UTC sobre creación de compra. Resumen: `{tickets_sold,revenue,confirmed_purchases,attendees,tickets_used,tickets_pending,capacity,occupancy_percent,concerts,active_concerts,sales_by_day:[{date,tickets_sold,revenue}],activity:[{status,purchases}]}`. ADMIN añade `users,organizers`. Sin datos: ceros/arrays vacíos.
 
-Ventas/recaudación: solo compras actualmente CONFIRMED y precio histórico de items; utilizadas/asistentes cuenta tickets USED, no personas únicas. Capacidad/conciertos/usuarios reflejan estado actual, sin filtro de fecha de compra. Concierto cancelado conserva ventas confirmadas hasta devolución. ORGANIZER nunca amplía el ámbito a terceros; ADMIN sin rol ORGANIZER usa el endpoint global.
+Ventas/recaudación: solo compras actualmente CONFIRMED y precio histórico de items; utilizadas/asistentes cuenta tickets USED, no personas únicas. Capacidad/conciertos/usuarios reflejan estado actual, sin filtro de fecha de compra. Concierto cancelado conserva ventas confirmadas hasta devolución. `statistics.own` nunca amplía el ámbito a conciertos ajenos; la vista de toda la plataforma es `/admin/statistics` (`statistics.global`).

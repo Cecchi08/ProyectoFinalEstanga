@@ -2,67 +2,89 @@
 
 ## Acceso y navegación
 
-Registrate con nombre, apellido, email y contraseña de al menos 12 caracteres (hasta 72 bytes). Abrí el email de verificación y confirmá el formulario. Luego ingresá con email/contraseña; Google, GitHub y Facebook requieren configuración del responsable. Si olvidaste la contraseña, usá **Olvidé mi contraseña** y el último enlace recibido.
+Registrate con nombre, apellido, email y contraseña de al menos 12 caracteres (hasta 72 bytes). Abrí el email de verificación y confirmá el formulario: con la verificación activa (valor por defecto), no se puede ingresar sin ese paso. Después ingresá con email y contraseña. Google, GitHub y Facebook requieren configuración del responsable. Si olvidaste la contraseña, usá **Olvidé mi contraseña** y el último enlace recibido.
 
-En escritorio las secciones aparecen a la izquierda. En teléfono/tablet, desplazá horizontalmente la barra inferior para ver todas. Los menús dependen de tus roles. **Mi cuenta → Cerrar sesión** termina el acceso local.
+En escritorio, las secciones aparecen a la izquierda. En teléfono o tablet, desplazá horizontalmente la barra inferior para ver todas. Las secciones dependen de los **permisos** de tus perfiles. **Mi cuenta → Cerrar sesión** termina el acceso local.
 
-## USER
+## Perfiles
 
-1. En **Descubrir**, buscá por nombre o aplicá filtros. Abrí el concierto para consultar fecha, lugar, artistas y entradas.
-2. Guardá o quitá el favorito. **Favoritos** conserva la selección entre dispositivos; un concierto que deje de ser público puede dejar de aparecer.
-3. Indicá cantidades y elegí **Reservar entradas**. Revisá total y vencimiento; **Confirmar compra** emite las entradas. No hay cobro bancario. Una reserva vence como máximo a los 15 minutos y puede vencer antes por cierre de venta.
-4. En **Entradas**, mostrale al Staff el QR individual. Cada QR admite un solo ingreso; no lo compartas. **Actualizar entradas** refleja el estado después del escaneo.
-5. En **Mi cuenta → Historial de compras**, consultá las compras. Para cancelar, confirmá la acción. Una compra usada no se puede cancelar; una confirmada sin uso se devuelve internamente cuando las reglas del concierto lo permiten.
-6. **Venti Discover** muestra sugerencias y su motivo. Activá/desactivá recomendaciones desde allí o Mi cuenta. Sin historial, ofrece próximos eventos; puede quedar vacío si no hay candidatos.
-7. En **Notificaciones**, abrí el concierto/compra asociado, marcá un aviso o todos como leídos. Podés desactivar avisos opcionales; confirmaciones y cambios relevantes de tus compras se mantienen.
+Toda cuenta nace como **COMPRADOR**. En **Mi cuenta → Mis perfiles** ves tus perfiles y tus permisos, y podés activar **ARTISTA** por tu cuenta. ORGANIZADOR, VENUE y EMPRESA_SERVICIOS los asigna un ADMIN, porque implican una organización o un negocio que hay que revisar. Los perfiles se combinan: una cuenta puede ser, por ejemplo, ORGANIZADOR y VENUE a la vez.
 
-## ORGANIZER
+## COMPRADOR
 
-1. **Organizer → Crear concierto**: completá nombre, fecha futura con zona horaria, venue, tipo, artistas y géneros. Ejemplo de formato: `2027-06-10T23:00:00-03:00`; elegí una fecha futura al demostrar.
-2. Guardá el borrador. Agregá tipos de entrada con nombre, precio, cupo y, opcionalmente, ventana de venta/máximo por compra.
-3. **Publicar concierto** lo habilita para descubrimiento. Debe tener artista, género y un tipo de entrada válido; cargá cupo para permitir reservas.
-4. Editá datos o entradas mientras estado/fecha lo permitan. El cupo no puede bajar de lo comprometido. Para cancelar, confirmá la acción; se conserva el historial y se notifican los afectados. Cancelar un concierto no devuelve automáticamente todas las compras.
-5. **Ver estadísticas** muestra ventas confirmadas, recaudación histórica, entradas utilizadas/pendientes y ocupación. Filtrá por fecha de creación de compra (UTC) y concierto propio.
+1. En **Descubrir**, buscá por nombre o abrí **Filtros** (artista, género, espacio, ciudad, fechas y precio mínimo o máximo). Abrí el concierto para ver fecha, lugar, artistas en el cartel y entradas.
+2. Indicá cantidades y elegí **Reservar entradas**. La compra queda pendiente, con vencimiento.
+3. En la compra, elegí **Simular pago aprobado** para confirmarla, o **Simular pago rechazado** para probar el rechazo. Venti no cobra dinero ni pide datos de tarjeta.
+4. En **Entradas**, mostrá el QR individual en el ingreso. Cada QR admite un solo ingreso: no lo compartas.
+5. En **Mi cuenta → Historial de compras** consultás tus compras. Al cancelar una compra confirmada sin usar, el pago simulado se marca como reembolsado.
+6. **Venti Discover** sugiere conciertos según tus entradas y explica por qué. Las recomendaciones se activan o desactivan desde ahí o desde Mi cuenta.
+7. En **Notificaciones** abrís el concierto o la compra del aviso y marcás avisos como leídos. Los avisos opcionales se pueden desactivar.
 
-Los catálogos los prepara ADMIN. El responsable de instalación asigna previamente el Staff al concierto; ORGANIZER no tiene una pantalla de asignación de personal.
+## ARTISTA
 
-## STAFF
+1. En **Mi artista → Crear perfil de artista** cargás nombre artístico, ciudad, géneros, biografía, imagen y sitio web. **Publicar perfil** lo hace visible y permite que los organizadores lo agreguen al cartel.
+2. El OWNER del perfil suma integrantes por email (cuentas con perfil ARTISTA).
+3. El perfil público muestra las **Presentaciones**: los conciertos próximos y anteriores que lo tienen en el cartel.
+4. En **Espacios** buscás salas por ciudad, tipo, comodidades, capacidad, precio y disponibilidad. Podés **Reservar al precio de lista** o **Pedir presupuesto**.
+5. Una reserva directa queda en **HOLD**, primero pendiente de pago y después esperando que el espacio la acepte. Una vez **CONFIRMED**, solo vos podés cancelarla.
 
-1. Entrá a **Staff** y seleccioná un concierto asignado. **Actualizar conciertos** recupera nuevas asignaciones.
-2. Consultá asistentes; cada fila representa una entrada y muestra el nombre del comprador.
-3. En Android/iOS, **Escanear con cámara** solicita permiso. También podés ingresar el token manualmente; en Web/Desktop usá ese campo o un lector USB que escriba el QR y presione Enter.
-4. **Entrada válida · Ingreso registrado** confirma el acceso. Tocá **Siguiente entrada** para continuar.
-5. **Entrada ya utilizada**, **otro concierto**, **cancelada**, **inválida** o **sin asignación** significan que no se registró un nuevo ingreso. El segundo escaneo del mismo QR se rechaza.
+## ORGANIZADOR
+
+1. **Organizador → Crear concierto**: nombre, inicio con zona horaria (por ejemplo `2027-06-10T23:00:00-03:00`), texto del cartel, géneros y lugar (texto libre o una reserva de espacio confirmada).
+2. En **Perfiles de artista en el cartel** agregás perfiles publicados. El primero es el artista principal, y el orden se cambia con **Subir**.
+3. Agregá tipos de entrada con nombre, precio y cupo. **Publicar concierto** lo habilita en Descubrir.
+4. **Control de ingreso:** en el editor, escribí el email de una cuenta registrada en **Email del staff** y elegí **Asignar staff**. Esa cuenta valida las entradas del concierto mientras esté publicado. No necesita ningún perfil adicional.
+5. Editá datos o entradas mientras el estado y la fecha lo permitan. Al cancelar se conserva el historial y se avisa a los compradores.
+6. **Ver estadísticas** muestra ventas confirmadas, recaudación, entradas usadas y pendientes, y ocupación de tus conciertos.
+7. También podés reservar espacios y pedir cotizaciones a empresas de servicios.
+
+## VENUE
+
+1. **Espacios → Gestionar establecimientos**: creá una organización (quedás como Dueño), sumá miembros con perfil VENUE y cargá establecimientos, espacios y bloqueos de agenda.
+2. Publicá cada espacio y el establecimiento para que aparezcan en la búsqueda.
+3. Los presupuestos recibidos están en `/marketplace/quotes`. Ahí respondés con ítems, cargos, descuento y validez, o rechazás el pedido.
+4. Las reservas recibidas están en `/marketplace/reservations`, en la vista **Recibidos en mis espacios**. Una reserva directa pagada se **acepta** (pasa a CONFIRMED) o se **rechaza** con motivo (se reembolsa el pago simulado). El espacio no puede cancelar una reserva confirmada.
+
+Hoy los botones **Mis presupuestos** y **Mis reservas de espacios** solo aparecen si la cuenta también puede pedir o reservar (por ejemplo, ORGANIZADOR o ARTISTA). Una cuenta que es solo VENUE entra con esas direcciones; los avisos de Notificaciones todavía no enlazan a la reserva ni al presupuesto.
+
+## EMPRESA_SERVICIOS
+
+1. **Servicios → Mis empresas de servicios → Nueva empresa de servicios**: creá la empresa (quedás como Dueño) y sumá integrantes con perfil EMPRESA_SERVICIOS.
+2. Cargá servicios por categoría (sonido, iluminación, seguridad, limpieza…), con precio por hora, día, evento o unidad, o "a cotizar". Publicá los servicios y la empresa.
+3. En **Cotizaciones recibidas** respondés cada pedido con ítems, cargos, descuento y validez, o lo rechazás. La validez tiene que vencer antes del evento.
+4. Cuando el pedido se acepta, queda **Contratada** y la franja aparece ocupada en la disponibilidad del servicio. Venti no cobra los servicios: el pago se arregla entre las partes.
 
 ## ADMIN
 
-1. **Admin** permite crear/editar/eliminar provincias, ciudades, venues, géneros y artistas. Prepará ubicaciones en orden provincia → ciudad → venue. Un registro referenciado puede rechazar eliminación.
-2. **Gestionar todos los conciertos** permite administrar conciertos respetando estados, fechas y stock. Al crear, indicá un organizador con perfil habilitado.
-3. **Estadísticas globales** incluye métricas de plataforma y filtros de ventas. Un ADMIN sin rol ORGANIZER usa este panel global.
-4. **Staff** permite seleccionar conciertos y validar entradas sin asignación individual.
-
-Roles y asignaciones se preparan mediante [Instalación](INSTALLATION.md); no existe una pantalla de gestión de usuarios.
+1. **Admin → Usuarios y perfiles**: buscá cuentas, asigná o quitá perfiles, y suspendé o reactivá cuentas con un motivo. Cada cambio queda en **Auditoría**. Nadie puede suspender su propia cuenta, ni dejar la plataforma sin un ADMIN activo.
+2. **Catálogos**: provincias, distritos, ciudades y géneros. Un registro en uso puede rechazar la eliminación.
+3. **Organizaciones**: listado de organizaciones de espacios y de empresas de servicios. Desde la ficha de una empresa podés verificarla o quitarle la verificación.
+4. **Estadísticas globales** reúne las métricas de la plataforma.
+5. **Staff** permite validar entradas de cualquier concierto (`tickets.validate_all`).
 
 ## Mensajes frecuentes
 
 | Situación | Acción |
 | --- | --- |
 | Sin resultados | Limpiá filtros o revisá si existen eventos publicados. |
-| Sin conexión/error de carga | Recuperá conexión y usá **Reintentar**. |
-| Reserva vencida/sin stock | Volvé al concierto y consultá disponibilidad. |
+| Sin conexión o error de carga | Recuperá la conexión y usá **Reintentar**. |
+| Reserva vencida o sin stock | Volvé al concierto y consultá disponibilidad. |
 | Sesión vencida | Ingresá nuevamente. |
-| Sin permiso | Consultá al responsable por tu rol/asignación. |
+| Email sin verificar | Abrí el enlace del email o pedí uno nuevo desde **Verificar email**. |
+| Sin permiso | Pedile a un ADMIN el perfil que corresponde, o al organizador la asignación al concierto. |
 | Demasiadas solicitudes | Esperá antes de reintentar. |
 
 ## Demostración académica
 
-Prepará cuatro cuentas verificadas, catálogos y asignación Staff ([SQL](INSTALLATION.md#cuentas-y-asignaciones-para-la-demostración)). Publicá dos conciertos futuros para que queden recomendaciones tras comprar uno.
+Prepará las cuentas ([pasos](INSTALLATION.md#cuentas-y-perfiles-para-la-demostración)): un ADMIN, un ORGANIZADOR (también VENUE), una EMPRESA_SERVICIOS, una cuenta que active ARTISTA y un comprador. Publicá dos conciertos futuros para que queden recomendaciones después de comprar uno.
 
-1. ORGANIZER crea y publica un concierto con entradas.
-2. USER lo descubre, reserva, confirma y muestra el QR.
-3. STAFF valida; vuelve a escanear y recibe rechazo.
-4. ORGANIZER consulta estadísticas: una venta y un ingreso.
-5. USER revisa confirmación en Notificaciones y sugerencias en Venti Discover.
-6. ADMIN muestra catálogos, gestión global y estadísticas.
+1. ADMIN asigna los perfiles desde Usuarios y perfiles y muestra la auditoría.
+2. ARTISTA crea y publica su perfil.
+3. ORGANIZADOR crea un concierto con ese artista en el cartel, carga entradas, lo publica y asigna una cuenta al control de ingreso.
+4. COMPRADOR lo encuentra con el filtro de precio, compra con pago simulado y muestra el QR.
+5. La cuenta asignada valida el QR; un segundo escaneo se rechaza.
+6. ORGANIZADOR consulta estadísticas: una venta y un ingreso.
+7. ARTISTA reserva un espacio; VENUE acepta la reserva pagada.
+8. ORGANIZADOR pide una cotización de servicio, EMPRESA_SERVICIOS la responde y ORGANIZADOR la contrata.
 
-Usá ventanas privadas separadas por cuenta o cerrá sesión entre roles.
+Usá ventanas privadas separadas por cuenta o cerrá sesión entre perfiles.

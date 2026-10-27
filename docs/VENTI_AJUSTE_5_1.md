@@ -1,5 +1,7 @@
 # VENTI — Ajuste 5.1
 
+> **Documento histórico.** Describe esta etapa tal como se entregó, con los roles y el esquema de ese momento (`USER`, `ORGANIZER`, `STAFF`, `database/schema.sql`). Ya no aplican: hoy la API autoriza por permisos con los perfiles ADMIN, COMPRADOR, ARTISTA, ORGANIZADOR, VENUE, EMPRESA_SERVICIOS y GUEST, el control de ingreso se asigna por concierto y el esquema vigente es `database/venti_shema2.sql`. Ver [Seguridad y autorización](permissions.md) y [Perfiles, permisos y endpoints](PERMISOS.md).
+
 Sin cambios de schema. El módulo TypeScript estricto `participation.*` sigue routes → controllers → services → repositories y reutiliza permisos, transacciones, validación, paginación y representación de conciertos. La validación QR no cambia.
 
 Todas las rutas requieren Bearer y responden `Cache-Control: no-store`. Listados: `page=1`, `limit=20`, máximo 100, orden estable y sobre `{success,data,pagination}`.

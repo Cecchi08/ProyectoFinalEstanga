@@ -1,5 +1,7 @@
 # VENTI — Etapa 5
 
+> **Documento histórico.** Describe esta etapa tal como se entregó, con los roles y el esquema de ese momento (`USER`, `ORGANIZER`, `STAFF`, `database/schema.sql`). Ya no aplican: hoy la API autoriza por permisos con los perfiles ADMIN, COMPRADOR, ARTISTA, ORGANIZADOR, VENUE, EMPRESA_SERVICIOS y GUEST, el control de ingreso se asigna por concierto y el esquema vigente es `database/venti_shema2.sql`. Ver [Seguridad y autorización](permissions.md) y [Perfiles, permisos y endpoints](PERMISOS.md).
+
 Actualización: [Ajuste 5.1](VENTI_AJUSTE_5_1.md) reemplaza los favoritos locales por API/MySQL y el ingreso manual de IDs Staff por asignaciones y asistentes. Las limitaciones correspondientes descritas abajo son históricas de Etapa 5.
 
 Una aplicación Expo / React Native / TypeScript estricto, con Expo Router y Context API. `frontend/app/` contiene únicamente rutas y layouts; componentes, estado y operaciones viven en `frontend/src/`. Se conserva `database/schema.sql` y la API de Etapas 1–4. Sin recomendaciones, estadísticas ni notificaciones de Etapas 6–7.

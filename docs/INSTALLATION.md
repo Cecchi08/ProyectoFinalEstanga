@@ -56,7 +56,7 @@ Completá ese usuario/password y `DB_HOST=127.0.0.1` en `.env`. Adaptá el host 
 - estados y proveedores;
 - catálogos del marketplace y categorías de servicios.
 
-No incluye usuarios, conciertos ni datos de demostración. El evento necesita `event_scheduler=ON` en el servidor. **Importarlo una sola vez**: las tablas no son una migración idempotente. No eliminar una base existente para reinstalar. `database/schema.sql` es el esquema anterior y no se usa en instalaciones nuevas.
+No incluye usuarios, conciertos ni datos de demostración. El evento necesita `event_scheduler=ON` en el servidor. **Importarlo una sola vez**: las tablas no son una migración idempotente. No eliminar una base existente para reinstalar.
 
 **Base creada con una versión anterior de `venti_shema2.sql`.** Las diferencias van en `database/migrations/`. Cada migración se aplica **una sola vez**, con respaldo previo, mediante `node scripts/db-migrate.mjs` (desde `backend`; ver el encabezado de cada archivo). `20261026_perfiles_y_pagos.sql` ya está aplicada en la base de Railway: no volver a ejecutarla.
 
@@ -113,7 +113,7 @@ INSERT IGNORE INTO user_roles(user_id, role_id)
 
 - **Perfiles revisados.** El ADMIN entra en Admin → Usuarios y perfiles (`/admin/users`), busca la cuenta y asigna ORGANIZADOR, VENUE ("Espacios") o EMPRESA_SERVICIOS. Cada cambio queda en la auditoría (`/admin/audit`).
 - **Autoservicio.** COMPRADOR y ARTISTA los activa cada persona en Mi cuenta → Mis perfiles.
-- **Staff.** No es un perfil. El organizador escribe el email de una cuenta registrada en "Email del staff" del editor del concierto. Esa cuenta ve la pestaña Staff y valida las entradas mientras el concierto está publicado.
+- **Control de ingreso.** No se otorga por perfil. El organizador escribe el email de una cuenta registrada en "Email del staff" del editor del concierto. Esa cuenta ve la pestaña Staff y valida las entradas mientras el concierto está publicado.
 - **Catálogos.** El ADMIN prepara provincias, distritos, ciudades y géneros. Los artistas son perfiles que crean las cuentas ARTISTA. Los espacios los gestionan las cuentas VENUE desde Espacios → Gestionar establecimientos.
 
 Cerrá sesión y volvé a ingresar si un menú no aparece enseguida (la app también recarga los permisos al volver al primer plano y ante un `403`). El [manual](USER_MANUAL.md) contiene el recorrido de presentación.

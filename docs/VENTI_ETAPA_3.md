@@ -1,5 +1,7 @@
 # VENTI — Etapa 3
 
+> **Documento histórico.** Describe esta etapa tal como se entregó, con los roles y el esquema de ese momento (`USER`, `ORGANIZER`, `STAFF`, `database/schema.sql`). Ya no aplican: hoy la API autoriza por permisos con los perfiles ADMIN, COMPRADOR, ARTISTA, ORGANIZADOR, VENUE, EMPRESA_SERVICIOS y GUEST, el control de ingreso se asigna por concierto y el esquema vigente es `database/venti_shema2.sql`. Ver [Seguridad y autorización](permissions.md) y [Perfiles, permisos y endpoints](PERMISOS.md).
+
 Arquitectura: `routes → controllers → services → repositories → MySQL`. Los módulos nuevos se encuentran en `backend/src/{routes,controllers,services,repositories,validators}/management.*.ts`. Se reutilizan autenticación, autorización, validación Zod, `AppError` y transacciones de Etapa 2. `schema.sql` no cambia.
 
 ## Ejecución y requisitos

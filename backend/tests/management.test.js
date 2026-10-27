@@ -39,7 +39,7 @@ beforeEach(async () => {
     await db.rows("INSERT INTO venues (id, establishment_id, venue_type_id, name, slug, status, published_at) VALUES (1, 1, 1, 'Sala A', 'sala-a', 'PUBLISHED', NOW())");
 });
 
-test('Organizer crea borrador propio con relaciones, fechas, entradas y precios exactos', async () => {
+test('el organizador crea un borrador propio con relaciones, fechas, entradas y precios exactos', async () => {
     const concert = await create();
     assert.equal(concert.organizer_id, ids.owner);
     assert.equal(concert.status, 'DRAFT');
@@ -59,7 +59,7 @@ test('crear exige autenticación y permiso vigente; COMPRADOR recibe 403', async
     await call('post', '/concerts', 'owner', input()).expect(403);
 });
 
-test('ownership nunca se acepta del Organizer; Admin puede elegir organizador válido', async () => {
+test('el organizador no puede elegir otro dueño; ADMIN puede elegir un organizador válido', async () => {
     await call('post', '/concerts', 'owner', input({ organizer_id: ids.other })).expect(403);
     const concert = await create({ organizer_id: ids.other }, 'admin');
     assert.equal(concert.organizer_id, ids.other);
@@ -68,7 +68,7 @@ test('ownership nunca se acepta del Organizer; Admin puede elegir organizador v�
     assert.equal((await create({}, 'admin')).organizer_id, ids.admin);
 });
 
-test('Organizer edita propio, no ajeno; Admin edita cualquiera; USER y STAFF no editan', async () => {
+test('el organizador edita lo propio, no lo ajeno; ADMIN edita cualquiera; comprador y cuenta de staff no editan', async () => {
     const concert = await create();
     await call('patch', `/concerts/${concert.id}`, 'owner', { name: 'Propio' }).expect(200);
     for (const role of ['other', 'user', 'staff']) await call('patch', `/concerts/${concert.id}`, role, { name: 'Intruso' }).expect(403);
@@ -114,7 +114,7 @@ test('listado combina todos los filtros y pagina sin duplicar conciertos con var
     }
 });
 
-test('status/mine no amplían visibilidad; Organizer ve propios y públicos, Admin todos', async () => {
+test('status/mine no amplían visibilidad; el organizador ve propios y públicos, ADMIN todos', async () => {
     const own = await create(); await create({}, 'other');
     for (const role of [undefined, 'user', 'staff']) await call('get', '/concerts?status=DRAFT', role).expect(403);
     const response = await call('get', '/concerts?status=DRAFT', 'owner').expect(200);
@@ -274,7 +274,7 @@ test('staff: el dueño asigna por email, es idempotente y da acceso solo a ese c
     assert.deepEqual((await call('get', '/staff/assignments', 'staff').expect(200)).body.data, []);
 });
 
-test('tipos de entrada: Organizer solo propios, Admin cualquiera, lectura según concierto', async () => {
+test('tipos de entrada: el organizador solo propios, ADMIN cualquiera, lectura según concierto', async () => {
     const concert = await create(); const path = `/concerts/${concert.id}/ticket-types`;
     const body = { name: 'VIP', price: 3000, stock_total: 10 };
     for (const role of ['other', 'user', 'staff']) await call('post', path, role, body).expect(403);
