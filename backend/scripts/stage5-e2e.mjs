@@ -497,3 +497,29 @@ test('flujo completo: espacio aprobado, reserva, concierto en el espacio, compra
     assert.deepEqual(errors,[]);
   } finally { await browserContext.close(); }
 });
+
+test('solicitud de perfil: la persona pide Espacios desde Mis perfiles, el ADMIN lo aprueba en la cola y el perfil queda activo', {timeout:120000}, async () => {
+  const browserContext = await browser.newContext({viewport:{width:1440,height:1000}}); const page = await browserContext.newPage();
+  const errors = []; page.on('pageerror', error => errors.push(error.message));
+  try {
+    // The artist account (ARTISTA only) asks for the business profile VENUE ("Espacios" in the app).
+    await login(page,'artist'); await page.getByRole('tab',{name:'Mi cuenta',exact:true}).click();
+    await page.getByRole('button',{name:'Mis perfiles',exact:true}).click();
+    await expect(page.getByText('Venue · Disponible con solicitud',{exact:true})).toBeVisible();
+    await page.getByRole('button',{name:'Solicitar Venue',exact:true}).click();
+    await expect(page.getByText('Solicitud de Espacios enviada. Un administrador la revisará.',{exact:true})).toBeVisible();
+    await expect(page.getByText('Venue · Pendiente',{exact:true})).toBeVisible();
+    await logout(page);
+    // The ADMIN approves it from the queue at the top of Usuarios.
+    await login(page,'admin'); await page.goto('http://localhost:8081/admin/users');
+    await expect(page.getByText('Solicitudes de perfil pendientes',{exact:true})).toBeVisible();
+    await page.getByRole('button',{name:/^Aprobar Espacios de la solicitud #/}).click();
+    await expect(page.getByText('Espacios concedido a artist@e2e.example.',{exact:true})).toBeVisible();
+    await logout(page);
+    // Back in Mis perfiles the profile is active; the grant is in the audit log.
+    await login(page,'artist'); await page.goto('http://localhost:8081/profiles');
+    await expect(page.getByText('Venue · Activo',{exact:true})).toBeVisible();
+    await logout(page);
+    assert.deepEqual(errors,[]);
+  } finally { await browserContext.close(); }
+});
