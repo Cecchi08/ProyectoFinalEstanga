@@ -1,7 +1,7 @@
 -- Solicitud de perfiles (ORGANIZADOR, VENUE, EMPRESA_SERVICIOS) aprobada por un ADMIN.
 -- Solo crea la tabla nueva: no modifica datos ni tablas existentes.
--- NO APLICADA en Railway. Aplicarla solo con confirmacion explicita y respaldo previo:
--- node scripts/db-migrate.mjs --file ../database/migrations/20261027_solicitud_perfiles.sql --backup <respaldo.sql> --confirm venti
+-- APLICADA en Railway el 27/10/2026, con respaldo previo (venti-20261027-pre-solicitud-perfiles.sql). NO volver a ejecutarla ahi.
+-- Para otra base, aplicarla con: node scripts/db-migrate.mjs --file ../database/migrations/20261027_solicitud_perfiles.sql --backup <respaldo.sql> --confirm <base>
 USE venti;
 
 SET NAMES utf8mb4;
