@@ -115,7 +115,7 @@ Publicar exige artista, género y al menos un tipo de entrada válido; para perm
 
 | Método | Ruta | Auth/rol | Body/query | Respuesta / errores |
 | --- | --- | --- | --- | --- |
-| POST | `/purchases` | Sesión | `{concertId?,items:[{ticketTypeId,quantity}]}` | 201 compra RESERVED con items/total/expires_at; 404 tipo, 409 sin stock/fuera de venta/máximo, 422. |
+| POST | `/purchases` | Sesión + encabezado `Idempotency-Key` obligatorio (8–128 caracteres `A-Za-z0-9._:-`, único por usuario) | `{concertId?,items:[{ticketTypeId,quantity}]}` | 201 compra PENDING con items/total/expires_at; 200 con `Idempotent-Replayed: true` si la clave ya existe con el mismo contenido (devuelve la compra original, sin reservar stock ni crear pagos); 409 `IDEMPOTENCY_KEY_REUSED` si la clave ya existe con otro contenido; 422 `IDEMPOTENCY_KEY_REQUIRED` o clave inválida; 404 tipo; 409 sin stock/fuera de venta/máximo. Un intento fallido no queda guardado: reintentar con la misma clave lo vuelve a intentar. |
 | GET | `/purchases/me` | Sesión, propias incluso ADMIN | Paginación | 200 lista de compras. |
 | GET | `/purchases/:id` | Propietario o ADMIN | — | 200 compra con items; 404 ajena/inexistente. |
 | POST | `/purchases/:id/confirm` | Propietario o ADMIN | `{}` o sin body | 200 compra CONFIRMED; emite un ticket por unidad y aviso; 404, 409 vencida/estado/venta. |

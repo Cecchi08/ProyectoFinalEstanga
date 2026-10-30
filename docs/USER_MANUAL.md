@@ -6,6 +6,8 @@ Registrate con nombre, apellido, email y contraseña de al menos 12 caracteres (
 
 En escritorio, las secciones aparecen a la izquierda. En teléfono o tablet, desplazá horizontalmente la barra inferior para ver todas. Las secciones dependen de los **permisos** de tus perfiles. **Mi cuenta → Cerrar sesión** termina el acceso local.
 
+El botón **Tema claro / Tema oscuro** (barra lateral, barra inferior y pantallas de ingreso) cambia los colores de toda la app en web, iOS y Android; la primera vez se usa el tema del sistema y después se recuerda tu elección en ese dispositivo. En páginas largas, el botón **↑ Volver arriba** aparece al bajar y lleva al título; con *reducir movimiento* activado en el sistema, el salto es inmediato.
+
 ## Perfiles
 
 Toda cuenta nace como **COMPRADOR**. En **Mi cuenta → Mis perfiles** ves tus perfiles y tus permisos, y podés activar **ARTISTA** por tu cuenta. Para **ORGANIZADOR**, **VENUE** o **EMPRESA_SERVICIOS**, en la misma pantalla tocás **Solicitar** y un administrador revisa la solicitud: mientras espera, el perfil figura como *Pendiente de revisión*; si la rechaza, el historial muestra el motivo y podés volver a pedirlo. Los perfiles se combinan: una cuenta puede ser, por ejemplo, ORGANIZADOR y VENUE a la vez.
@@ -26,7 +28,7 @@ Toda cuenta nace como **COMPRADOR**. En **Mi cuenta → Mis perfiles** ves tus p
 2. El OWNER del perfil suma integrantes por email (cuentas con perfil ARTISTA).
 3. El perfil público muestra las **Presentaciones**: los conciertos próximos y anteriores que lo tienen en el cartel.
 4. En **Espacios** buscás salas por ciudad, tipo, comodidades, capacidad, precio y disponibilidad. Podés **Reservar al precio de lista** o **Pedir presupuesto**.
-5. Una reserva directa queda en **HOLD**, primero pendiente de pago y después esperando que el espacio la acepte. Una vez **CONFIRMED**, solo vos podés cancelarla.
+5. Una reserva directa queda en **HOLD**, primero pendiente de pago (la reserva temporal dura 15 minutos en todos los espacios; si no pagás, vence y la franja se libera) y después esperando que el espacio la acepte. Una vez **CONFIRMED**, solo vos podés cancelarla.
 
 ## ORGANIZADOR
 
@@ -90,3 +92,5 @@ Prepará las cuentas ([pasos](INSTALLATION.md#cuentas-y-perfiles-para-la-demostr
 8. ORGANIZADOR pide una cotización de servicio, EMPRESA_SERVICIOS la responde y ORGANIZADOR la contrata.
 
 Usá ventanas privadas separadas por cuenta o cerrá sesión entre perfiles.
+
+Atajo para una base local: `npm run db:demo-seed` (en `backend`) crea todas estas cuentas (`@demo.venti.example`, contraseña `Venti-Demo-2026`) con datos ya cargados y nombres que empiezan con **[DEMO]**; `npm run db:demo-unseed -- --apply` los retira. Detalle en `docs/ReporteEstadoProyecto.md`, sección 10.

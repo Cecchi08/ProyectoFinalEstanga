@@ -13,6 +13,11 @@ export class AuthController {
             throw unauthorized();
         res.json({ success: true, data: await this.auth.me(req.user.id) });
     };
+    updateMe = async (req, res) => {
+        if (!req.user)
+            throw unauthorized();
+        res.json({ success: true, data: await this.auth.updateProfile(req.user.id, req.body) });
+    };
     verifyEmail = async (req, res) => { res.json({ success: true, data: await this.auth.verifyEmail(req.body.token) }); };
     resendVerification = async (req, res) => { res.json({ success: true, data: await this.auth.requestEmail(req.body.email, 'verification') }); };
     forgotPassword = async (req, res) => { res.json({ success: true, data: await this.auth.requestEmail(req.body.email, 'reset') }); };

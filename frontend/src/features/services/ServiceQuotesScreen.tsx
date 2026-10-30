@@ -6,7 +6,7 @@ import { useResource } from "../../hooks/useResource";
 import { api } from "../../services/api";
 import { query } from "../../services/http";
 import type { ServiceAvailability, ServiceQuote } from "../../types/api";
-import { ActionFeedback, Button, Card, Copy, Field, Page, Pager, ResourceState, dateLabel, money, styles, useAction } from "../../components/ui";
+import { ActionFeedback, Button, Card, Copy, Field, FormScope, Page, Pager, ResourceState, dateLabel, money, styles, useAction, useForm } from "../../components/ui";
 import { useListView } from "../marketplace/QuotesScreen";
 import { at, isDate, range } from "../marketplace/time";
 
@@ -29,7 +29,7 @@ export default function ServiceQuotesScreen() {
           <Copy>{quote.event_name} · {STATUS[quote.status]}</Copy>
           <Copy muted>{quote.offering_name} · {quote.provider_name} · {range(quote.event_start_at, quote.event_end_at)}</Copy>
           <Copy muted>{quote.total_amount ? `Total ${money(quote.total_amount)}` : "Sin cotizar"} · {quote.public_code}</Copy>
-          <Button title={`Ver cotización ${quote.public_code}`} onPress={() => router.push(`/services/quotes/${quote.id}`)} />
+          <Button title={`Ver cotización ${quote.public_code}`} secondary onPress={() => router.push(`/services/quotes/${quote.id}`)} />
         </Card>
       ))}
       <Pager pagination={resource.result?.pagination} onPage={view.setPage} />
@@ -47,6 +47,7 @@ export function ServiceQuoteScreen() {
   const resource = useResource<ServiceQuote>(`/services/quotes/${id}`);
   const quote = resource.result?.data;
   const action = useAction();
+  const validation = useForm();
   const [lines, setLines] = useState<Line[]>([{ description: "", quantity: "1", unit_price: "" }]);
   const [form, setForm] = useState<Record<string, string>>({});
   const [confirm, setConfirm] = useState(false);
@@ -65,6 +66,7 @@ export function ServiceQuoteScreen() {
     action.setMessage(message);
   });
   const respond = () => post("respond", "Cotización enviada.", () => {
+    validation.assertValid();
     if (!isDate(form.valid_date ?? "")) throw new Error("Indicá la fecha de validez (AAAA-MM-DD).");
     const items = lines.filter((line) => line.description.trim()).map((line) => ({
       description: line.description.trim(), quantity: Number(line.quantity), unit_price: Number(line.unit_price),
@@ -79,6 +81,7 @@ export function ServiceQuoteScreen() {
   const cancellable = mine && quote && (open || (quote.status === "ACCEPTED" && new Date(quote.event_start_at) > new Date()));
   return (
     <Page title={quote ? `Cotización ${quote.public_code}` : "Cotización"}>
+      <FormScope form={validation}>
       <ResourceState {...resource} retry={() => void resource.reload()} />
       <ActionFeedback action={action} />
       {quote && (
@@ -152,6 +155,7 @@ export function ServiceQuoteScreen() {
         </>
       )}
       <Button title="Volver a cotizaciones" secondary onPress={() => router.push("/services/quotes")} />
+      </FormScope>
     </Page>
   );
 }

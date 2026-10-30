@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { randomUUID } from 'node:crypto';
 import { before, beforeEach, after, test } from 'node:test';
 import request from 'supertest';
 import { TestDatabase, resetData } from './helpers.js';
@@ -10,6 +11,7 @@ const ids = { user: '101', other: '102', staff: '103', unassigned: '104', organi
 const roles = { user: ['COMPRADOR'], other: ['COMPRADOR'], staff: ['COMPRADOR'], unassigned: ['COMPRADOR'], organizer: ['ORGANIZADOR', 'COMPRADOR'], foreign: ['ORGANIZADOR'], admin: ['ADMIN'] };
 const call = (method, url, role = 'user', body) => {
     const req = request(ctx.app)[method](url);
+    if (method === 'post' && url === '/purchases') req.set('Idempotency-Key', randomUUID());
     if (role) req.set('Authorization', `Bearer ${ctx.tokens.sign(ids[role], roles[role])}`);
     return body === undefined ? req : req.send(body);
 };

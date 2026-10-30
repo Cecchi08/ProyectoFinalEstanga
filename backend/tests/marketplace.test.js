@@ -33,7 +33,7 @@ async function provision() {
     const establishment = (await call('post', '/marketplace/establishments', 'provider', {
         organization_id: org.id, city_id: '1', name: 'Complejo Norte', address_line: 'Av. Colón 1234' }).expect(201)).body.data;
     const room = (await call('post', `/marketplace/establishments/${establishment.id}/venues`, 'provider', {
-        venue_type_code: 'REHEARSAL_ROOM', name: 'Sala A', capacity_standing: 40, price_per_hour: 1500.5, min_booking_minutes: 120, hold_minutes: 30,
+        venue_type_code: 'REHEARSAL_ROOM', name: 'Sala A', capacity_standing: 40, price_per_hour: 1500.5, min_booking_minutes: 120, hold_minutes: 15,
         amenities: ['PA_SYSTEM', 'BACKLINE'], photos: [{ url: 'https://img.example/a.jpg', is_cover: true }],
         opening_hours: [{ day_of_week: 1, opens_at: '10:00', closes_at: '23:00' }] }).expect(201)).body.data;
     const hall = (await call('post', `/marketplace/establishments/${establishment.id}/venues`, 'provider', {
@@ -105,6 +105,7 @@ test('gestión: solo organizadores miembros editan; ciudad fuera del marketplace
     await error(call('patch', `/marketplace/venues/${venues.room}`, 'provider', { amenities: ['JACUZZI'] }), 422, 'UNKNOWN_AMENITY');
     await error(call('patch', `/marketplace/venues/${venues.room}`, 'provider', { venue_type_code: 'SPACESHIP' }), 422, 'UNKNOWN_VENUE_TYPE');
     await call('patch', `/marketplace/venues/${venues.room}`, 'provider', { hold_minutes: 1 }).expect(422);
+    await call('patch', `/marketplace/venues/${venues.room}`, 'provider', { hold_minutes: 30 }).expect(422);
     await error(call('post', `/marketplace/establishments/${venues.establishment.id}/venues`, 'provider', { venue_type_code: 'BAR_STAGE', name: 'Sala A', price_per_hour: 1 }), 409, 'DUPLICATE_RESOURCE');
     assert.equal((await call('get', '/marketplace/organizations/mine', 'provider').expect(200)).body.data[0].member_role, 'OWNER');
     await call('post', `/marketplace/venues/${venues.hall}/archive`, 'provider').expect(200);
@@ -144,7 +145,7 @@ test('reserva directa: HOLD con total al precio de lista y tramos de armado/even
     assert.match(reservation.public_code, /^R-[0-9A-F]{12}$/);
     assert.equal(reservation.total_amount, '6002.00');
     assert.equal(reservation.notes, 'Traemos batería');
-    assert.ok(new Date(reservation.hold_expires_at) > new Date() && new Date(reservation.hold_expires_at) <= new Date(Date.now() + 31 * 60000));
+    assert.ok(new Date(reservation.hold_expires_at) > new Date() && new Date(reservation.hold_expires_at) <= new Date(Date.now() + 16 * 60000));
     assert.deepEqual(reservation.occupancies.map(o => o.phase), ['SETUP', 'EVENT', 'TEARDOWN']);
     assert.deepEqual(reservation.history.map(h => [h.from_status, h.to_status, h.changed_by_user_id]), [[null, 'HOLD', ids.customer]]);
     assert.deepEqual(reservation.payments, []);
@@ -433,4 +434,16 @@ test('auditoría: el reembolso de una reserva queda registrado y la auditoría f
         const listed = (await call('get', `/admin/audit?entity_type=${entity}`, 'admin').expect(200)).body.data;
         assert.ok(listed.length > 0 && listed.every(entry => entry.entity_type === entity));
     }
+});
+
+// Retención temporal unificada: 15 minutos para cualquier espacio, en la API y en la base (chk_venues_hold).
+test('retención unificada: toda reserva temporal dura 15 minutos y no se puede configurar otro valor', async () => {
+    const before = Date.now();
+    const reservation = await held(venues.room, 2, 4);
+    const expires = new Date(reservation.hold_expires_at).getTime();
+    assert.ok(expires >= before + 15 * 60000 - 2000 && expires <= Date.now() + 15 * 60000 + 2000, `vence en ${(expires - before) / 60000} min`);
+    assert.equal((await call('get', `/marketplace/venues/${venues.room}`).expect(200)).body.data.hold_minutes, 15);
+    await call('patch', `/marketplace/venues/${venues.room}`, 'provider', { hold_minutes: 30 }).expect(422);
+    await call('patch', `/marketplace/venues/${venues.room}`, 'provider', { hold_minutes: 15 }).expect(200);
+    await assert.rejects(db.rows('UPDATE venues SET hold_minutes = 30 WHERE id = ?', [venues.room]), /chk_venues_hold/);
 });

@@ -13,7 +13,7 @@ export const capacityLabel = (venue: Pick<Venue, "capacity_standing" | "capacity
     .filter(Boolean).join(" · ") || "Capacidad a consultar";
 export function VenueCard({ venue, manage = false }: { venue: Venue; manage?: boolean }) {
   return (
-    <View style={{ flexGrow: 1, flexBasis: 300, maxWidth: 560 }}>
+    <View style={{ flexGrow: 1, flexShrink: 1, minWidth: 0, flexBasis: 300, maxWidth: 560 }}>
       <Card>
         {venue.cover_url && (
           <Image source={{ uri: venue.cover_url }} accessibilityLabel={venue.name} style={{ height: 160, borderRadius: 12 }} />
@@ -22,7 +22,7 @@ export function VenueCard({ venue, manage = false }: { venue: Venue; manage?: bo
         <Copy>{venue.name}</Copy>
         <Copy muted>{venue.establishment_name} · {venue.address_line} · {venue.city_name}</Copy>
         <Copy muted>{capacityLabel(venue)} · {money(venue.price_per_hour)} por hora</Copy>
-        <Button title={`Ver ${venue.name}`} onPress={() => router.push(`/marketplace/venues/${venue.id}`)} />
+        <Button title={`Ver ${venue.name}`} secondary onPress={() => router.push(`/marketplace/venues/${venue.id}`)} />
       </Card>
     </View>
   );

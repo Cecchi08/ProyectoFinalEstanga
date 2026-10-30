@@ -119,7 +119,7 @@ export class HttpClient {
   }
   async request<T>(
     path: string,
-    options: { method?: string; body?: unknown; auth?: boolean } = {},
+    options: { method?: string; body?: unknown; auth?: boolean; headers?: Record<string, string> } = {},
     retry = true,
   ): Promise<Envelope<T>> {
     const token =
@@ -131,6 +131,7 @@ export class HttpClient {
         method: options.method ?? "GET",
         headers: {
           Accept: "application/json",
+          ...options.headers,
           ...(options.body !== undefined
             ? { "Content-Type": "application/json" }
             : {}),

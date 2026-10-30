@@ -6,7 +6,7 @@ import { useResource } from "../../hooks/useResource";
 import { api } from "../../services/api";
 import { query } from "../../services/http";
 import type { PricingUnit, PublicationStatus, ServiceAvailability, ServiceCategory, ServiceOffering, ServiceProvider, ServiceQuote } from "../../types/api";
-import { ActionFeedback, Button, Card, Copy, Field, Notice, Page, Pager, ResourceState, money, styles, useAction } from "../../components/ui";
+import { ActionFeedback, Button, Card, Copy, Field, FormScope, Notice, Page, Pager, ResourceState, money, styles, useAction, useForm } from "../../components/ui";
 import { Select } from "../../components/ui/Select";
 import { Codes } from "../marketplace/MarketplaceScreen";
 import { isDate, range, slot } from "../marketplace/time";
@@ -21,7 +21,7 @@ const PRICE = /^\d+(\.\d{1,2})?$/;
 
 export function OfferingCard({ offering, manage = false }: { offering: ServiceOffering; manage?: boolean }) {
   return (
-    <View style={{ flexGrow: 1, flexBasis: 300, maxWidth: 560 }}>
+    <View style={{ flexGrow: 1, flexShrink: 1, minWidth: 0, flexBasis: 300, maxWidth: 560 }}>
       <Card>
         <Copy muted>{offering.category_name}{manage ? ` · ${PUBLICATION[offering.status]}` : ""}</Copy>
         <Copy>{offering.name}</Copy>
@@ -30,14 +30,14 @@ export function OfferingCard({ offering, manage = false }: { offering: ServiceOf
           {offering.city_name ? ` · ${offering.city_name}` : ""}
         </Copy>
         <Copy muted>{priceLabel(offering)}</Copy>
-        <Button title={`Ver servicio ${offering.name}`} onPress={() => router.push(`/services/offerings/${offering.id}`)} />
+        <Button title={`Ver servicio ${offering.name}`} secondary onPress={() => router.push(`/services/offerings/${offering.id}`)} />
       </Card>
     </View>
   );
 }
 export function ProviderCard({ provider }: { provider: ServiceProvider }) {
   return (
-    <View style={{ flexGrow: 1, flexBasis: 300, maxWidth: 560 }}>
+    <View style={{ flexGrow: 1, flexShrink: 1, minWidth: 0, flexBasis: 300, maxWidth: 560 }}>
       <Card>
         <Copy>{provider.name}{provider.is_verified ? " · ✓ verificada" : ""}</Copy>
         <Copy muted>{[provider.city_name, provider.coverage_area].filter(Boolean).join(" · ") || "Zona a consultar"}</Copy>
@@ -45,7 +45,7 @@ export function ProviderCard({ provider }: { provider: ServiceProvider }) {
           {provider.published_offerings} {provider.published_offerings === 1 ? "servicio publicado" : "servicios publicados"}
           {provider.member_role ? ` · ${PUBLICATION[provider.status]} · sos ${provider.member_role}` : ""}
         </Copy>
-        <Button title={`Ver empresa ${provider.name}`} onPress={() => router.push(`/services/providers/${provider.id}`)} />
+        <Button title={`Ver empresa ${provider.name}`} secondary onPress={() => router.push(`/services/providers/${provider.id}`)} />
       </Card>
     </View>
   );
@@ -174,9 +174,11 @@ function QuoteRequest({ offering }: { offering: ServiceOffering }) {
   const [concert, setConcert] = useState<string[]>([]);
   const [reservation, setReservation] = useState<string[]>([]);
   const action = useAction();
+  const validation = useForm();
   const set = (key: string, value: string) => setForm((current) => ({ ...current, [key]: value }));
   // Times are local to Argentina, like the marketplace; an end earlier than the start belongs to the next day.
   const send = () => action.run(async () => {
+    validation.assertValid();
     if (!form.event_name?.trim()) throw new Error("Poné el nombre del evento.");
     if (!isDate(form.date ?? "")) throw new Error("Ingresá la fecha como AAAA-MM-DD.");
     const times = slot(form.date ?? "", { start: form.start ?? "", end: form.end ?? "" });
@@ -192,12 +194,13 @@ function QuoteRequest({ offering }: { offering: ServiceOffering }) {
   });
   return (
     <Card>
+      <FormScope form={validation}>
       <Copy>Pedir cotización</Copy>
-      <Field label="Nombre del evento" value={form.event_name ?? ""} onChangeText={(v) => set("event_name", v)} />
+      <Field label="Nombre del evento" required value={form.event_name ?? ""} onChangeText={(v) => set("event_name", v)} />
       <View style={styles.row}>
-        <Field label="Fecha (AAAA-MM-DD)" value={form.date ?? ""} onChangeText={(v) => set("date", v)} />
-        <Field label="Desde (HH:MM)" value={form.start ?? ""} onChangeText={(v) => set("start", v)} />
-        <Field label="Hasta (HH:MM)" value={form.end ?? ""} onChangeText={(v) => set("end", v)} />
+        <Field label="Fecha (AAAA-MM-DD)" required value={form.date ?? ""} onChangeText={(v) => set("date", v)} />
+        <Field label="Desde (HH:MM)" required value={form.start ?? ""} onChangeText={(v) => set("start", v)} />
+        <Field label="Hasta (HH:MM)" required value={form.end ?? ""} onChangeText={(v) => set("end", v)} />
       </View>
       <Field label="Lugar (opcional)" value={form.location_text ?? ""} onChangeText={(v) => set("location_text", v)} />
       <Field label="Detalles para la empresa (opcional)" multiline value={form.requester_notes ?? ""} onChangeText={(v) => set("requester_notes", v)} />
@@ -211,6 +214,7 @@ function QuoteRequest({ offering }: { offering: ServiceOffering }) {
       )}
       <ActionFeedback action={action} />
       <Button title="Enviar pedido de cotización" disabled={action.busy} onPress={() => void send()} />
+      </FormScope>
     </Card>
   );
 }

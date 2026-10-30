@@ -6,6 +6,7 @@ import { NotificationsRepository } from './notifications.repository.ts';
 import { ticketTypeSelect } from './management.repository.ts';
 import { audit, type AuditEntry } from './audit.repository.ts';
 
+export interface OrderKeyRow extends Row { id: string; request_hash: string | null }
 export interface PurchaseRow extends Row { id: string; user_id: string; status: string; expires_at: Date | null; total: string; currency: string }
 export interface ItemRow extends Row { id: string; ticket_type_id: string; concert_id: string; quantity: number; unit_price: string }
 export interface ScanRow extends Row { id: string; purchase_id: string; concert_id: string; status: string; used_at: Date | null }
@@ -50,11 +51,15 @@ export class CommerceRepository {
             WHERE oi.ticket_type_id = ? AND (o.status = 'CONFIRMED' OR (o.status = 'PENDING' AND o.expires_at > NOW()))`, [typeId]))[0];
         return Number(row.quantity);
     }
-    async reserve(userId: string, expires: Date): Promise<string> {
-        await this.execute(`INSERT INTO orders (public_code, user_id, buyer_email, buyer_name, status, expires_at)
-            SELECT ?, id, email, NULLIF(TRIM(CONCAT_WS(' ', first_name, last_name)), ''), 'PENDING', ? FROM users WHERE id = ?`,
-        [`O-${randomBytes(6).toString('hex').toUpperCase()}`, expires, userId]);
+    async reserve(userId: string, expires: Date, idempotencyKey: string, requestHash: string): Promise<string> {
+        await this.execute(`INSERT INTO orders (public_code, user_id, buyer_email, buyer_name, status, expires_at, idempotency_key, request_hash)
+            SELECT ?, id, email, NULLIF(TRIM(CONCAT_WS(' ', first_name, last_name)), ''), 'PENDING', ?, ?, ? FROM users WHERE id = ?`,
+        [`O-${randomBytes(6).toString('hex').toUpperCase()}`, expires, idempotencyKey, requestHash, userId]);
         return String((await this.rows('SELECT CAST(LAST_INSERT_ID() AS CHAR) AS id'))[0].id);
+    }
+    // Scoped to the owner: another user's key never reaches this row.
+    async byIdempotencyKey(userId: string, idempotencyKey: string, lock = false): Promise<OrderKeyRow | undefined> {
+        return (await this.rows<OrderKeyRow>(`SELECT id, request_hash FROM orders WHERE user_id = ? AND idempotency_key = ?${lock ? ' FOR UPDATE' : ''}`, [userId, idempotencyKey]))[0];
     }
     async addItem(purchaseId: string, type: TicketRow, quantity: number): Promise<void> {
         await this.execute(`INSERT INTO order_items (order_id, ticket_type_id, concert_id, quantity, unit_price, line_total)

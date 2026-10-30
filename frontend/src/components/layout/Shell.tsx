@@ -13,7 +13,7 @@ import { PreferencesProvider } from "../../contexts/PreferencesContext";
 import { NotificationsProvider, NotificationBadge } from "../../contexts/NotificationsContext";
 import { useResource } from "../../hooks/useResource";
 import type { Concert, Permission } from "../../types/api";
-import { colors, Copy, Page, radius, ResourceState, shadows } from "../ui";
+import { colors, Copy, fonts, Page, radius, ResourceState, ThemeToggle } from "../ui";
 function NavTab({
   label,
   selected,
@@ -189,31 +189,38 @@ export default function Shell() {
               <View
                 aria-hidden
                 style={{
-                  width: 30,
-                  height: 30,
+                  width: 32,
+                  height: 32,
                   borderRadius: radius.sm,
                   backgroundColor: colors.primary,
-                  boxShadow: shadows.primary,
                   alignItems: "center",
                   justifyContent: "center",
                 }}
               >
-                <Text style={{ color: colors.onPrimary, fontSize: 17, fontWeight: "900" }}>V</Text>
+                <Text style={{ color: colors.onPrimary, fontSize: 18, fontWeight: "800", fontFamily: fonts.display }}>V</Text>
               </View>
-              <Text style={{ color: colors.text, fontSize: 24, fontWeight: "900", letterSpacing: 1.5 }}>
+              <Text style={{ color: colors.text, fontSize: 26, fontWeight: "700", letterSpacing: 3, fontFamily: fonts.display }}>
                 VENTI
               </Text>
             </View>
             {navigation}
+            <View style={{ paddingHorizontal: 14, paddingTop: 8, paddingBottom: 20, alignItems: "flex-start" }}>
+              <ThemeToggle />
+            </View>
           </ScrollView>
         )}
         <View style={{ flex: 1, minWidth: 0 }}>
           <Slot key={auth.user.id} />
         </View>
         {!desktop && (
-          <View style={{ borderTopWidth: 1, borderColor: colors.border, backgroundColor: colors.surfaceAlt, boxShadow: shadows.bar }}>
+          <View style={{ borderTopWidth: 1, borderColor: colors.border, backgroundColor: colors.surfaceAlt }}>
             <ScrollView horizontal showsHorizontalScrollIndicator={false}>
-              {navigation}
+              <View style={{ flexDirection: "row", alignItems: "center" }}>
+                {navigation}
+                <View style={{ paddingRight: 10 }}>
+                  <ThemeToggle />
+                </View>
+              </View>
             </ScrollView>
           </View>
         )}

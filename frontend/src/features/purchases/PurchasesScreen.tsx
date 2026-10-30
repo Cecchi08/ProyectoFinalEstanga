@@ -41,7 +41,7 @@ export default function PurchasesScreen() {
             {dateLabel(purchase.created_at)} · {money(purchase.total)}
           </Copy>
           <Button
-            title={`Ver compra ${purchase.id}`}
+            title={`Ver compra ${purchase.id}`} secondary
             onPress={() => router.push(`/purchases/${purchase.id}`)}
           />
         </Card>

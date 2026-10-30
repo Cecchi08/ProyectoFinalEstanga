@@ -5,8 +5,13 @@ export const idSchema = z.union([z.string().regex(/^[1-9]\d*$/), z.number().int(
 const boundedId = (max: bigint) => idSchema.pipe(z.string().refine(value => BigInt(value) <= max, 'ID fuera de rango para este catálogo.'));
 const smallId = boundedId(65535n);
 const cityId = boundedId(4294967295n);
-const name = (max: number) => z.string().trim().min(1).max(max);
+// eslint-disable-next-line no-control-regex -- Names never carry control characters; punctuation stays allowed (bands, venues).
+const name = (max: number) => z.string().trim().min(1).max(max).refine(value => !/[\x00-\x1f\x7f]/.test(value), 'Texto con caracteres de control.');
 const text = z.string().max(16000).nullable().optional();
+// City: Unicode letters (accents, ñ) and spaces between words, after trimming. Same rule in frontend/src/utils/validation.ts.
+export const cityNamePattern = /^[\p{L}\p{M}]+(?: +[\p{L}\p{M}]+)*$/u;
+const cityName = name(120).regex(cityNamePattern, 'La ciudad solo admite letras y espacios.');
+export const postalCodeSchema = z.string().trim().regex(/^[A-Za-z0-9 -]{3,10}$/, 'Código postal inválido.');
 const image = z.url().max(500).refine(value => /^https?:\/\//i.test(value), 'Usar HTTP o HTTPS.').nullable().optional();
 const date = z.iso.datetime({ offset: true }).transform(value => new Date(value))
     .refine(value => value.getUTCFullYear() >= 1000 && value.getUTCFullYear() <= 9999, 'Fecha fuera de rango MySQL.');
@@ -21,7 +26,7 @@ export const catalogSchemas = {
     genres: z.strictObject({ name: name(80) }),
     provinces: z.strictObject({ code: z.string().trim().regex(/^[A-Z0-9-]{1,10}$/), name: name(100) }),
     districts: z.strictObject({ name: name(120), province_id: smallId }),
-    cities: z.strictObject({ name: name(120), province_id: smallId, district_id: cityId, postal_code: z.string().trim().max(10).nullable().optional() }),
+    cities: z.strictObject({ name: cityName, province_id: smallId, district_id: cityId, postal_code: postalCodeSchema.nullable().optional() }),
 };
 export const ticketSchema = z.strictObject({
     name: name(100),

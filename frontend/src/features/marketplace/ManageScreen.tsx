@@ -5,7 +5,7 @@ import { useAuth } from "../../contexts/AuthContext";
 import { useResource } from "../../hooks/useResource";
 import { api } from "../../services/api";
 import type { Block, Establishment, MarketplaceCatalogs, Member, Named, Organization, Venue, VenueDetail } from "../../types/api";
-import { ActionFeedback, Button, Card, Copy, Field, Notice, Page, ResourceState, styles, useAction } from "../../components/ui";
+import { ActionFeedback, Button, Card, Copy, Field, FormScope, Notice, Page, ResourceState, styles, useAction, useForm } from "../../components/ui";
 import { Codes, VenueCard } from "./MarketplaceScreen";
 import { at, days, isDate, range } from "./time";
 
@@ -20,7 +20,9 @@ export default function ManageScreen() {
   const [establishment, setEstablishment] = useState<Establishment | null | undefined>(undefined);
   const [form, setForm] = useState<Record<string, string>>({});
   const action = useAction();
+  const validation = useForm();
   const createOrganization = () => action.run(async () => {
+    validation.assertValid();
     await api.request("/marketplace/organizations", { method: "POST", body: { name: form.org_name ?? "", tax_id: text(form.tax_id) } });
     setForm({}); await organizations.reload(); action.setMessage("Organización creada.");
   });
@@ -37,13 +39,15 @@ export default function ManageScreen() {
       </View>
       {organization && <MembersPanel organization={organization} />}
       <Card>
+        <FormScope form={validation}>
         <Copy>Nueva organización</Copy>
         <View style={styles.row}>
-          <Field label="Nombre de la organización" value={form.org_name ?? ""} onChangeText={(v) => setForm({ ...form, org_name: v })} />
+          <Field label="Nombre de la organización" required value={form.org_name ?? ""} onChangeText={(v) => setForm({ ...form, org_name: v })} />
           <Field label="CUIT (opcional)" value={form.tax_id ?? ""} onChangeText={(v) => setForm({ ...form, tax_id: v })} />
         </View>
         <ActionFeedback action={action} />
         <Button title="Crear organización" disabled={action.busy} onPress={() => void createOrganization()} />
+        </FormScope>
       </Card>
       <Copy>Establecimientos</Copy>
       <Button title="Nuevo establecimiento" onPress={() => setEstablishment(null)} />
@@ -70,6 +74,7 @@ export function MembersPanel({ organization, path = `/marketplace/organizations/
   const [email, setEmail] = useState("");
   const [role, setRole] = useState<Member["member_role"]>("STAFF");
   const action = useAction();
+  const validation = useForm();
   const run = (work: () => Promise<unknown>, message: string) => action.run(async () => { await work(); await members.reload(); action.setMessage(message); });
   const manage = admin || ["OWNER", "ADMIN"].includes(organization.member_role ?? "");
   return (
@@ -94,16 +99,16 @@ export function MembersPanel({ organization, path = `/marketplace/organizations/
         </View>
       ))}
       {manage && (
-        <>
-          <Field label={`Email del miembro (cuenta con perfil ${profile})`} keyboardType="email-address" value={email} onChangeText={setEmail} />
+        <FormScope form={validation}>
+          <Field required label={`Email del miembro (cuenta con perfil ${profile})`} keyboardType="email-address" value={email} onChangeText={setEmail} />
           <View style={styles.row}>
             {(Object.keys(roleNames) as Member["member_role"][]).map((value) => (
               <Button key={value} title={`${role === value ? "✓ " : ""}${roleNames[value]}`} secondary={role !== value} onPress={() => setRole(value)} />
             ))}
           </View>
           <Button title="Agregar miembro" disabled={action.busy}
-            onPress={() => void run(async () => { await api.request(path, { method: "POST", body: { email, member_role: role } }); setEmail(""); }, "Miembro agregado.")} />
-        </>
+            onPress={() => void run(async () => { validation.assertValid(); await api.request(path, { method: "POST", body: { email, member_role: role } }); setEmail(""); }, "Miembro agregado.")} />
+        </FormScope>
       )}
       <ActionFeedback action={action} />
     </Card>
@@ -118,8 +123,10 @@ function EstablishmentForm({ establishment, organizations, done }: { establishme
     phone: establishment?.phone ?? "", email: establishment?.email ?? "", website: establishment?.website ?? "",
   });
   const action = useAction();
+  const validation = useForm();
   const set = (key: string, value: string) => setForm({ ...form, [key]: value });
   const save = () => action.run(async () => {
+    validation.assertValid();
     const body = { city_id: form.city_id, name: form.name, address_line: form.address_line, description: text(form.description),
       postal_code: text(form.postal_code), phone: text(form.phone), email: text(form.email), website: text(form.website) };
     await api.request(establishment ? `/marketplace/establishments/${establishment.id}` : "/marketplace/establishments", {
@@ -129,6 +136,7 @@ function EstablishmentForm({ establishment, organizations, done }: { establishme
   });
   return (
     <Card>
+      <FormScope form={validation}>
       <Copy>{establishment ? `Editar ${establishment.name}` : "Nuevo establecimiento"}</Copy>
       {!establishment && (
         <Codes label="Organización" items={organizations.filter((o) => o.member_role !== "STAFF")}
@@ -137,13 +145,14 @@ function EstablishmentForm({ establishment, organizations, done }: { establishme
       <Codes label="Ciudad" items={cities.result?.data} values={form.city_id ? [form.city_id] : []} onChange={(v) => set("city_id", v[0] ?? "")} />
       {([["name", "Nombre del establecimiento"], ["address_line", "Dirección"], ["description", "Descripción (opcional)"], ["postal_code", "Código postal (opcional)"],
         ["phone", "Teléfono (opcional)"], ["email", "Email de contacto (opcional)"], ["website", "Sitio web (opcional)"]] as const).map(([key, label]) => (
-        <Field key={key} label={label} value={form[key] ?? ""} onChangeText={(v) => set(key, v)} />
+        <Field key={key} label={label} required={!label.includes("(opcional)")} value={form[key] ?? ""} onChangeText={(v) => set(key, v)} />
       ))}
       <ActionFeedback action={action} />
       <View style={styles.row}>
         <Button title="Guardar establecimiento" disabled={action.busy} onPress={() => void save()} />
         <Button title="Cerrar formulario" secondary onPress={() => void done()} />
       </View>
+      </FormScope>
     </Card>
   );
 }
@@ -225,17 +234,18 @@ const parseHours = (value: string) => value.split("\n").map((line) => line.trim(
 function VenueForm({ establishmentId, venueId, done }: { establishmentId: string; venueId: string | null; done(): Promise<void> }) {
   const catalogs = useResource<MarketplaceCatalogs>("/marketplace/catalogs");
   const current = useResource<VenueDetail>(venueId ? `/marketplace/venues/${venueId}` : null);
-  const [form, setForm] = useState<Record<string, string>>({ min_booking_minutes: "60", hold_minutes: "30" });
+  const [form, setForm] = useState<Record<string, string>>({ min_booking_minutes: "60" });
   const [type, setType] = useState<string[]>([]);
   const [amenities, setAmenities] = useState<string[]>([]);
   const action = useAction();
+  const validation = useForm();
   const venue = current.result?.data;
   useEffect(() => {
     if (!venue) return;
     setForm({
       name: venue.name, description: venue.description ?? "", capacity_standing: String(venue.capacity_standing ?? ""),
       capacity_seated: String(venue.capacity_seated ?? ""), area_m2: venue.area_m2 ?? "", price_per_hour: venue.price_per_hour,
-      min_booking_minutes: String(venue.min_booking_minutes), hold_minutes: String(venue.hold_minutes),
+      min_booking_minutes: String(venue.min_booking_minutes),
       photos: venue.photos.map((photo) => photo.url).join("\n"),
       hours: venue.opening_hours.map((h) => `${h.day_of_week} ${h.opens_at}-${h.closes_at}`).join("\n"),
     });
@@ -244,12 +254,13 @@ function VenueForm({ establishmentId, venueId, done }: { establishmentId: string
   }, [venue]);
   const set = (key: string, value: string) => setForm({ ...form, [key]: value });
   const save = () => action.run(async () => {
+    validation.assertValid();
     if (!type[0]) throw new Error("Elegí el tipo de espacio.");
     const photos = (form.photos ?? "").split("\n").map((url) => url.trim()).filter(Boolean).map((url, index) => ({ url, is_cover: index === 0 }));
     const body = {
       venue_type_code: type[0], name: form.name ?? "", description: text(form.description),
       capacity_standing: number(form.capacity_standing), capacity_seated: number(form.capacity_seated), area_m2: number(form.area_m2),
-      price_per_hour: Number(form.price_per_hour || 0), min_booking_minutes: Number(form.min_booking_minutes || 60), hold_minutes: Number(form.hold_minutes || 30),
+      price_per_hour: Number(form.price_per_hour || 0), min_booking_minutes: Number(form.min_booking_minutes || 60),
       amenities, photos, opening_hours: parseHours(form.hours ?? ""),
     };
     await api.request(venueId ? `/marketplace/venues/${venueId}` : `/marketplace/establishments/${establishmentId}/venues`, {
@@ -259,14 +270,16 @@ function VenueForm({ establishmentId, venueId, done }: { establishmentId: string
   });
   return (
     <Card>
+      <FormScope form={validation}>
       <Copy>{venueId ? `Editar ${venue?.name ?? "espacio"}` : "Nuevo espacio"}</Copy>
       <ResourceState {...current} retry={() => void current.reload()} />
       <Codes label="Tipo de espacio" items={catalogs.result?.data.venue_types} values={type} onChange={setType} />
       {([["name", "Nombre del espacio"], ["description", "Descripción (opcional)"], ["price_per_hour", "Precio por hora"],
         ["capacity_standing", "Capacidad de pie (opcional)"], ["capacity_seated", "Capacidad sentados (opcional)"], ["area_m2", "Superficie m² (opcional)"],
-        ["min_booking_minutes", "Reserva mínima (minutos)"], ["hold_minutes", "Duración de la reserva temporal (minutos)"]] as const).map(([key, label]) => (
-        <Field key={key} label={label} value={form[key] ?? ""} onChangeText={(v) => set(key, v)} />
+        ["min_booking_minutes", "Reserva mínima (minutos)"]] as const).map(([key, label]) => (
+        <Field key={key} label={label} required={!label.includes("(opcional)")} value={form[key] ?? ""} onChangeText={(v) => set(key, v)} />
       ))}
+      <Copy muted>La reserva temporal dura 15 minutos hasta el pago, igual para todos los espacios.</Copy>
       <Codes label="Comodidades" multiple items={catalogs.result?.data.amenities} values={amenities} onChange={setAmenities} />
       <Field label="Fotos (una URL por línea, la primera es la portada)" multiline value={form.photos ?? ""} onChangeText={(v) => set("photos", v)} />
       <Field label={`Horarios (una línea por franja, ej. "1 10:00-23:00"; ${days.slice(1).map((d, i) => `${i + 1}=${d}`).join(", ")})`} multiline
@@ -276,6 +289,7 @@ function VenueForm({ establishmentId, venueId, done }: { establishmentId: string
         <Button title="Guardar espacio" disabled={action.busy} onPress={() => void save()} />
         <Button title="Cerrar formulario de espacio" secondary onPress={() => void done()} />
       </View>
+      </FormScope>
     </Card>
   );
 }
@@ -288,8 +302,10 @@ function BlocksPanel({ establishment }: { establishment: Establishment }) {
   const [venue, setVenue] = useState<string[]>([]);
   const [reason, setReason] = useState<string[]>(["MAINTENANCE"]);
   const action = useAction();
+  const validation = useForm();
   const set = (key: string, value: string) => setForm({ ...form, [key]: value });
   const create = () => action.run(async () => {
+    validation.assertValid();
     if (!isDate(form.date ?? "")) throw new Error("Ingresá la fecha como AAAA-MM-DD.");
     const starts = at(form.date, form.from ?? ""), ends = at(form.date, form.to ?? "");
     if (ends <= starts) ends.setTime(ends.getTime() + 86400000);
@@ -300,6 +316,7 @@ function BlocksPanel({ establishment }: { establishment: Establishment }) {
   });
   const name = (id: string | null) => (id ? venues.result?.data.find((v) => v.id === id)?.name ?? `Espacio #${id}` : "Todo el establecimiento");
   return (
+    <FormScope form={validation}>
     <View style={{ gap: 10 }}>
       <ResourceState {...blocks} empty={blocks.result?.data.length === 0} retry={() => void blocks.reload()} />
       {blocks.result?.data.map((block) => (
@@ -312,13 +329,14 @@ function BlocksPanel({ establishment }: { establishment: Establishment }) {
       <Codes label="Espacio bloqueado (sin elegir: todo el establecimiento)" items={venues.result?.data} values={venue} onChange={setVenue} />
       <Codes label="Motivo" items={reasons.map(([code, label]) => ({ id: code, code, name: label }))} values={reason} onChange={setReason} />
       <View style={styles.row}>
-        <Field label="Fecha del bloqueo (AAAA-MM-DD)" value={form.date ?? ""} onChangeText={(v) => set("date", v)} />
-        <Field label="Bloqueo desde (HH:MM)" value={form.from ?? ""} onChangeText={(v) => set("from", v)} />
-        <Field label="Bloqueo hasta (HH:MM)" value={form.to ?? ""} onChangeText={(v) => set("to", v)} />
+        <Field label="Fecha del bloqueo (AAAA-MM-DD)" required value={form.date ?? ""} onChangeText={(v) => set("date", v)} />
+        <Field label="Bloqueo desde (HH:MM)" required value={form.from ?? ""} onChangeText={(v) => set("from", v)} />
+        <Field label="Bloqueo hasta (HH:MM)" required value={form.to ?? ""} onChangeText={(v) => set("to", v)} />
       </View>
       <Field label="Detalle del bloqueo (opcional)" value={form.description ?? ""} onChangeText={(v) => set("description", v)} />
       <ActionFeedback action={action} />
       <Button title="Crear bloqueo" disabled={action.busy} onPress={() => void create()} />
     </View>
+    </FormScope>
   );
 }

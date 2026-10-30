@@ -11,10 +11,12 @@ import {
   colors,
   Copy,
   Field,
+  FormScope,
   Notice,
   Page,
   styles,
   useAction,
+  useForm,
 } from "../../components/ui";
 import { finishOAuth, startOAuth } from "./oauth";
 type Mode =
@@ -35,6 +37,7 @@ const titles: Record<Mode, string> = {
 export default function AuthScreen({ mode }: { mode: Mode }) {
   const auth = useAuth();
   const action = useAction();
+  const form = useForm();
   const params = useLocalSearchParams<{ code?: string; token?: string }>();
   const url = Linking.useURL();
   const [email, setEmail] = useState("");
@@ -67,6 +70,7 @@ export default function AuthScreen({ mode }: { mode: Mode }) {
     return <Redirect href="/discover" />;
   const submit = () =>
     action.run(async () => {
+      form.assertValid();
       if (mode === "login") {
         await auth.login(email.trim(), password);
         router.replace("/discover");
@@ -103,16 +107,18 @@ export default function AuthScreen({ mode }: { mode: Mode }) {
         style={{ width: "100%", maxWidth: 480, alignSelf: "center", gap: 20 }}
       >
         <Card>
+          <FormScope form={form}>
           <Copy>{titles[mode]}</Copy>
           {mode === "register" && (
             <>
-              <Field label="Nombre" value={first} onChangeText={setFirst} />
-              <Field label="Apellido" value={last} onChangeText={setLast} />
+              <Field label="Nombre" required value={first} onChangeText={setFirst} autoComplete="given-name" />
+              <Field label="Apellido" required value={last} onChangeText={setLast} autoComplete="family-name" />
             </>
           )}
           {["login", "register", "forgot-password"].includes(mode) && (
             <Field
               label="Email"
+              required
               value={email}
               onChangeText={setEmail}
               keyboardType="email-address"
@@ -122,6 +128,8 @@ export default function AuthScreen({ mode }: { mode: Mode }) {
           {["verify-email", "reset-password"].includes(mode) && (
             <Field
               label="Token del enlace de email"
+              required
+              rules={[(value) => (/^[a-f0-9]{64}$/.test(value.trim()) ? null : "El token del enlace tiene 64 caracteres hexadecimales.")]}
               value={token}
               onChangeText={setToken}
             />
@@ -133,6 +141,7 @@ export default function AuthScreen({ mode }: { mode: Mode }) {
                   ? "Contraseña"
                   : "Contraseña (mínimo 12 caracteres)"
               }
+              required
               value={password}
               onChangeText={setPassword}
               secureTextEntry
@@ -143,6 +152,7 @@ export default function AuthScreen({ mode }: { mode: Mode }) {
           )}
           <ActionFeedback action={action} />
           {mode === "login" && <Notice message={auth.error} error />}
+          </FormScope>
           {mode !== "oauth-callback" && (
             <Button
               title={mode === "login" ? "Ingresar" : "Continuar"}

@@ -5,7 +5,7 @@ import { useAuth } from "../../contexts/AuthContext";
 import { useResource } from "../../hooks/useResource";
 import { api } from "../../services/api";
 import type { PricingUnit, ServiceCategory, ServiceOffering, ServiceProvider } from "../../types/api";
-import { ActionFeedback, Button, Card, Copy, Field, Notice, Page, ResourceState, dateLabel, styles, useAction } from "../../components/ui";
+import { ActionFeedback, Button, Card, Copy, Field, FormScope, Notice, Page, ResourceState, dateLabel, styles, useAction, useForm } from "../../components/ui";
 import { Select } from "../../components/ui/Select";
 import { Codes } from "../marketplace/MarketplaceScreen";
 import { MembersPanel } from "../marketplace/ManageScreen";
@@ -42,8 +42,10 @@ function ProviderForm({ provider, done }: { provider?: ServiceProvider; done(sav
   });
   const [city, setCity] = useState<string[]>(provider?.city_id ? [provider.city_id] : []);
   const action = useAction();
+  const validation = useForm();
   const set = (key: string, value: string) => setForm((current) => ({ ...current, [key]: value }));
   const save = () => action.run(async () => {
+    validation.assertValid();
     if (!form.name?.trim()) throw new Error("Poné el nombre de la empresa.");
     const body = {
       name: form.name.trim(), legal_name: text(form.legal_name), email: text(form.email), phone: text(form.phone),
@@ -57,15 +59,17 @@ function ProviderForm({ provider, done }: { provider?: ServiceProvider; done(sav
   });
   return (
     <Card>
+      <FormScope form={validation}>
       <Copy>{provider ? "Datos de la empresa" : "Nueva empresa de servicios"}</Copy>
       {([["name", "Nombre comercial"], ["legal_name", "Razón social (opcional)"], ["tax_id", provider ? "CUIT (solo para cambiarlo)" : "CUIT (opcional)"],
         ["email", "Email de contacto (opcional)"], ["phone", "Teléfono (opcional)"], ["coverage_area", "Zona de cobertura (opcional)"]] as const).map(([key, label]) => (
-        <Field key={key} label={label} value={form[key] ?? ""} onChangeText={(v) => set(key, v)} />
+        <Field key={key} label={label} required={key === "name"} value={form[key] ?? ""} onChangeText={(v) => set(key, v)} />
       ))}
       <Field label="Descripción (opcional)" multiline value={form.description ?? ""} onChangeText={(v) => set("description", v)} />
       <Select label="Ciudad (opcional)" path="/cities" values={city} onChange={setCity} />
       <ActionFeedback action={action} />
       <Button title={provider ? "Guardar empresa" : "Crear empresa"} disabled={action.busy} onPress={() => void save()} />
+      </FormScope>
     </Card>
   );
 }
@@ -80,8 +84,10 @@ function OfferingForm({ providerId, offering, done }: { providerId: string; offe
     base_price: offering?.base_price ?? "",
   });
   const action = useAction();
+  const validation = useForm();
   const set = (key: string, value: string) => setForm((current) => ({ ...current, [key]: value }));
   const save = () => action.run(async () => {
+    validation.assertValid();
     const price = form.base_price?.trim() ?? "";
     if (!form.category_code) throw new Error("Elegí una categoría.");
     if (!form.name?.trim()) throw new Error("Poné el nombre del servicio.");
@@ -97,10 +103,11 @@ function OfferingForm({ providerId, offering, done }: { providerId: string; offe
   });
   return (
     <Card>
+      <FormScope form={validation}>
       <Copy>{offering ? `Editar ${offering.name}` : "Nuevo servicio"}</Copy>
       <Codes label="Categoría" items={categories.result?.data} values={form.category_code ? [form.category_code] : []}
         onChange={(v) => set("category_code", v[0] ?? "")} />
-      <Field label="Nombre del servicio" value={form.name ?? ""} onChangeText={(v) => set("name", v)} />
+      <Field label="Nombre del servicio" required value={form.name ?? ""} onChangeText={(v) => set("name", v)} />
       <Field label="Descripción (opcional)" multiline value={form.description ?? ""} onChangeText={(v) => set("description", v)} />
       <Field label="Equipamiento (opcional)" multiline value={form.equipment ?? ""} onChangeText={(v) => set("equipment", v)} />
       <Field label="Condiciones (opcional)" multiline value={form.conditions ?? ""} onChangeText={(v) => set("conditions", v)} />
@@ -110,13 +117,14 @@ function OfferingForm({ providerId, offering, done }: { providerId: string; offe
             onPress={() => set("pricing_unit", unit)} />
         ))}
       </View>
-      <Field label={form.pricing_unit === "QUOTE" ? "Precio de referencia (opcional)" : "Precio"} keyboardType="decimal-pad"
+      <Field label={form.pricing_unit === "QUOTE" ? "Precio de referencia (opcional)" : "Precio"} required={form.pricing_unit !== "QUOTE"} keyboardType="decimal-pad"
         value={form.base_price ?? ""} onChangeText={(v) => set("base_price", v)} />
       <ActionFeedback action={action} />
       <View style={styles.row}>
         <Button title={offering ? "Guardar servicio" : "Crear servicio"} disabled={action.busy} onPress={() => void save()} />
         <Button title="Cerrar" secondary onPress={() => void done()} />
       </View>
+      </FormScope>
     </Card>
   );
 }
@@ -185,7 +193,7 @@ export function ProviderScreen() {
           {!provider.offerings?.length && <Copy muted>Todavía no hay servicios publicados.</Copy>}
           <View style={[styles.row, { alignItems: "stretch" }]}>
             {provider.offerings?.map((item) => (
-              <View key={item.id} style={{ flexGrow: 1, flexBasis: 300, maxWidth: 560, gap: 6 }}>
+              <View key={item.id} style={{ flexGrow: 1, flexShrink: 1, minWidth: 0, flexBasis: 300, maxWidth: 560, gap: 6 }}>
                 <OfferingCard offering={item} manage={member} />
                 {manage && (
                   <View style={styles.row}>

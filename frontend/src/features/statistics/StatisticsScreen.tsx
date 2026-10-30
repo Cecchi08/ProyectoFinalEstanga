@@ -35,7 +35,7 @@ export default function StatisticsScreen({ global = false }: { global?: boolean 
           ['Tickets utilizados', data.tickets_used], ['Tickets pendientes', data.tickets_pending], ['Capacidad', data.capacity],
           ['Ocupación', `${data.occupancy_percent}%`], ['Conciertos activos', data.active_concerts],
           ...(global ? [['Usuarios', data.users ?? 0], ['Organizadores', data.organizers ?? 0]] : []),
-        ].map(([label, value]) => <View key={label} style={{ flexGrow: 1, flexBasis: 220 }}><Card><Copy muted>{label}</Copy><Copy>{value}</Copy></Card></View>)}
+        ].map(([label, value]) => <View key={label} style={{ flexGrow: 1, flexShrink: 1, minWidth: 0, flexBasis: 220 }}><Card><Copy muted>{label}</Copy><Copy>{value}</Copy></Card></View>)}
       </View>
       <StatisticsCharts data={data} />
       <Card><Copy>Actividad de compras</Copy>

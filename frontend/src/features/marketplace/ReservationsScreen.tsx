@@ -28,7 +28,7 @@ export default function ReservationsScreen() {
           <Copy>{reservation.event_name} · {stateLabel(reservation)}</Copy>
           <Copy muted>{reservation.venue_name} · {reservation.establishment_name}</Copy>
           <Copy muted>{range(reservation.event_start_at, reservation.event_end_at)} · {money(reservation.total_amount)} · {reservation.public_code}</Copy>
-          <Button title={`Ver reserva ${reservation.public_code}`} onPress={() => router.push(`/marketplace/reservations/${reservation.id}`)} />
+          <Button title={`Ver reserva ${reservation.public_code}`} secondary onPress={() => router.push(`/marketplace/reservations/${reservation.id}`)} />
         </Card>
       ))}
       <Pager pagination={resource.result?.pagination} onPage={view.setPage} />

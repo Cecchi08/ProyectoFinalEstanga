@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { randomUUID } from 'node:crypto';
 import { after, before, beforeEach, test } from 'node:test';
 import request from 'supertest';
 import { TestDatabase } from './helpers.js';
@@ -11,6 +12,8 @@ const ids = { user: '101', other: '102', organizer: '103', staff: '104', unassig
 const roles = { user: 'COMPRADOR', other: 'COMPRADOR', organizer: 'ORGANIZADOR', staff: 'COMPRADOR', unassigned: 'COMPRADOR', admin: 'ADMIN' };
 const call = (method, url, role = 'user', body) => {
     const req = request(ctx.app)[method](url);
+    // Idempotency-Key obligatoria en POST /purchases: cada llamada de estos helpers es un intento nuevo.
+    if (method === 'post' && url === '/purchases') req.set('Idempotency-Key', randomUUID());
     if (role) req.set('Authorization', `Bearer ${ctx.tokens.sign(ids[role], [roles[role]])}`);
     return body === undefined ? req : req.send(body);
 };
@@ -312,7 +315,7 @@ test('rollback real: error al insertar segundo ítem no deja compra parcial', as
         return original.apply(this, args);
     });
     const service = new CommerceService(db.db);
-    await assert.rejects(service.create({ items: [...input(1, '1').items, ...input(1, '2').items] }, { id: ids.user, roles: ['COMPRADOR'], permissions: [] }), /forced item failure/);
+    await assert.rejects(service.create({ items: [...input(1, '1').items, ...input(1, '2').items] }, { id: ids.user, roles: ['COMPRADOR'], permissions: [] }, 'key-servicio-0001'), /forced item failure/);
     assert.equal((await db.rows('SELECT id FROM orders')).length, 0);
     assert.equal((await db.rows('SELECT id FROM order_items')).length, 0);
 });

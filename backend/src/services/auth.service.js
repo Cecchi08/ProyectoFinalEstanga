@@ -112,6 +112,17 @@ export class AuthService {
             return { user: publicUser(user), roles, permissions, preferences: await repo.preferences(id) };
         });
     }
+    async updateProfile(id, input) {
+        const fields = {};
+        for (const column of ['first_name', 'last_name', 'display_name', 'phone'])
+            if (input[column] !== undefined) fields[column] = input[column];
+        await this.db.transaction(async (repo) => {
+            const user = await repo.findUserById(id, true);
+            this.active(user);
+            await repo.updateProfile(id, fields);
+        });
+        return this.me(id);
+    }
     async principal(id) {
         return this.db.read(async (repo) => {
             const user = await repo.findUserById(id);

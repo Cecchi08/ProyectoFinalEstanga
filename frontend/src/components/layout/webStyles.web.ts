@@ -1,12 +1,16 @@
-import { colors } from "../ui/theme";
+import { cssVar, palettes, shadowPalettes, type ThemeName } from "../ui/theme";
+import { initTheme } from "../ui/themeMode";
 
-// The theme is also exposed as CSS variables (--venti-primary, ...) so these rules follow it.
-const variables = Object.entries(colors)
-  .map(([name, value]) => `--venti-${name.replace(/[A-Z]/g, (letter) => `-${letter.toLowerCase()}`)}: ${value};`)
-  .join(" ");
+// Both themes as CSS variables; components reference var(--venti-*), so only data-theme on <html> changes.
+const variables = (theme: ThemeName) =>
+  [
+    ...Object.entries(palettes[theme]).map(([name, value]) => `${cssVar(name)}: ${value};`),
+    ...Object.entries(shadowPalettes[theme]).map(([name, value]) => `${cssVar(`shadow-${name}`)}: ${value};`),
+  ].join(" ");
 
 const css = `
-:root { ${variables} color-scheme: dark; }
+:root, :root[data-theme="dark"] { ${variables("dark")} color-scheme: dark; }
+:root[data-theme="light"] { ${variables("light")} color-scheme: light; }
 html, body { background-color: var(--venti-bg); }
 ::selection { background-color: var(--venti-primary); color: var(--venti-on-primary); }
 * { scrollbar-color: var(--venti-border-strong) transparent; scrollbar-width: thin; }
@@ -20,14 +24,17 @@ html, body { background-color: var(--venti-bg); }
 }
 input:focus-visible, textarea:focus-visible { outline: none; }
 @media (prefers-reduced-motion: reduce) {
-  * { transition: none !important; animation: none !important; }
+  * { transition: none !important; animation: none !important; scroll-behavior: auto !important; }
 }
 `;
 
 export function installWebStyles() {
-  if (typeof document === "undefined" || document.getElementById("venti-theme")) return;
-  const style = document.createElement("style");
-  style.id = "venti-theme";
-  style.textContent = css;
-  document.head.appendChild(style);
+  if (typeof document === "undefined") return;
+  if (!document.getElementById("venti-theme")) {
+    const style = document.createElement("style");
+    style.id = "venti-theme";
+    style.textContent = css;
+    document.head.appendChild(style);
+  }
+  initTheme();
 }

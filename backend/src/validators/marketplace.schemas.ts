@@ -1,5 +1,6 @@
 import { z } from 'zod';
-import { cityIdSchema, idSchema, nameSchema } from './management.schemas.ts';
+import { cityIdSchema, idSchema, nameSchema, postalCodeSchema } from './management.schemas.ts';
+import { phoneSchema } from './auth.schemas.js';
 import { pageSchema } from './commerce.schemas.ts';
 
 // Marketplace slots are whole minutes: DATETIME(0) would silently round seconds and shift a slot.
@@ -19,12 +20,13 @@ export const memberSchema = z.strictObject({ email: z.string().trim().toLowerCas
 export const memberPatchSchema = z.strictObject({ member_role: memberRole });
 export const organizationSchema = z.strictObject({
     name: nameSchema(150), legal_name: text(200), tax_id: z.string().trim().regex(/^\d{2}-?\d{8}-?\d$/, 'CUIT inválido.').nullable().optional(),
-    email: z.email().max(255).nullable().optional(), phone: text(30),
+    email: z.email().max(255).nullable().optional(), phone: phoneSchema.nullable().optional(),
 });
 const establishmentFields = {
-    city_id: cityIdSchema, name: nameSchema(150), description: text(16000), address_line: nameSchema(255), postal_code: text(10),
+    city_id: cityIdSchema, name: nameSchema(150), description: text(16000), address_line: nameSchema(255), postal_code: postalCodeSchema.nullable().optional(),
     latitude: z.number().min(-90).max(90).nullable().optional(), longitude: z.number().min(-180).max(180).nullable().optional(),
-    phone: text(30), email: z.email().max(255).nullable().optional(), website: z.url().max(255).nullable().optional(),
+    phone: phoneSchema.nullable().optional(), email: z.email().max(255).nullable().optional(),
+    website: z.url().max(255).refine(value => /^https?:\/\//i.test(value), 'Usar HTTP o HTTPS.').nullable().optional(),
 };
 export const establishmentSchema = z.strictObject({ organization_id: idSchema, ...establishmentFields });
 export const establishmentPatchSchema = z.strictObject(establishmentFields).partial().refine(value => Object.keys(value).length > 0, 'Enviar al menos un campo.');
@@ -32,7 +34,8 @@ const venueFields = {
     venue_type_code: z.string().trim().regex(/^[A-Z_]{1,40}$/), name: nameSchema(150), description: text(16000),
     capacity_standing: uint.nullable().optional(), capacity_seated: uint.nullable().optional(),
     area_m2: z.number().positive().max(999999.99).nullable().optional(), price_per_hour: money,
-    min_booking_minutes: z.number().int().min(1).max(10080).optional(), hold_minutes: z.number().int().min(5).max(10080).optional(),
+    min_booking_minutes: z.number().int().min(1).max(10080).optional(), // Retención unificada en 15 minutos (chk_venues_hold): se acepta 15 por compatibilidad, cualquier otro valor es 422.
+    hold_minutes: z.literal(15).optional(),
     amenities: codes.optional(),
     photos: z.array(z.strictObject({ url, is_cover: z.boolean().default(false) })).max(30)
         .refine(values => values.filter(photo => photo.is_cover).length <= 1, 'Solo una portada.').optional(),

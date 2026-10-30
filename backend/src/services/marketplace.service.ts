@@ -396,12 +396,19 @@ export class MarketplaceService {
         if (total > MAX_AMOUNT) fail(422, 'INVALID_TOTAL', 'Importe demasiado alto.');
         const id = await this.procedure(repo => repo.createHold({ venue_id: input.venue_id, user_id: user.id, quote_id: null, mode: input.occupancy_mode,
             event_name: input.event_name, expected_attendance: input.expected_attendance ?? null, ...slot, total: decimal(total) }));
-        return this.run(true, async repo => {
-            if (input.notes) await repo.setNotes(id, input.notes);
-            await repo.notifyProviders(input.venue_id, 'RESERVATION_UPDATE', { reservation_id: id }, 'Nueva solicitud de reserva',
-                `${input.event_name} en ${String(venue.name)}: pendiente de pago y de tu aceptación.`);
-            return repo.reservationDetails(required(await repo.reservation(id)));
-        });
+        try {
+            return await this.run(true, async repo => {
+                if (input.notes) await repo.setNotes(id, input.notes);
+                await repo.notifyProviders(input.venue_id, 'RESERVATION_UPDATE', { reservation_id: id }, 'Nueva solicitud de reserva',
+                    `${input.event_name} en ${String(venue.name)}: pendiente de pago y de tu aceptación.`);
+                return repo.reservationDetails(required(await repo.reservation(id)));
+            });
+        } catch (error) {
+            // The hold is already committed by sp_create_reservation_hold: release it so a failed request
+            // leaves no blocked slot the client never saw. The original error is what the client receives.
+            await this.run(true, repo => repo.setReservationStatus(id, user.id, 'CANCELLED', 'No se pudo registrar la solicitud.')).catch(() => undefined);
+            throw error;
+        }
     }
     reservation(id: string, user: Principal) {
         return this.run(false, async repo => repo.reservationDetails((await this.reservationAccess(repo, id, user)).reservation));
@@ -498,13 +505,24 @@ export class MarketplaceService {
         // sp_simulate_payment locks the reservation and records the payment. With an accepted quote it also confirms the
         // reservation; a direct booking stays in HOLD (extended up to 48 h) until the venue accepts it.
         const paymentId = await this.procedure(repo => repo.simulatePayment(id, user.id, outcome === 'APPROVED'));
-        return this.run(true, async repo => {
-            if (outcome === 'APPROVED') await repo.notifyProviders(String(reservation.venue_id), 'RESERVATION_UPDATE', { reservation_id: id },
-                reservation.quote_id ? 'Reserva confirmada' : 'Reserva pagada: falta tu aceptación',
-                reservation.quote_id ? `${String(reservation.event_name)}: pago simulado aprobado.`
-                    : `${String(reservation.event_name)}: pago simulado aprobado. Aceptala o rechazala antes de que venza.`);
-            return { simulated: true, notice: SIMULATED_PAYMENT_NOTICE, payment: await repo.payment(paymentId),
-                reservation: await repo.reservationDetails(required(await repo.reservation(id))) };
-        });
+        // The payment is committed from here on. A notification failure must not answer an error that invites paying
+        // again: the notice goes in its own transaction, is retried once and, if it still fails, is logged like email delivery.
+        let notificationFailed = false;
+        for (let attempt = 1; outcome === 'APPROVED' && attempt <= 2; attempt++) {
+            try {
+                await this.run(true, repo => repo.notifyProviders(String(reservation.venue_id), 'RESERVATION_UPDATE', { reservation_id: id },
+                    reservation.quote_id ? 'Reserva confirmada' : 'Reserva pagada: falta tu aceptación',
+                    reservation.quote_id ? `${String(reservation.event_name)}: pago simulado aprobado.`
+                        : `${String(reservation.event_name)}: pago simulado aprobado. Aceptala o rechazala antes de que venza.`));
+                break;
+            } catch {
+                if (attempt === 2) {
+                    notificationFailed = true;
+                    console.error('[NOTIFICATION_FAILED]', `Reserva ${id}: no se pudo avisar el pago al espacio; el pago quedó registrado.`);
+                }
+            }
+        }
+        return this.run(false, async repo => ({ simulated: true, notice: SIMULATED_PAYMENT_NOTICE, payment: await repo.payment(paymentId),
+            reservation: await repo.reservationDetails(required(await repo.reservation(id))), notification_failed: notificationFailed }));
     }
 }

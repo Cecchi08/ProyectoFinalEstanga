@@ -17,11 +17,13 @@ import {
   Card,
   Copy,
   Field,
+  FormScope,
   Page,
   ResourceState,
   dateLabel,
   styles,
   useAction,
+  useForm,
 } from "../../components/ui";
 import { Select } from "../../components/ui/Select";
 import { ConcertCard } from "../concerts/ConcertList";
@@ -93,6 +95,7 @@ function ArtistEditor({
   const [city, setCity] = useState<string[]>([]);
   const [genres, setGenres] = useState<string[]>([]);
   const action = useAction();
+  const validation = useForm();
   useEffect(() => {
     setForm({
       stage_name: artist?.stage_name ?? "",
@@ -107,6 +110,7 @@ function ArtistEditor({
     setForm((current) => ({ ...current, [key]: value }));
   const save = () =>
     action.run(async () => {
+      validation.assertValid();
       if (!form.stage_name?.trim())
         throw new Error("Poné el nombre artístico.");
       const body = {
@@ -125,9 +129,11 @@ function ArtistEditor({
     });
   return (
     <Card>
+      <FormScope form={validation}>
       <Copy>{artist ? `Editar ${artist.stage_name}` : "Nuevo perfil de artista"}</Copy>
       <Field
         label="Nombre artístico"
+        required
         value={form.stage_name ?? ""}
         autoCapitalize="words"
         onChangeText={(value) => set("stage_name", value)}
@@ -169,6 +175,7 @@ function ArtistEditor({
         onPress={() => void save()}
       />
       <Button title="Cerrar edición" secondary onPress={() => void done()} />
+      </FormScope>
     </Card>
   );
 }

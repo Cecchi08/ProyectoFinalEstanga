@@ -12,12 +12,15 @@ import {
   Card,
   Copy,
   Field,
+  FormScope,
   Page,
   Pager,
   ResourceState,
   styles,
   useAction,
+  useForm,
 } from "../../components/ui";
+import { rules } from "../../utils/validation";
 import { Select } from "../../components/ui/Select";
 // Artists and concert venues are no longer catalogs: concerts store artist_name and
 // spaces belong to marketplace establishments.
@@ -139,6 +142,7 @@ function CatalogEditor({
   const [form, setForm] = useState<Record<string, string>>({});
   const [confirm, setConfirm] = useState(false);
   const action = useAction();
+  const validation = useForm();
   useEffect(() => {
     setForm({
       name: item?.name ?? "",
@@ -152,15 +156,21 @@ function CatalogEditor({
     setForm({ ...form, [key]: value });
   return (
     <Card>
+      <FormScope form={validation}>
       <Copy>{item ? `Editar ${item.name}` : "Nuevo registro"}</Copy>
       <Field
         label="Nombre"
+        required
+        // Ciudades: solo letras y espacios (igual que el backend); el resto de los catálogos admite puntuación (ej. "R&B").
+        rules={kind === "cities" ? rules.city : rules.text(120)}
         value={form.name ?? ""}
         onChangeText={(v) => set("name", v)}
       />
       {kind === "provinces" && (
         <Field
           label="Código"
+          required
+          rules={[(value) => (/^[A-Z0-9-]{1,10}$/.test(value.trim()) ? null : "Usá mayúsculas, números o guiones (ej. AR-B).")]}
           placeholder="AR-B"
           value={form.code ?? ""}
           onChangeText={(v) => set("code", v.toUpperCase())}
@@ -199,6 +209,7 @@ function CatalogEditor({
         disabled={action.busy}
         onPress={() =>
           void action.run(async () => {
+            validation.assertValid();
             const body = {
               name: form.name,
               ...(kind === "provinces" ? { code: form.code } : {}),
@@ -238,6 +249,7 @@ function CatalogEditor({
         />
       )}
       <Button title="Cerrar edición" secondary onPress={() => void done()} />
+      </FormScope>
     </Card>
   );
 }

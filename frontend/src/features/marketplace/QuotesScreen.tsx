@@ -6,7 +6,7 @@ import { useResource } from "../../hooks/useResource";
 import { api } from "../../services/api";
 import { query } from "../../services/http";
 import type { Permission, Quote, Reservation } from "../../types/api";
-import { ActionFeedback, Button, Card, Copy, Field, Page, Pager, ResourceState, dateLabel, money, styles, useAction } from "../../components/ui";
+import { ActionFeedback, Button, Card, Copy, Field, FormScope, Page, Pager, ResourceState, dateLabel, money, styles, useAction, useForm } from "../../components/ui";
 import { at, isDate, range } from "./time";
 
 // Shared by quotes and reservations: requester view by default, provider view for organization members.
@@ -55,7 +55,7 @@ export default function QuotesScreen() {
           <Copy>{quote.event_name} · {quote.status}</Copy>
           <Copy muted>{quote.venue_name} · {range(quote.event_start_at, quote.event_end_at)}</Copy>
           <Copy muted>{quote.total_amount ? `Total ${money(quote.total_amount)}` : "Sin cotizar"} · {quote.public_code}</Copy>
-          <Button title={`Ver presupuesto ${quote.public_code}`} onPress={() => router.push(`/marketplace/quotes/${quote.id}`)} />
+          <Button title={`Ver presupuesto ${quote.public_code}`} secondary onPress={() => router.push(`/marketplace/quotes/${quote.id}`)} />
         </Card>
       ))}
       <Pager pagination={resource.result?.pagination} onPage={view.setPage} />
@@ -70,6 +70,7 @@ export function QuoteScreen() {
   const resource = useResource<Quote>(`/marketplace/quotes/${id}`);
   const quote = resource.result?.data;
   const action = useAction();
+  const validation = useForm();
   const [lines, setLines] = useState<Line[]>([{ description: "", quantity: "1", unit_price: "" }]);
   const [form, setForm] = useState<Record<string, string>>({});
   const set = (key: string, value: string) => setForm((current) => ({ ...current, [key]: value }));
@@ -84,6 +85,7 @@ export function QuoteScreen() {
     action.setMessage("Presupuesto actualizado.");
   });
   const respond = () => post("respond", () => {
+    validation.assertValid();
     if (!isDate(form.valid_date ?? "")) throw new Error("Indicá la fecha de validez (AAAA-MM-DD).");
     const items = lines.filter((line) => line.description.trim()).map((line) => ({
       description: line.description.trim(), quantity: Number(line.quantity), unit_price: Number(line.unit_price),
@@ -101,6 +103,7 @@ export function QuoteScreen() {
   });
   return (
     <Page title={quote ? `Presupuesto ${quote.public_code}` : "Presupuesto"}>
+      <FormScope form={validation}>
       <ResourceState {...resource} retry={() => void resource.reload()} />
       <ActionFeedback action={action} />
       {quote && (
@@ -161,6 +164,7 @@ export function QuoteScreen() {
           )}
         </>
       )}
+      </FormScope>
     </Page>
   );
 }

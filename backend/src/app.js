@@ -32,7 +32,7 @@ export function createApp({ env, database, mailer, oauthClient }) {
                 callback(null, true);
             else
                 callback(new AppError(403, 'CORS_FORBIDDEN', 'Origen no permitido.'));
-        }, credentials: true, methods: ['GET', 'POST', 'PATCH', 'DELETE', 'OPTIONS'], allowedHeaders: ['Content-Type', 'Authorization'] }));
+        }, credentials: true, methods: ['GET', 'POST', 'PATCH', 'DELETE', 'OPTIONS'], allowedHeaders: ['Content-Type', 'Authorization', 'Idempotency-Key'] }));
     app.use(express.json({ limit: '16kb', strict: true }));
     const tokens = new AccessTokens(env);
     const auth = new AuthService(database, env, tokens, mailer);

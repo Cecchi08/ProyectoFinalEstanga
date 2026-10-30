@@ -8,6 +8,8 @@ export const purchaseSchema = z.strictObject({
         .refine(items => new Set(items.map(item => item.ticketTypeId)).size === items.length, 'Tipos de entrada duplicados.')
         .refine(items => items.reduce((sum, item) => sum + item.quantity, 0) <= 100, 'Máximo 100 entradas por compra.'),
 });
+// Obligatoria en POST /purchases: identifica el intento y es única por usuario (uq_orders_idempotency).
+export const idempotencyKeySchema = z.string().trim().regex(/^[A-Za-z0-9._:-]{8,128}$/, 'Idempotency-Key inválida: 8 a 128 caracteres alfanuméricos, guiones, puntos, dos puntos o guiones bajos.');
 // Confirming a purchase is a simulated payment: only the desired outcome is accepted, never card or bank data.
 export const purchasePaymentSchema = z.strictObject({ outcome: z.enum(['APPROVED', 'REJECTED']).default('APPROVED') }).default({ outcome: 'APPROVED' });
 export const validationSchema = z.strictObject({ concertId: idSchema, qrToken: z.string().regex(/^[a-f0-9]{64}$/) });

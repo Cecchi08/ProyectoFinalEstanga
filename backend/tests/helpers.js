@@ -11,7 +11,14 @@ import { SCHEMA_FILE, schemaStatements } from '../scripts/schema-statements.js';
 export const password = 'Strong-password-123';
 export const registration = { first_name: 'Ana', last_name: 'Pérez', email: 'ana@example.com', password };
 export function testEnv() {
-    return loadEnv({ NODE_ENV: 'test', DB_HOST: process.env.TEST_DB_HOST ?? '127.0.0.1', DB_PORT: process.env.TEST_DB_PORT ?? '3306',
+    // Las pruebas solo pueden usar una MySQL local aislada (compose.test.yml: 127.0.0.1:33316), nunca Railway ni la XAMPP en 3306.
+    const host = process.env.TEST_DB_HOST ?? '127.0.0.1';
+    if (!['127.0.0.1', 'localhost'].includes(host)) throw new Error('TEST_DB_HOST debe ser 127.0.0.1 o localhost: las pruebas no se conectan a bases remotas.');
+    // 3306 es la XAMPP/MariaDB local (incompatible con el esquema y no aislada): nunca se acepta.
+    const port = process.env.TEST_DB_PORT ?? '33316';
+    if (port === '3306' || (port !== '33316' && process.env.TEST_DB_ALLOW_OTHER_PORT !== '1'))
+        throw new Error('TEST_DB_PORT debe ser 33316 (MySQL 8 aislada); 3306 es XAMPP y no se usa en pruebas.');
+    return loadEnv({ NODE_ENV: 'test', DB_HOST: host, DB_PORT: port,
         DB_USER: process.env.TEST_DB_USER ?? 'root', DB_PASSWORD: process.env.TEST_DB_PASSWORD ?? '', DB_NAME: 'venti_test',
         JWT_ACCESS_SECRET: 'test-only-secret-0123456789abcdef-0123456789abcdef', BCRYPT_ROUNDS: '10',
         SMTP_HOST: '127.0.0.1', SMTP_FROM: 'test@venti.example',

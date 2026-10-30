@@ -324,7 +324,7 @@ CREATE TABLE venues (
   price_per_hour DECIMAL(12,2) NOT NULL DEFAULT 0.00,
   currency CHAR(3) NOT NULL DEFAULT 'ARS',
   min_booking_minutes INT UNSIGNED NOT NULL DEFAULT 60,
-  hold_minutes INT UNSIGNED NOT NULL DEFAULT 30,
+  hold_minutes INT UNSIGNED NOT NULL DEFAULT 15,
   status ENUM('DRAFT','PUBLISHED','ARCHIVED') NOT NULL DEFAULT 'DRAFT',
   published_at DATETIME NULL,
   created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -342,7 +342,8 @@ CREATE TABLE venues (
   CONSTRAINT chk_venues_price CHECK (price_per_hour >= 0),
   CONSTRAINT chk_venues_area CHECK (area_m2 IS NULL OR area_m2 > 0),
   CONSTRAINT chk_venues_min_booking CHECK (min_booking_minutes > 0),
-  CONSTRAINT chk_venues_hold CHECK (hold_minutes BETWEEN 5 AND 10080),
+  -- Retención temporal unificada: toda reserva HOLD de un espacio dura 15 minutos (trg_reservations_bi la toma de aquí).
+  CONSTRAINT chk_venues_hold CHECK (hold_minutes = 15),
   CONSTRAINT chk_venues_published CHECK (status <> 'PUBLISHED' OR published_at IS NOT NULL)
 ) ENGINE=InnoDB;
 
@@ -777,10 +778,13 @@ CREATE TABLE orders (
   cancelled_at DATETIME NULL,
   refund_status ENUM('NONE','REFUNDED') NOT NULL DEFAULT 'NONE',
   refunded_at DATETIME NULL,
+  idempotency_key VARCHAR(128) NULL,
+  request_hash CHAR(64) NULL,
   created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
   updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   PRIMARY KEY (id),
   UNIQUE KEY uq_orders_public_code (public_code),
+  UNIQUE KEY uq_orders_idempotency (user_id, idempotency_key),
   KEY idx_orders_user (user_id, created_at),
   KEY idx_orders_status (status, expires_at),
   CONSTRAINT fk_orders_user FOREIGN KEY (user_id) REFERENCES users (id),

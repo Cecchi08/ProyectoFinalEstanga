@@ -1,7 +1,7 @@
 import { Router } from 'express';
 import { rateLimit } from 'express-rate-limit';
 import { validateRequest } from '../middlewares/validation.middleware.js';
-import { emailRequestSchema, loginSchema, oauthExchangeSchema, oauthStartSchema, refreshSchema, registerSchema, resetSchema, verifySchema } from '../validators/auth.schemas.js';
+import { emailRequestSchema, loginSchema, oauthExchangeSchema, oauthStartSchema, profileUpdateSchema, refreshSchema, registerSchema, resetSchema, verifySchema } from '../validators/auth.schemas.js';
 export function authRoutes(controller, oauth, authenticate, env) {
     const router = Router();
     const message = { success: false, error: { code: 'RATE_LIMITED', message: 'Demasiadas solicitudes. Reintentá más tarde.' } };
@@ -13,6 +13,7 @@ export function authRoutes(controller, oauth, authenticate, env) {
     router.post('/refresh', validateRequest(refreshSchema), controller.refresh);
     router.post('/logout', validateRequest(refreshSchema), controller.logout);
     router.get('/me', authenticate, controller.me);
+    router.patch('/me', authenticate, validateRequest(profileUpdateSchema), controller.updateMe);
     router.post('/verify-email', validateRequest(verifySchema), controller.verifyEmail);
     router.post('/resend-verification', sensitive, validateRequest(emailRequestSchema), controller.resendVerification);
     router.post('/forgot-password', sensitive, validateRequest(emailRequestSchema), controller.forgotPassword);

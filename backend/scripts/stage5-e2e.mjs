@@ -5,6 +5,7 @@ import { createRequire } from 'node:module';
 import { mkdir } from 'node:fs/promises';
 import express from 'express';
 import { TestDatabase, registration, password } from '../tests/helpers.js';
+import { listenLoopback, loopbackUrl, LOOPBACK_BROWSER_ARGS } from './e2e-local.mjs';
 const requireFrontend = createRequire(new URL('../../frontend/package.json', import.meta.url));
 const { chromium, expect } = requireFrontend('@playwright/test');
 const { PNG } = requireFrontend('pngjs');
@@ -23,10 +24,10 @@ before(async () => {
     accounts[name] = account.user.id;
   }
   // Production client uses localhost:3000. Bind only loopback.
-  apiServer = await new Promise(resolve => {const server = context.app.listen(3000,'127.0.0.1',() => resolve(server));});
+  apiServer = await listenLoopback(context.app, 3000);
   const web = express(); web.use(express.static('../frontend/dist')); web.get('/{*path}',(_req,res) => res.sendFile('index.html',{root:'../frontend/dist'}));
-  webServer = await new Promise(resolve => {const server = web.listen(8081,'127.0.0.1',() => resolve(server));});
-  browser = await chromium.launch({...(process.env.E2E_BROWSER_CHANNEL ? {channel:process.env.E2E_BROWSER_CHANNEL} : {}),headless:true});
+  webServer = await listenLoopback(web, 8081);
+  browser = await chromium.launch({ args: LOOPBACK_BROWSER_ARGS, ...(process.env.E2E_BROWSER_CHANNEL ? {channel:process.env.E2E_BROWSER_CHANNEL} : {}),headless:true});
   await mkdir('../frontend/test-results',{recursive:true});
   const browserContext = await browser.newContext({viewport:{width:1440,height:1000}}); const page = await browserContext.newPage();
   try {
@@ -68,7 +69,7 @@ async function choose(page,label,option) {
   await page.getByRole('button',{name:option,exact:true}).click();
 }
 for (const viewport of [{width:1440,height:1000},{width:768,height:1024},{width:390,height:844}]) test(`full application flow at ${viewport.width}px`, {timeout:180000}, async () => {
-  const suffix = String(viewport.width); const browserContext = await browser.newContext({viewport}); const page = await browserContext.newPage(); const errors = []; page.on('pageerror',error => errors.push(error.message));
+  const suffix = String(viewport.width); const city = `Ciudad ${{1440: 'Escritorio', 768: 'Tableta', 390: 'Movil'}[viewport.width]}`; const browserContext = await browser.newContext({viewport}); const page = await browserContext.newPage(); const errors = []; page.on('pageerror',error => errors.push(error.message));
   page.on('requestfailed', request => console.error('Request failed:', new URL(request.url()).pathname, request.failure()?.errorText));
   try {
     // Guards, registration and email fragment consumption.
@@ -84,7 +85,7 @@ for (const viewport of [{width:1440,height:1000},{width:768,height:1024},{width:
     async function catalog(tab,name,prepare) {await page.getByRole('button',{name:tab,exact:true}).click(); await page.getByRole('button',{name:`Crear en ${tab}`,exact:true}).click(); await page.getByLabel('Nombre',{exact:true}).fill(name); if (prepare) await prepare(); await page.getByRole('button',{name:'Guardar catálogo',exact:true}).click(); await expect(page.getByRole('button',{name:`Editar ${name}`,exact:true})).toBeVisible();}
     await catalog('Provincias',`Provincia ${suffix}`,() => page.getByLabel('Código',{exact:true}).fill(`E2E-${suffix}`));
     await catalog('Distritos',`Distrito ${suffix}`,() => choose(page,'Provincia',`Provincia ${suffix}`));
-    await catalog('Ciudades',`Ciudad ${suffix}`,async () => {await choose(page,'Provincia',`Provincia ${suffix}`); await choose(page,'Distrito',`Distrito ${suffix}`);});
+    await catalog('Ciudades',`${city}`,async () => {await choose(page,'Provincia',`Provincia ${suffix}`); await choose(page,'Distrito',`Distrito ${suffix}`);});
     await catalog('Géneros',`Rock ${suffix}`); await logout(page);
     // ORGANIZADOR (with VENUE): concert CRUD and publication.
     await login(page,'organizer'); await page.getByRole('tab',{name:'Organizador',exact:true}).click(); await page.getByRole('button',{name:'Crear concierto',exact:true}).click();
@@ -94,7 +95,7 @@ for (const viewport of [{width:1440,height:1000},{width:768,height:1024},{width:
     // The published artist profile is billed as headliner; the lineup then shows it instead of the free text.
     await page.getByRole('button',{name:'Agregar perfil de artista',exact:true}).click(); await page.getByLabel('Buscar perfil de artista',{exact:true}).fill(ARTIST);
     await page.getByRole('button',{name:`Agregar ${ARTIST}`,exact:true}).click(); await expect(page.getByText(`1. ${ARTIST}`,{exact:true})).toBeVisible();
-    await page.getByLabel('Dirección (opcional)',{exact:true}).fill('Calle Música 123'); await choose(page,'Ciudad',`Ciudad ${suffix}`);
+    await page.getByLabel('Dirección (opcional)',{exact:true}).fill('Calle Música 123'); await choose(page,'Ciudad',`${city}`);
     await choose(page,'Géneros',`Rock ${suffix}`); await page.getByRole('button',{name:'Guardar concierto',exact:true}).click();
     await expect(page.getByRole('button',{name:'Agregar tipo de entrada',exact:true})).toBeVisible();
     const concertId = new URL(page.url()).pathname.split('/').pop();
@@ -117,7 +118,7 @@ for (const viewport of [{width:1440,height:1000},{width:768,height:1024},{width:
     await page.getByRole('button',{name:'Aplicar filtros',exact:true}).click(); await expect(page.getByText('Desde $ 1.200,00',{exact:true})).toBeVisible();
     await page.getByRole('button',{name:`Ver VENTI Live ${suffix}`,exact:true}).click();
     await expect(page.getByText(`Artistas: ${ARTIST}`,{exact:true})).toBeVisible();
-    await expect(page.getByText(`Sala ${suffix} · Ciudad ${suffix}, Provincia ${suffix}`,{exact:true})).toBeVisible();
+    await expect(page.getByText(`Sala ${suffix} · ${city}, Provincia ${suffix}`,{exact:true})).toBeVisible();
     // The artist's public profile lists the concert among its upcoming performances.
     await page.getByRole('button',{name:`Principal: ${ARTIST}`,exact:true}).click(); await expect(page.getByText('Presentaciones',{exact:true})).toBeVisible();
     await expect(page.getByRole('button',{name:`Ver VENTI Live ${suffix}`,exact:true})).toBeVisible();
@@ -224,7 +225,7 @@ for (const viewport of [{width:1440,height:1000},{width:768,height:1024},{width:
       // Only the external provider authorization is controlled. Backend cookies,
       // state, fixed callback, PKCE exchange and client session all run unchanged.
       await page.route(/^http:\/\/localhost:3000\/auth\/oauth\/(google|github|facebook)\?/, async route => {
-        const response = await route.fetch({maxRedirects:0});
+        const response = await route.fetch({url:loopbackUrl(route.request().url()),maxRedirects:0});
         const url = new URL(response.headers().location); const provider = new URL(route.request().url()).pathname.split('/').pop();
         await route.fulfill({response,status:302,headers:{...response.headers(),location:`http://localhost:3000/auth/oauth/${provider}/callback?state=${url.searchParams.get('state')}&code=controlled-provider-code`}});
       });

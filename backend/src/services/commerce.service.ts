@@ -1,7 +1,8 @@
+import { createHash } from 'node:crypto';
 import { AppError } from '../utils/app-error.util.js';
 import { PERMISSIONS as P, can } from '../utils/access.util.js';
 import { createQrToken } from '../utils/qr.util.ts';
-import { CommerceRepository, type PurchaseRow, type ScanResult } from '../repositories/commerce.repository.ts';
+import { CommerceRepository, type OrderKeyRow, type PurchaseRow, type ScanResult } from '../repositories/commerce.repository.ts';
 import type { Database, Principal, ConcertRow, TicketRow } from '../types/management.types.ts';
 import { purchaseSchema, validationSchema, type PurchaseInput, type PageQuery, type ValidationInput } from '../validators/commerce.schemas.ts';
 
@@ -9,6 +10,9 @@ export const SIMULATED_PURCHASE_NOTICE = 'Pago simulado: no se cobró dinero rea
 export type PaymentOutcome = 'APPROVED' | 'REJECTED';
 
 function fail(status: number, code: string, message: string): never { throw new AppError(status, code, message, undefined); }
+// ER_DUP_ENTRY sobre la clave de idempotencia: otra solicitud con la misma clave ganó la carrera.
+const isIdempotencyCollision = (error: unknown) => typeof error === 'object' && error !== null
+    && (error as { code?: string }).code === 'ER_DUP_ENTRY' && String((error as { message?: string }).message).includes('uq_orders_idempotency');
 const required = <T>(value: T | undefined): T => value ?? fail(404, 'NOT_FOUND', 'Recurso inexistente.');
 const ownerFilter = (user: Principal) => can(user, P.ordersReadAll) ? undefined : user.id;
 const ascending = (a: string, b: string) => BigInt(a) < BigInt(b) ? -1 : BigInt(a) > BigInt(b) ? 1 : 0;
@@ -27,36 +31,52 @@ export class CommerceService {
         const callback = (repo: { connection: ConstructorParameters<typeof CommerceRepository>[0] }) => work(new CommerceRepository(repo.connection));
         return transaction ? this.database.transaction(callback) : this.database.read(callback);
     }
-    async create(input: PurchaseInput, user: Principal) {
+    async create(input: PurchaseInput, user: Principal, idempotencyKey: string): Promise<{ purchase: unknown; replayed: boolean }> {
         const parsed = purchaseSchema.parse(input);
         const items = [...parsed.items].sort((a, b) => ascending(a.ticketTypeId, b.ticketTypeId));
+        // Mismo contenido = mismo hash, sin importar el orden de los ítems del cliente.
+        const requestHash = createHash('sha256').update(JSON.stringify({ concertId: parsed.concertId ?? null, items: items.map(item => [item.ticketTypeId, item.quantity]) })).digest('hex');
         // Resolve the immutable parent outside the transaction: never establish a stale RR snapshot before locks.
         const first = await this.run(false, async repo => required(await repo.type(items[0].ticketTypeId)));
         const concertId = parsed.concertId ?? first.concert_id;
-        return this.run(true, async repo => {
-            const concert = required(await repo.concert(concertId));
-            const types: TicketRow[] = [];
-            for (const item of items) {
-                const type = required(await repo.type(item.ticketTypeId, true));
-                if (type.concert_id !== concert.id) fail(422, 'WRONG_CONCERT', 'Todas las entradas deben pertenecer al concierto seleccionado.');
-                types.push(type);
-            }
-            const now = await repo.now();
-            let expires = Math.min(now.getTime() + 15 * 60000, concert.start_datetime.getTime());
-            for (const [index, type] of types.entries()) {
-                sale(concert, type, now);
-                const quantity = items[index].quantity;
-                if (type.max_per_purchase !== null && quantity > type.max_per_purchase)
-                    fail(409, 'MAX_PER_PURCHASE', 'Se superó el máximo por compra.');
-                if (type.stock_total - await repo.committed(type.id) < quantity)
-                    fail(409, 'INSUFFICIENT_STOCK', 'No hay entradas suficientes.');
-                if (type.sale_end) expires = Math.min(expires, type.sale_end.getTime());
-            }
-            const id = await repo.reserve(user.id, new Date(expires));
-            for (const [index, type] of types.entries()) await repo.addItem(id, type, items[index].quantity);
-            await repo.total(id);
-            return { ...required(await repo.purchase(id)), items: await repo.items(id) };
-        });
+        try {
+            return await this.run(true, async repo => {
+                const concert = required(await repo.concert(concertId));
+                // Locking read after the concert lock: a committed original is always visible here, so retries never re-reserve.
+                const original = await repo.byIdempotencyKey(user.id, idempotencyKey, true);
+                if (original) return this.replay(repo, original, requestHash);
+                const types: TicketRow[] = [];
+                for (const item of items) {
+                    const type = required(await repo.type(item.ticketTypeId, true));
+                    if (type.concert_id !== concert.id) fail(422, 'WRONG_CONCERT', 'Todas las entradas deben pertenecer al concierto seleccionado.');
+                    types.push(type);
+                }
+                const now = await repo.now();
+                let expires = Math.min(now.getTime() + 15 * 60000, concert.start_datetime.getTime());
+                for (const [index, type] of types.entries()) {
+                    sale(concert, type, now);
+                    const quantity = items[index].quantity;
+                    if (type.max_per_purchase !== null && quantity > type.max_per_purchase)
+                        fail(409, 'MAX_PER_PURCHASE', 'Se superó el máximo por compra.');
+                    if (type.stock_total - await repo.committed(type.id) < quantity)
+                        fail(409, 'INSUFFICIENT_STOCK', 'No hay entradas suficientes.');
+                    if (type.sale_end) expires = Math.min(expires, type.sale_end.getTime());
+                }
+                const id = await repo.reserve(user.id, new Date(expires), idempotencyKey, requestHash);
+                for (const [index, type] of types.entries()) await repo.addItem(id, type, items[index].quantity);
+                await repo.total(id);
+                return { purchase: { ...required(await repo.purchase(id)), items: await repo.items(id) }, replayed: false };
+            });
+        } catch (error) {
+            // A concurrent request with the same key committed first and the unique index rejected this insert:
+            // this attempt rolled back completely (no stock, reservation or payment), so return the original.
+            if (!isIdempotencyCollision(error)) throw error;
+            return this.run(false, async repo => this.replay(repo, required(await repo.byIdempotencyKey(user.id, idempotencyKey)), requestHash));
+        }
+    }
+    private async replay(repo: CommerceRepository, original: OrderKeyRow, requestHash: string) {
+        if (original.request_hash !== requestHash) fail(409, 'IDEMPOTENCY_KEY_REUSED', 'La clave ya se usó con otra compra.');
+        return { purchase: { ...required(await repo.purchase(original.id)), items: await repo.items(original.id) }, replayed: true };
     }
     purchases(user: Principal, query: PageQuery) { return this.run(false, repo => repo.purchases(user.id, query)); }
     async purchase(id: string, user: Principal) {

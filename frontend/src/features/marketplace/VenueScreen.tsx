@@ -6,7 +6,7 @@ import { useResource } from "../../hooks/useResource";
 import { api } from "../../services/api";
 import { query } from "../../services/http";
 import type { Availability, OccupancyMode, Quote, Reservation, VenueDetail } from "../../types/api";
-import { ActionFeedback, Button, Card, Copy, Field, Notice, Page, ResourceState, money, styles, useAction } from "../../components/ui";
+import { ActionFeedback, Button, Card, Copy, Field, FormScope, Notice, Page, ResourceState, money, styles, useAction, useForm } from "../../components/ui";
 import { capacityLabel } from "./MarketplaceScreen";
 import { days, isDate, range, slot } from "./time";
 
@@ -21,6 +21,7 @@ export default function VenueScreen() {
   const [availability, setAvailability] = useState<Availability | null>(null);
   const check = useAction();
   const book = useAction();
+  const validation = useForm();
   const set = (key: string, value: string) => setForm((current) => ({ ...current, [key]: value }));
   const requester = can("marketplace.quotes.request", "marketplace.reservations.create", "marketplace.admin");
   // Whole day (no times) or the exact requested slot.
@@ -40,10 +41,12 @@ export default function VenueScreen() {
     };
   };
   const reserve = () => book.run(async () => {
+    validation.assertValid();
     const { data } = await api.request<Reservation>("/marketplace/reservations", { method: "POST", body: { ...schedule(), notes: form.notes?.trim() || null } });
     router.push(`/marketplace/reservations/${data.id}`);
   });
   const requestQuote = () => book.run(async () => {
+    validation.assertValid();
     const { data } = await api.request<Quote>("/marketplace/quotes", {
       method: "POST", body: { ...schedule(), event_description: form.description?.trim() || null, requester_notes: form.notes?.trim() || null },
     });
@@ -51,6 +54,7 @@ export default function VenueScreen() {
   });
   return (
     <Page title={venue?.name ?? "Espacio"} subtitle={venue ? `${venue.establishment_name} · ${venue.city_name}` : undefined}>
+      <FormScope form={validation}>
       <ResourceState {...resource} retry={() => void resource.reload()} />
       {venue && (
         <>
@@ -76,10 +80,10 @@ export default function VenueScreen() {
           <Card>
             <Copy>Disponibilidad y franja (hora de Argentina)</Copy>
             <View style={styles.row}>
-              <Field label="Fecha (AAAA-MM-DD)" value={form.date ?? ""} onChangeText={(v) => set("date", v)} />
+              <Field label="Fecha (AAAA-MM-DD)" required value={form.date ?? ""} onChangeText={(v) => set("date", v)} />
               <Field label="Armado desde (HH:MM, opcional)" value={form.setup ?? ""} onChangeText={(v) => set("setup", v)} />
-              <Field label="Inicio del evento (HH:MM)" value={form.start ?? ""} onChangeText={(v) => set("start", v)} />
-              <Field label="Fin del evento (HH:MM)" value={form.end ?? ""} onChangeText={(v) => set("end", v)} />
+              <Field label="Inicio del evento (HH:MM)" required value={form.start ?? ""} onChangeText={(v) => set("start", v)} />
+              <Field label="Fin del evento (HH:MM)" required value={form.end ?? ""} onChangeText={(v) => set("end", v)} />
               <Field label="Desarme hasta (HH:MM, opcional)" value={form.teardown ?? ""} onChangeText={(v) => set("teardown", v)} />
             </View>
             <View style={styles.row}>
@@ -110,7 +114,7 @@ export default function VenueScreen() {
           {requester ? (
             <Card>
               <Copy>Reservar o pedir presupuesto</Copy>
-              <Field label="Nombre del evento" value={form.event_name ?? ""} onChangeText={(v) => set("event_name", v)} />
+              <Field label="Nombre del evento" required value={form.event_name ?? ""} onChangeText={(v) => set("event_name", v)} />
               <Field label="Asistentes estimados (opcional)" keyboardType="number-pad" value={form.attendance ?? ""} onChangeText={(v) => set("attendance", v)} />
               <Field label="Descripción (para presupuesto)" multiline value={form.description ?? ""} onChangeText={(v) => set("description", v)} />
               <Field label="Notas (opcional)" multiline value={form.notes ?? ""} onChangeText={(v) => set("notes", v)} />
@@ -130,6 +134,7 @@ export default function VenueScreen() {
           )}
         </>
       )}
+      </FormScope>
     </Page>
   );
 }

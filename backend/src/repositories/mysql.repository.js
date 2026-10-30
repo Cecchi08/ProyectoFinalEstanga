@@ -16,6 +16,7 @@ export class MysqlAuthRepository {
         if (!row)
             return null;
         return { id: String(row.id), first_name: row.first_name, last_name: row.last_name,
+            display_name: row.display_name, phone: row.phone,
             email: row.email, password_hash: row.password_hash,
             avatar_url: row.avatar_url, email_verified_at: row.email_verified_at,
             is_active: row.status === 'ACTIVE', created_at: row.created_at, updated_at: row.updated_at };
@@ -71,6 +72,11 @@ export class MysqlAuthRepository {
     }
     async markVerified(id) { await this.connection.execute('UPDATE users SET email_verified_at = COALESCE(email_verified_at, UTC_TIMESTAMP()) WHERE id = ?', [id]); }
     async setPassword(id, hash) { await this.connection.execute('UPDATE users SET password_hash = ? WHERE id = ?', [hash, id]); }
+    // Columns come only from AuthService.updateProfile's whitelist, never from request keys.
+    async updateProfile(id, fields) {
+        const columns = Object.keys(fields);
+        if (columns.length) await this.connection.execute(`UPDATE users SET ${columns.map(column => `${column} = ?`).join(', ')} WHERE id = ?`, [...columns.map(column => fields[column]), id]);
+    }
     async insertToken(kind, userId, hash, expires) {
         await this.connection.execute(`INSERT INTO ${tokenTables[kind]} (user_id, token_hash, expires_at) VALUES (?, ?, ?)`, [userId, hash, expires]);
     }

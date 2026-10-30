@@ -223,7 +223,7 @@ Varios puntos de la lista original ya se resolvieron. Se indican para cerrarlos.
 
 - **Favoritos.** No existen en el esquema y se quitaron del código (`recommendation-scoring.service.ts:6`). Hay que decidir si vuelven. Implicaría una tabla nueva, endpoints, una pantalla y una señal más para las recomendaciones.
 - **Sectores y condiciones del venue.**
-  - `venues` no tiene sectores (ubicaciones o subdivisiones con capacidad propia) ni condiciones de uso. Sus columnas son capacidad, metros cuadrados, precio por hora, mínimo de reserva y duración del HOLD (`venti_shema2.sql`, `CREATE TABLE venues`).
+  - `venues` no tiene sectores (ubicaciones o subdivisiones con capacidad propia) ni condiciones de uso. Sus columnas son capacidad, metros cuadrados, precio por hora, mínimo de reserva y duración del HOLD, fija en 15 minutos (`chk_venues_hold`; migración `20261030_retencion_espacios_15_minutos.sql`) (`venti_shema2.sql`, `CREATE TABLE venues`).
   - Las entradas de los conciertos tampoco tienen sector: solo tipos de entrada.
   - Las condiciones existen solo para servicios (`service_offerings.conditions`).
 - **Varias imágenes.**
@@ -345,7 +345,12 @@ npm run web             # http://localhost:8081   (npm start para Expo en el tel
      No toca los servicios MySQL instalados.
 3. Tests de frontend: `npm test`.
 4. E2E: `npm run build` en el frontend con `EXPO_PUBLIC_API_URL=http://localhost:3000`, y después `npm run test:e2e` en el backend, con los mismos `TEST_DB_*`.
-5. Prueba manual en local:
+   - Las pruebas de navegador (`test:e2e`, `test:ui`, `test:a11y`) levantan su API en 127.0.0.1:3000 y la web en 127.0.0.1:8081, y el navegador resuelve `localhost` solo a 127.0.0.1 (`scripts/e2e-local.mjs`). Así no hablan con otra API abierta en `[::]:3000` (por ejemplo, `node dist/server.js` con el `.env` de Railway); si el puerto de 127.0.0.1 está ocupado, se detienen.
+5. Datos de demostración (`backend/scripts/demo-seed.mjs`, no es una migración):
+   - Local: `DEMO_DB_PASSWORD=... npm run db:demo-seed` crea o completa la base `venti_demo` en la MySQL aislada (33316; nunca 3306). Es idempotente y pasa por la API real (bcrypt, validaciones, triggers, pagos simulados). Cuentas `@demo.venti.example`, contraseña `Venti-Demo-2026`, nombres con prefijo `[DEMO]`.
+   - Retiro: `npm run db:demo-unseed` simula y lista las filas demo; con `-- --apply` las borra en una transacción. Si una cuenta que no es demo tiene datos ligados a la demo, no borra nada y lo informa (`--include-related` lo fuerza, a decisión de una persona). La prueba `tests/demo-seed.test.js` comprueba que, tras el retiro, cada tabla vuelve a sus filas exactas (conteo y `CHECKSUM TABLE`).
+   - Base remota (solo con autorización y backup verificado): `DEMO_TARGET=remote` usa la conexión de `backend/.env` y exige `DEMO_CONFIRM_HOST`, `DEMO_CONFIRM_DATABASE` y una contraseña propia `DEMO_SEED_PASSWORD` (16+ caracteres, fuera del repositorio): la contraseña pública nunca se usa fuera de la base local. Nunca crea ni recrea la base.
+6. Prueba manual en local:
    1. Registrar y verificar el email.
    2. Dar ADMIN a la primera cuenta por SQL.
    3. Asignar los demás perfiles desde `/admin/users`.

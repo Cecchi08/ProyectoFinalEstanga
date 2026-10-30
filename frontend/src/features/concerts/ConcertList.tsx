@@ -6,6 +6,7 @@ import {
   Button,
   Card,
   colors,
+  fonts,
   Copy,
   Field,
   Notice,
@@ -33,7 +34,7 @@ export function ConcertCard({
 }) {
   const { can } = useAuth();
   return (
-    <View style={{ flexGrow: 1, flexBasis: 300, maxWidth: 560 }}>
+    <View style={{ flexGrow: 1, flexShrink: 1, minWidth: 0, flexBasis: 300, maxWidth: 560 }}>
       <Card>
         {concert.image_url && (
           <Image
@@ -42,16 +43,16 @@ export function ConcertCard({
             style={{ height: 170, borderRadius: 12 }}
           />
         )}
-        <Text style={[styles.label, { color: colors.accent }]}>
+        <Text style={[styles.label, { color: colors.coral }]}>
           {dateLabel(concert.start_datetime)} · {concert.status}
         </Text>
-        <Text style={styles.heading}>{concert.name}</Text>
+        <Text style={[styles.heading, { fontFamily: fonts.display, fontSize: 23, lineHeight: 28 }]}>{concert.name}</Text>
         <Copy muted>{lineup(concert)}</Copy>
         <Copy muted>{place(concert)}</Copy>
-        {concert.price_from != null && <Copy muted>Desde {money(concert.price_from)}</Copy>}
+        {concert.price_from != null && <Text style={[styles.text, { fontWeight: "700" }]}>Desde {money(concert.price_from)}</Text>}
         {reason && <Copy>{reason}</Copy>}
         <Button
-          title={manage ? `Gestionar ${concert.name}` : `Ver ${concert.name}`}
+          title={manage ? `Gestionar ${concert.name}` : `Ver ${concert.name}`} secondary
           onPress={() =>
             router.push(
               manage ? `/organizer/${concert.id}` : `/concerts/${concert.id}`,

@@ -1,8 +1,8 @@
 import type { Request, Response } from 'express';
-import { unauthorized } from '../utils/app-error.util.js';
+import { AppError, unauthorized } from '../utils/app-error.util.js';
 import { CommerceService } from '../services/commerce.service.ts';
 import { idSchema } from '../validators/management.schemas.ts';
-import { pageSchema, purchasePaymentSchema } from '../validators/commerce.schemas.ts';
+import { idempotencyKeySchema, pageSchema, purchasePaymentSchema } from '../validators/commerce.schemas.ts';
 
 const principal = (req: Request) => { if (!req.user) throw unauthorized(); return req.user; };
 const id = (req: Request) => idSchema.parse(req.params.id);
@@ -10,7 +10,15 @@ const ok = (res: Response, data: unknown, status = 200) => res.status(status).js
 
 export class CommerceController {
     constructor(private readonly service: CommerceService) {}
-    create = async (req: Request, res: Response) => { ok(res, await this.service.create(req.body, principal(req)), 201); };
+    create = async (req: Request, res: Response) => {
+        const user = principal(req);
+        const header = req.get('Idempotency-Key');
+        if (!header) throw new AppError(422, 'IDEMPOTENCY_KEY_REQUIRED', 'Falta el encabezado Idempotency-Key.', undefined);
+        const result = await this.service.create(req.body, user, idempotencyKeySchema.parse(header));
+        // Reintento con la misma clave y contenido: 200 con la compra original, sin reservar stock ni pagos de nuevo.
+        if (result.replayed) res.setHeader('Idempotent-Replayed', 'true');
+        ok(res, result.purchase, result.replayed ? 200 : 201);
+    };
     purchase = async (req: Request, res: Response) => { ok(res, await this.service.purchase(id(req), principal(req))); };
     ticket = async (req: Request, res: Response) => { ok(res, await this.service.ticket(id(req), principal(req))); };
     transition = (action: 'confirm' | 'cancel') => async (req: Request, res: Response) => {

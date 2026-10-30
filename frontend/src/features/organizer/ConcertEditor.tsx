@@ -12,10 +12,12 @@ import {
   Card,
   Copy,
   Field,
+  FormScope,
   Page,
   ResourceState,
   styles,
   useAction,
+  useForm,
 } from "../../components/ui";
 import { Select } from "../../components/ui/Select";
 const iso = (value: string) => {
@@ -80,6 +82,7 @@ export default function ConcertEditor() {
   const auth = useAuth();
   const resource = useResource<Concert>(editing ? `/concerts/${id}` : null);
   const action = useAction();
+  const validation = useForm();
   const [form, setForm] = useState<Record<string, string>>({});
   const [genres, setGenres] = useState<string[]>([]);
   const [artists, setArtists] = useState<Billed[]>([]);
@@ -110,6 +113,7 @@ export default function ConcertEditor() {
   }, [concert]);
   const save = () =>
     action.run(async () => {
+      validation.assertValid();
       const body = {
         name: form.name ?? "",
         description: form.description || null,
@@ -173,8 +177,10 @@ export default function ConcertEditor() {
           )}
           {mutable && (
             <Card>
+              <FormScope form={validation}>
               <Field
                 label="Nombre del concierto"
+                required
                 value={form.name ?? ""}
                 onChangeText={(v) => set("name", v)}
               />
@@ -191,6 +197,7 @@ export default function ConcertEditor() {
               />
               <Field
                 label="Inicio (ISO con zona horaria)"
+                required
                 placeholder="2027-06-10T23:00:00Z"
                 value={form.start_datetime ?? ""}
                 onChangeText={(v) => set("start_datetime", v)}
@@ -202,6 +209,7 @@ export default function ConcertEditor() {
               />
               <Field
                 label="Artista (texto del cartel)"
+                required
                 value={form.artist_name ?? ""}
                 onChangeText={(v) => set("artist_name", v)}
               />
@@ -261,6 +269,7 @@ export default function ConcertEditor() {
                 disabled={action.busy}
                 onPress={() => void save()}
               />
+              </FormScope>
             </Card>
           )}
           {concert && (
@@ -351,6 +360,7 @@ function TicketEditor({
     max_per_purchase: String(ticket?.max_per_purchase ?? ""),
   });
   const action = useAction();
+  const validation = useForm();
   const set = (key: string, value: string) =>
     setForm({ ...form, [key]: value });
   return (
@@ -375,7 +385,7 @@ function TicketEditor({
       )}
       <ActionFeedback action={action} />
       {open && (
-        <>
+        <FormScope form={validation}>
           {[
             ["name", "Nombre de entrada"],
             ["price", "Precio"],
@@ -387,6 +397,7 @@ function TicketEditor({
             <Field
               key={key}
               label={label}
+              required={["name", "price", "stock_total"].includes(key)}
               value={form[key]}
               onChangeText={(v) => set(key, v)}
             />
@@ -396,6 +407,7 @@ function TicketEditor({
             disabled={action.busy}
             onPress={() =>
               void action.run(async () => {
+                validation.assertValid();
                 if (form.price.trim() === "" || form.stock_total.trim() === "")
                   throw new Error("Completá precio y cupo.");
                 await api.request(
@@ -442,7 +454,7 @@ function TicketEditor({
               }
             />
           )}
-        </>
+        </FormScope>
       )}
     </Card>
   );
@@ -452,6 +464,7 @@ function StaffPanel({ concertId, mutable }: { concertId: string; mutable: boolea
   const staff = useResource<StaffMember[]>(`/concerts/${concertId}/staff`);
   const [email, setEmail] = useState("");
   const action = useAction();
+  const validation = useForm();
   return (
     <Card>
       <Copy>Staff de control de acceso</Copy>
@@ -477,13 +490,14 @@ function StaffPanel({ concertId, mutable }: { concertId: string; mutable: boolea
       ))}
       {staff.result?.data.length === 0 && <Copy muted>Sin staff asignado.</Copy>}
       {mutable && (
-        <>
-          <Field label="Email del staff" keyboardType="email-address" value={email} onChangeText={setEmail} />
+        <FormScope form={validation}>
+          <Field label="Email del staff" required keyboardType="email-address" value={email} onChangeText={setEmail} />
           <Button
             title="Asignar staff"
             disabled={action.busy}
             onPress={() =>
               void action.run(async () => {
+                validation.assertValid();
                 await api.request(`/concerts/${concertId}/staff`, { method: "POST", body: { email } });
                 setEmail("");
                 await staff.reload();
@@ -491,7 +505,7 @@ function StaffPanel({ concertId, mutable }: { concertId: string; mutable: boolea
               })
             }
           />
-        </>
+        </FormScope>
       )}
       <ActionFeedback action={action} />
     </Card>

@@ -1,6 +1,11 @@
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { Image, View } from "react-native";
 import { router, useLocalSearchParams } from "expo-router";
+import * as Crypto from "expo-crypto";
+import {
+  purchaseAttempt,
+  type PurchaseAttempt,
+} from "./purchaseAttempt";
 import { api } from "../../services/api";
 import { useResource } from "../../hooks/useResource";
 import type { Concert, Purchase } from "../../types/api";
@@ -28,6 +33,7 @@ export default function ConcertDetail() {
   const resource = useResource<Concert>(`/concerts/${id}`);
   const action = useAction();
   const [quantities, setQuantities] = useState<Record<string, string>>({});
+  const attempt = useRef<PurchaseAttempt | null>(null);
   const concert = resource.result?.data;
   const reserve = () =>
     action.run(async () => {
@@ -42,8 +48,11 @@ export default function ConcertDetail() {
         )
       )
         throw new Error("Seleccioná una cantidad entera positiva.");
+      // Mismo carrito = misma clave: un reintento tras un timeout devuelve la compra original, no una nueva.
+      attempt.current = purchaseAttempt(attempt.current, items, () => Crypto.randomUUID());
       const { data } = await api.request<Purchase>("/purchases", {
         method: "POST",
+        headers: { "Idempotency-Key": attempt.current.key },
         body: { concertId: id, items },
       });
       router.push(`/purchases/${data.id}`);
