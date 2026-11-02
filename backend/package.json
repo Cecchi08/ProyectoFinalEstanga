@@ -12,7 +12,7 @@
     "check": "tsc --noEmit && node scripts/check.js",
     "db:check": "node scripts/db-check.js",
     "lint": "npm --prefix ../frontend run lint:backend",
-    "start": "node dist/server.js",
+    "start": "node --import tsx src/server.js",
     "test": "node --import tsx --test --test-concurrency=1 tests/*.test.js",
     "test:e2e": "node --import tsx --test scripts/stage5-e2e.mjs",
     "test:a11y": "node --import tsx --test scripts/a11y-audit.mjs",
