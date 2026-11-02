@@ -186,6 +186,29 @@ export class HttpClient {
     return payload as unknown as Envelope<T>;
   }
 }
+export const normalizeApiBase = (
+  value: string | undefined,
+  fallback = "http://localhost:3000",
+  currentHost = typeof window !== "undefined" ? window.location.hostname.toLowerCase() : "",
+) => {
+  const raw = value?.trim();
+  if (!raw) return fallback;
+  try {
+    const url = new URL(raw);
+    const host = url.hostname.toLowerCase();
+    const isSameHost = currentHost && (host === currentHost || raw.toLowerCase().includes(currentHost));
+    const isLikelyFrontend = isSameHost && /(vercel\.app|localhost|127\.0\.0\.1)/i.test(host);
+    if (isLikelyFrontend) {
+      console.warn(
+        "EXPO_PUBLIC_API_URL apunta al frontend. Reemplazá el valor por la URL pública del backend (Railway, Render, etc.).",
+      );
+      return fallback;
+    }
+    return url.origin.replace(/\/+$/, "");
+  } catch {
+    return fallback;
+  }
+};
 export const query = (values: Record<string, string | number | undefined>) => {
   const params = new URLSearchParams();
   Object.entries(values).forEach(([key, value]) => {

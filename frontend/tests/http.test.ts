@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import {
   HttpClient,
   ApiError,
+  normalizeApiBase,
   query,
   type TokenStorage,
 } from "../src/services/http";
@@ -135,6 +136,22 @@ test("logout removes local session even when network fails", async () => {
   await client.accept(session);
   await assert.rejects(client.logout(), { code: "NETWORK_ERROR" });
   assert.equal(values.size, 0);
+});
+
+test("api base keeps the backend URL and ignores a frontend URL by mistake", () => {
+  assert.equal(
+    normalizeApiBase("https://api.railway.example.com/", "http://localhost:3000"),
+    "https://api.railway.example.com",
+  );
+  assert.equal(
+    normalizeApiBase(
+      "https://proyectofinalestanga-frontend.vercel.app/proyecto-final-estanga.vercel.app",
+      "http://localhost:3000",
+      "proyectofinalestanga-frontend.vercel.app",
+    ),
+    "http://localhost:3000",
+  );
+  assert.equal(normalizeApiBase(undefined, "http://localhost:3000"), "http://localhost:3000");
 });
 test("logout during refresh cannot resurrect session", async () => {
   const { storage, values } = memory();
