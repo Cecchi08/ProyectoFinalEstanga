@@ -37,18 +37,26 @@ export function createApp({ env, database, mailer, oauthClient }) {
     const tokens = new AccessTokens(env);
     const auth = new AuthService(database, env, tokens, mailer);
     const oauth = new OAuthService(env, auth, oauthClient ?? new HttpOAuthProviderClient(env));
-    const authRouter = authRoutes(new AuthController(auth), new OAuthController(oauth, env), authenticate(tokens, auth), env);
+    const gate = authenticate(tokens, auth);
+    const authRouter = authRoutes(new AuthController(auth), new OAuthController(oauth, env), gate, env);
+    const routers = [
+        managementRoutes(database, gate),
+        commerceRoutes(database, gate),
+        participationRoutes(database, gate),
+        recommendationsRoutes(database, gate),
+        notificationsRoutes(database, gate),
+        statisticsRoutes(database, gate),
+        marketplaceRoutes(database, gate),
+        adminRoutes(database, gate),
+        artistsRoutes(database, gate),
+        servicesRoutes(database, gate),
+    ];
+    // Local/tests keep /auth and /purchases; Vercel rewrites /api/* onto this app.
     app.use(['/api/auth', '/auth'], authRouter);
-    app.use(managementRoutes(database, authenticate(tokens, auth)));
-    app.use(commerceRoutes(database, authenticate(tokens, auth)));
-    app.use(participationRoutes(database, authenticate(tokens, auth)));
-    app.use(recommendationsRoutes(database, authenticate(tokens, auth)));
-    app.use(notificationsRoutes(database, authenticate(tokens, auth)));
-    app.use(statisticsRoutes(database, authenticate(tokens, auth)));
-    app.use(marketplaceRoutes(database, authenticate(tokens, auth)));
-    app.use(adminRoutes(database, authenticate(tokens, auth)));
-    app.use(artistsRoutes(database, authenticate(tokens, auth)));
-    app.use(servicesRoutes(database, authenticate(tokens, auth)));
+    for (const router of routers) {
+        app.use('/api', router);
+        app.use(router);
+    }
     app.use(notFound);
     app.use(errorHandler());
     return app;

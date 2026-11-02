@@ -2,10 +2,18 @@ import { createApp } from './app.js';
 import { loadEnv } from './config/env.config.js';
 import { createPool, MysqlDatabase } from './config/db.config.js';
 import { SmtpMailer } from './services/email.service.js';
+
+if (process.env.VERCEL && !process.env.TRUST_PROXY_HOPS)
+    process.env.TRUST_PROXY_HOPS = '1';
+
+const env = loadEnv();
+const pool = createPool(env);
+const database = new MysqlDatabase(pool);
+const mailer = new SmtpMailer(env);
+export const app = createApp({ env, database, mailer });
+export default app;
+
 async function main() {
-    const env = loadEnv();
-    const pool = createPool(env);
-    const database = new MysqlDatabase(pool);
     try {
         await pool.query('SELECT 1');
     }
@@ -15,8 +23,7 @@ async function main() {
         throw new Error(`No se pudo conectar con MySQL${code}. Revise host, puerto, usuario, permisos y disponibilidad de la base.`,
             { cause: error });
     }
-    const mailer = new SmtpMailer(env);
-    const server = createApp({ env, database, mailer }).listen(env.PORT, () => console.info(`VENTI API escuchando en puerto ${env.PORT}`));
+    const server = app.listen(env.PORT, () => console.info(`VENTI API escuchando en puerto ${env.PORT}`));
     server.requestTimeout = 15000;
     server.headersTimeout = 10000;
     let closing = false;
@@ -46,4 +53,6 @@ async function main() {
         process.exitCode = 1;
     });
 }
-void main().catch(error => { console.error(error instanceof Error ? error.message : 'Error de inicio.'); process.exitCode = 1; });
+
+if (process.env.NODE_ENV !== 'production')
+    void main().catch(error => { console.error(error instanceof Error ? error.message : 'Error de inicio.'); process.exitCode = 1; });
