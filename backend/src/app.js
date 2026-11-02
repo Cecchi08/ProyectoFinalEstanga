@@ -24,7 +24,9 @@ import { servicesRoutes } from './routes/services.routes.js';
 export function createApp({ env, database, mailer, oauthClient }) {
     const app = express();
     app.disable('x-powered-by');
-    app.set('trust proxy', env.TRUST_PROXY_HOPS);
+    // Vercel/Express 5 llega detrás de un único proxy: confiar en 1 salto evita el error
+    // ERR_ERL_FORWARDED_HEADER de express-rate-limit y usa la IP real del cliente.
+    app.set('trust proxy', 1);
     app.use(helmet({ referrerPolicy: { policy: 'no-referrer' } }));
     const origins = new Set(env.CORS_ORIGINS.split(',').map(v => v.trim()).filter(Boolean));
     const frontendUrl = String(env.FRONTEND_URL || process.env.FRONTEND_URL || '').trim().replace(/\/+$/, '');

@@ -5,9 +5,12 @@ import { emailRequestSchema, loginSchema, oauthExchangeSchema, oauthStartSchema,
 export function authRoutes(controller, oauth, authenticate, env) {
     const router = Router();
     const message = { success: false, error: { code: 'RATE_LIMITED', message: 'Demasiadas solicitudes. Reintentá más tarde.' } };
+    // Vercel inyecta X-Forwarded-For/Forwarded: desactivamos esas validaciones de express-rate-limit
+    // (el trust proxy se define en app.js) para evitar ERR_ERL_FORWARDED_HEADER en producción.
+    const proxyValidate = { forwardedHeader: false, xForwardedForHeader: false, trustProxy: false };
     router.use((_req, res, next) => { res.setHeader('Cache-Control', 'no-store'); res.setHeader('Pragma', 'no-cache'); next(); });
-    router.use(rateLimit({ windowMs: env.AUTH_RATE_LIMIT_WINDOW_MS, limit: env.AUTH_RATE_LIMIT_MAX, standardHeaders: 'draft-8', legacyHeaders: false, message }));
-    const sensitive = rateLimit({ windowMs: env.AUTH_RATE_LIMIT_WINDOW_MS, limit: 10, standardHeaders: 'draft-8', legacyHeaders: false, message });
+    router.use(rateLimit({ windowMs: env.AUTH_RATE_LIMIT_WINDOW_MS, limit: env.AUTH_RATE_LIMIT_MAX, standardHeaders: 'draft-8', legacyHeaders: false, message, validate: proxyValidate }));
+    const sensitive = rateLimit({ windowMs: env.AUTH_RATE_LIMIT_WINDOW_MS, limit: 10, standardHeaders: 'draft-8', legacyHeaders: false, message, validate: proxyValidate });
     router.post('/register', sensitive, validateRequest(registerSchema), controller.register);
     router.post('/login', sensitive, validateRequest(loginSchema), controller.login);
     router.post('/refresh', validateRequest(refreshSchema), controller.refresh);
