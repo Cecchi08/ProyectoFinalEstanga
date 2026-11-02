@@ -119,50 +119,55 @@ export default function AuthScreen({ mode }: { mode: Mode }) {
       );
       setPassword("");
     });
+  // Tarjeta informativa del login: en pantallas apiladas (celular/tablet) se muestra debajo del
+  // formulario, que es lo primero que necesita el usuario; en escritorio queda a la izquierda.
+  const roleInfo = (
+    <View
+      style={{
+        flexGrow: 1,
+        flexShrink: 1,
+        minWidth: 0,
+        flexBasis: desktop ? 520 : "100%",
+        gap: 16,
+      }}
+    >
+      <Card variant="featured" style={{ gap: 14 }}>
+        <View style={{ gap: 6 }}>
+          <Text style={[styles.label, { color: colors.accent }]}>Venti para cada perfil</Text>
+          <Text style={styles.heading}>Ingresá a tu acceso</Text>
+        </View>
+        <Copy muted>
+          Descubrí conciertos, gestioná eventos, contratá artistas, reservá espacios y pedí servicios desde una sola plataforma.
+        </Copy>
+        <View style={{ gap: 8 }}>
+          {PUBLIC_REGISTRATION_ROLES.map((item) => (
+            <View
+              key={item}
+              style={{
+                paddingVertical: 10,
+                paddingHorizontal: 12,
+                borderRadius: radius.md,
+                backgroundColor: colors.surfaceAlt,
+                borderWidth: 1,
+                borderColor: colors.border,
+                gap: 2,
+              }}
+            >
+              <Copy weight="700" size="small">{ROLE_GUIDES[item].title}</Copy>
+              <Copy muted size="small">{ROLE_GUIDES[item].subtitle}</Copy>
+              <Copy muted size="small">{ROLE_GUIDES[item].allows}</Copy>
+            </View>
+          ))}
+        </View>
+      </Card>
+    </View>
+  );
   return (
     <Page title="VENTI" subtitle="Tu próxima noche inolvidable empieza acá.">
       <BentoGrid style={{ alignItems: "stretch" }}>
         {mode === "login" ? (
           <>
-            <View
-              style={{
-                flexGrow: 1,
-                flexShrink: 1,
-                minWidth: 0,
-                flexBasis: desktop ? 520 : "100%",
-                gap: 16,
-              }}
-            >
-              <Card variant="featured" style={{ gap: 14 }}>
-                <View style={{ gap: 6 }}>
-                  <Text style={[styles.label, { color: colors.accent }]}>Venti para cada perfil</Text>
-                  <Text style={styles.heading}>Ingresá a tu acceso</Text>
-                </View>
-                <Copy muted>
-                  Descubrí conciertos, gestioná eventos, contratá artistas, reservá espacios y pedí servicios desde una sola plataforma.
-                </Copy>
-                <View style={{ gap: 8 }}>
-                  {PUBLIC_REGISTRATION_ROLES.map((item) => (
-                    <View
-                      key={item}
-                      style={{
-                        paddingVertical: 10,
-                        paddingHorizontal: 12,
-                        borderRadius: radius.md,
-                        backgroundColor: colors.surfaceAlt,
-                        borderWidth: 1,
-                        borderColor: colors.border,
-                        gap: 2,
-                      }}
-                    >
-                      <Copy weight="700" size="small">{ROLE_GUIDES[item].title}</Copy>
-                      <Copy muted size="small">{ROLE_GUIDES[item].subtitle}</Copy>
-                      <Copy muted size="small">{ROLE_GUIDES[item].allows}</Copy>
-                    </View>
-                  ))}
-                </View>
-              </Card>
-            </View>
+            {desktop && roleInfo}
             <View
               style={{
                 flexGrow: 1,
@@ -224,6 +229,7 @@ export default function AuthScreen({ mode }: { mode: Mode }) {
                 </View>
               </Card>
             </View>
+            {!desktop && roleInfo}
           </>
         ) : (
           <>

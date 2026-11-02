@@ -25,10 +25,12 @@
     },
     "ios": {
       "supportsTablet": true,
-      "bundleIdentifier": "com.venti.app"
+      "bundleIdentifier": "com.venti.app",
+      "buildNumber": "1"
     },
     "android": {
-      "package": "com.venti.app"
+      "package": "com.venti.app",
+      "versionCode": 1
     }
   }
 }

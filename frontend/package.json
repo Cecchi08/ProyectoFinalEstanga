@@ -8,6 +8,8 @@
   "main": "expo-router/entry",
   "scripts": {
     "start": "expo start",
+    "start:tunnel": "expo start --tunnel",
+    "apk": "npx eas-cli@latest build --platform android --profile preview",
     "web": "expo start --web",
     "typecheck": "tsc --noEmit",
     "lint": "cd .. && eslint --config eslint.config.mjs frontend/src frontend/app frontend/tests --max-warnings 0",
