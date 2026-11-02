@@ -27,8 +27,26 @@ export function createApp({ env, database, mailer, oauthClient }) {
     app.set('trust proxy', env.TRUST_PROXY_HOPS);
     app.use(helmet({ referrerPolicy: { policy: 'no-referrer' } }));
     const origins = new Set(env.CORS_ORIGINS.split(',').map(v => v.trim()).filter(Boolean));
+    const frontendUrl = String(env.FRONTEND_URL || process.env.FRONTEND_URL || '').trim().replace(/\/+$/, '');
+    if (frontendUrl) {
+        try {
+            origins.add(new URL(frontendUrl).origin);
+        }
+        catch {
+            origins.add(frontendUrl);
+        }
+    }
     app.use(cors({ origin(origin, callback) {
-            if (!origin || origins.has(origin))
+            if (!origin)
+                return callback(null, true);
+            let host = '';
+            try {
+                host = new URL(origin).hostname;
+            }
+            catch {
+                return callback(new AppError(403, 'CORS_FORBIDDEN', 'Origen no permitido.'));
+            }
+            if (origins.has(origin) || host === 'localhost' || host === '127.0.0.1')
                 callback(null, true);
             else
                 callback(new AppError(403, 'CORS_FORBIDDEN', 'Origen no permitido.'));
@@ -51,7 +69,7 @@ export function createApp({ env, database, mailer, oauthClient }) {
         artistsRoutes(database, gate),
         servicesRoutes(database, gate),
     ];
-    // Local/tests keep /auth and /purchases; Vercel rewrites /api/* onto this app.
+    // Local/tests keep /auth and /purchases; the backend Vercel project also serves /api/*.
     app.use(['/api/auth', '/auth'], authRouter);
     for (const router of routers) {
         app.use('/api', router);

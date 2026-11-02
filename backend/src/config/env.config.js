@@ -16,6 +16,7 @@ const schema = z.object({
     REQUIRE_EMAIL_VERIFICATION: boolean.default(true),
     BCRYPT_ROUNDS: z.coerce.number().int().min(10).max(15).default(12),
     CORS_ORIGINS: z.string().default('http://localhost:8081'),
+    FRONTEND_URL: optional,
     TRUST_PROXY_HOPS: z.coerce.number().int().min(0).max(5).default(0),
     AUTH_RATE_LIMIT_MAX: z.coerce.number().int().min(1).default(100),
     AUTH_RATE_LIMIT_WINDOW_MS: z.coerce.number().int().min(1000).default(900000),
@@ -57,6 +58,16 @@ const schema = z.object({
         }
         catch {
             ctx.addIssue({ code: 'custom', path: ['CORS_ORIGINS'], message: 'Usar orígenes completos sin rutas ni comodines.' });
+        }
+    }
+    if (env.FRONTEND_URL) {
+        try {
+            const url = new URL(env.FRONTEND_URL.trim());
+            if (url.origin !== env.FRONTEND_URL.trim().replace(/\/+$/, ''))
+                throw new Error();
+        }
+        catch {
+            ctx.addIssue({ code: 'custom', path: ['FRONTEND_URL'], message: 'Usar el origen HTTPS del frontend (sin ruta).' });
         }
     }
 });

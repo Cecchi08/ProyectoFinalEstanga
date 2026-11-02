@@ -12,8 +12,8 @@ Los ejemplos parten de la raíz del proyecto. Usá dos terminales para API y Exp
 ## Dependencias y entorno
 
 ```powershell
-npm ci --prefix backend
-npm ci --prefix frontend
+cd backend; npm ci
+cd frontend; npm ci
 Copy-Item backend/.env.example backend/.env
 Copy-Item frontend/.env.example frontend/.env
 node -e "console.log(require('crypto').randomBytes(48).toString('hex'))"
@@ -92,8 +92,8 @@ La arquitectura de producción mantiene:
 
 Archivos de configuración listos en el repositorio:
 
-- `frontend/vercel.json`: configuración cuando el proyecto en Vercel tiene **Root Directory = `frontend`** (`buildCommand: npm run build`, `outputDirectory: dist`, rewrites SPA `/(.*) -> /index.html`, encabezados de caché para `/_expo/static/*` y encabezados de seguridad).
-- `vercel.json` (raíz): configuración equivalente si el proyecto en Vercel usa la **raíz del repositorio** (`installCommand: npm ci --prefix frontend`, `buildCommand: npm --prefix frontend run build`, `outputDirectory: frontend/dist`).
+- `frontend/vercel.json`: proyecto Vercel con **Root Directory = `frontend`** (`buildCommand: npm run build`, `outputDirectory: dist`, rewrites SPA `/(.*) -> /index.html`).
+- `backend/vercel.json`: proyecto Vercel con **Root Directory = `backend`** (rewrite `/(.*)` → `/src/server.js`).
 - `.vercelignore` y `frontend/.vercelignore`: excluyen `.env*`, `CREDENCIALES_DEMO.md`, `.local/`, `dist-native/` y reportes de pruebas.
 
 Variables de entorno de producción (nombres y ejemplos ficticios):

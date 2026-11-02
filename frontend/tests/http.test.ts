@@ -151,10 +151,6 @@ test("api base keeps the backend URL and ignores a frontend URL by mistake", () 
     ),
     "http://localhost:3000",
   );
-  assert.equal(
-    normalizeApiBase("https://app.vercel.app/api", "http://localhost:3000", "app.vercel.app"),
-    "https://app.vercel.app/api",
-  );
   assert.equal(normalizeApiBase(undefined, "http://localhost:3000"), "http://localhost:3000");
 });
 test("logout during refresh cannot resurrect session", async () => {

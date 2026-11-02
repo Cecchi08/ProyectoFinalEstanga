@@ -196,17 +196,15 @@ export const normalizeApiBase = (
   try {
     const url = new URL(raw);
     const host = url.hostname.toLowerCase();
-    const pathname = url.pathname.replace(/\/+$/, "");
-    const apiPath = pathname === "/api" || pathname.startsWith("/api/") ? pathname : "";
     const isSameHost = currentHost && (host === currentHost || raw.toLowerCase().includes(currentHost));
-    const isLikelyFrontend = isSameHost && /(vercel\.app|localhost|127\.0\.0\.1)/i.test(host) && !apiPath;
+    const isLikelyFrontend = isSameHost && /(vercel\.app|localhost|127\.0\.0\.1)/i.test(host);
     if (isLikelyFrontend) {
       console.warn(
-        "EXPO_PUBLIC_API_URL apunta al frontend. Usá el mismo origen con /api (Vercel) o la URL pública del backend.",
+        "EXPO_PUBLIC_API_URL apunta al frontend. Reemplazá el valor por la URL pública del backend en Vercel.",
       );
       return fallback;
     }
-    return `${url.origin}${apiPath}`.replace(/\/+$/, "");
+    return url.origin.replace(/\/+$/, "");
   } catch {
     return fallback;
   }

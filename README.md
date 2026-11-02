@@ -42,7 +42,7 @@ docs/                       Contratos, permisos, instalación y manual
 Requisitos: Node **22.13+** (validado con 24), npm, MySQL 8.0+/8.4 y SMTP de desarrollo o real. OAuth requiere credenciales propias y es opcional. Instrucciones completas y SQL: [Instalación](docs/INSTALLATION.md).
 
 1. En MySQL 8 (no MariaDB), ejecutar `SOURCE /ruta/al/proyecto/database/venti_shema2.sql;` sobre una instalación nueva y crear el usuario limitado de la API. Después, registrar la primera cuenta y darle el perfil ADMIN por SQL ([pasos](docs/INSTALLATION.md#cuentas-y-perfiles-para-la-demostración)).
-2. Ejecutar `npm ci --prefix backend` y `npm ci --prefix frontend`.
+2. Ejecutar `cd backend; npm ci` y `cd frontend; npm ci`.
 3. Copiar `backend/.env.example` a `backend/.env` y `frontend/.env.example` a `frontend/.env`. Configurar MySQL, secreto JWT aleatorio, SMTP y URL de la API.
 4. En una terminal: `cd backend`, `npm run build`, `npm start` (desarrollo: `npm run dev`).
 5. En otra: `cd frontend`, `npm run web` para navegador o `npm start` para Expo. En teléfono, usar la IP LAN de la API; `localhost` apunta al propio dispositivo.

@@ -2,6 +2,9 @@
   "name": "venti-frontend",
   "version": "1.0.0",
   "private": true,
+  "engines": {
+    "node": "22.x"
+  },
   "main": "expo-router/entry",
   "scripts": {
     "start": "expo start",

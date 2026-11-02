@@ -316,8 +316,8 @@ Commits locales del 2026-10-27, **sin push**:
 **Comandos**, desde la raíz:
 
 ```text
-npm ci --prefix backend
-npm ci --prefix frontend
+cd backend; npm ci
+cd frontend; npm ci
 # copiar backend/.env.example a backend/.env y frontend/.env.example a frontend/.env, y completarlos
 
 # Base local nueva (MySQL 8): SOURCE database/venti_shema2.sql;
