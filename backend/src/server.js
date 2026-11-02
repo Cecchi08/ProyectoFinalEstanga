@@ -54,5 +54,7 @@ async function main() {
     });
 }
 
-if (process.env.NODE_ENV !== 'production')
+// En Vercel la app se exporta como función serverless: no se abre puerto ni se prueba la
+// conexión en el arranque (ese SELECT 1 solo aportaba timeouts y logs de ETIMEDOUT en frío).
+if (process.env.NODE_ENV !== 'production' && !process.env.VERCEL)
     void main().catch(error => { console.error(error instanceof Error ? error.message : 'Error de inicio.'); process.exitCode = 1; });

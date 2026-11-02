@@ -3,21 +3,19 @@ import { MysqlAuthRepository } from '../repositories/mysql.repository.js';
 
 function decode(value) {
     try { return decodeURIComponent(value); }
-    catch { throw new Error('MYSQL_URL contiene codificación porcentual inválida.'); }
+    catch { throw new Error('La URL MySQL contiene codificación porcentual inválida.'); }
 }
 
-// Railway injects RAILWAY_SERVICE_ID / RAILWAY_ENVIRONMENT_ID into every deployed service.
-const onRailway = source => Boolean(source.RAILWAY_SERVICE_ID?.trim() || source.RAILWAY_ENVIRONMENT_ID?.trim());
+// Conexión única y directa a MySQL, pensada para Vercel Serverless: manda la URL pública y,
+// si no existe, las variables sueltas. No hay bases ni hosts de respaldo.
+const URL_VARIABLES = ['MYSQL_PUBLIC_URL', 'DATABASE_URL'];
 export function databaseConfig(source = process.env) {
-    // Inside Railway the API reaches MySQL only through the private network (MYSQL_URL, *.railway.internal, encrypted
-    // by Railway): MYSQL_PUBLIC_URL is ignored. Outside Railway (local scripts and development) the public URL goes first.
-    const railway = onRailway(source);
-    const connectionUrl = railway ? source.MYSQL_URL?.trim() : source.MYSQL_PUBLIC_URL?.trim() || source.MYSQL_URL?.trim();
+    const connectionUrl = URL_VARIABLES.map(name => source[name]?.trim()).find(Boolean);
     let config;
     if (connectionUrl) {
         let url;
         try { url = new URL(connectionUrl); }
-        catch { throw new Error(railway ? 'MYSQL_URL no es una URL válida.' : 'MYSQL_PUBLIC_URL o MYSQL_URL no es una URL válida.'); }
+        catch { throw new Error('MYSQL_PUBLIC_URL o DATABASE_URL no es una URL válida.'); }
         if (!['mysql:', 'mysql2:'].includes(url.protocol) || !url.hostname || !url.username || !url.pathname || url.pathname === '/')
             throw new Error('La URL MySQL debe incluir host, usuario y nombre de base.');
         config = {
@@ -28,6 +26,10 @@ export function databaseConfig(source = process.env) {
             database: source.MYSQLDATABASE?.trim() || source.MYSQL_DATABASE?.trim()
                 || source.DB_NAME?.trim() || decode(url.pathname.slice(1)),
         };
+        // Proveedores cloud (Railway, Aiven, PlanetScale…) suelen exigir TLS: se activa solo si la URL lo pide.
+        const ssl = (url.searchParams.get('ssl') ?? url.searchParams.get('sslmode') ?? url.searchParams.get('ssl-mode') ?? '').toLowerCase();
+        if (['true', '1', 'required', 'require'].includes(ssl))
+            config.ssl = { rejectUnauthorized: false };
     } else {
         config = {
             host: source.MYSQLHOST?.trim() || source.DB_HOST?.trim(),
@@ -39,17 +41,16 @@ export function databaseConfig(source = process.env) {
         config.port = Number(config.port);
     }
     if (!config.host || !config.user || !config.database || !Number.isInteger(config.port) || config.port < 1 || config.port > 65535)
-        throw new Error('Configuración MySQL incompleta: configure URL o host, puerto, usuario y base.');
-    if (railway && !config.host.toLowerCase().endsWith('.railway.internal'))
-        throw new Error('En Railway la API usa la red privada: MYSQL_URL (o MYSQLHOST) debe apuntar a *.railway.internal, no al proxy público.');
+        throw new Error('Configuración MySQL incompleta: configure MYSQL_PUBLIC_URL (o host, puerto, usuario y base).');
     return config;
 }
 
 export function createPool(env) {
     const db = databaseConfig(env);
-    return mysql.createPool({ ...db, connectionLimit: env.DB_CONNECTION_LIMIT ?? 10, timezone: 'Z',
+    // Límites ajustados a Serverless: pocas conexiones por instancia, corte rápido y keep-alive para evitar ETIMEDOUT.
+    return mysql.createPool({ ...db, connectionLimit: env.DB_CONNECTION_LIMIT ?? 5, timezone: 'Z',
         supportBigNumbers: true, bigNumberStrings: true, charset: 'utf8mb4', multipleStatements: false,
-        waitForConnections: true, queueLimit: 100, connectTimeout: 10000 });
+        waitForConnections: true, queueLimit: 100, connectTimeout: 10000, enableKeepAlive: true, keepAliveInitialDelay: 10000 });
 }
 export class MysqlDatabase {
     pool;

@@ -6,7 +6,7 @@ const optional = z.string().default('');
 const schema = z.object({
     NODE_ENV: z.enum(['development', 'test', 'production']).default('development'),
     PORT: z.coerce.number().int().min(1).max(65535).default(3000),
-    DB_CONNECTION_LIMIT: z.coerce.number().int().min(1).max(100).default(10),
+    DB_CONNECTION_LIMIT: z.coerce.number().int().min(1).max(100).default(5),
     JWT_ACCESS_SECRET: z.string().min(32),
     JWT_ACCESS_EXPIRES_IN: z.string().regex(/^\d+[sm]$/).default('15m'),
     JWT_ISSUER: z.string().default('venti-api'), JWT_AUDIENCE: z.string().default('venti-client'),

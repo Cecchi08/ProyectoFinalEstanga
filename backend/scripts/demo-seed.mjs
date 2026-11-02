@@ -46,8 +46,8 @@ export function demoTarget(source = process.env) {
 }
 
 export function remoteDemoTarget(source = process.env) {
-    // Fuera de Railway: la URL pública de backend/.env, como cualquier script local.
-    const config = databaseConfig({ ...source, RAILWAY_SERVICE_ID: '', RAILWAY_ENVIRONMENT_ID: '' });
+    // Usa la misma conexión única de backend/.env (MYSQL_PUBLIC_URL o las variables sueltas).
+    const config = databaseConfig(source);
     if (source.DEMO_CONFIRM_HOST !== config.host || source.DEMO_CONFIRM_DATABASE !== config.database)
         throw new Error('Base remota: DEMO_CONFIRM_HOST y DEMO_CONFIRM_DATABASE deben repetir exactamente el host y la base de la conexión.');
     return { ...config, remote: true };
