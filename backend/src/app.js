@@ -36,7 +36,11 @@ export function createApp({ env, database, mailer, oauthClient }) {
             origins.add(frontendUrl);
         }
     }
-    app.use(cors({ origin(origin, callback) {
+    // Orígenes web explícitos: frontend en Vercel + desarrollo local en Expo Web/Next.
+    for (const origin of ['https://proyectofinalestanga-frontend.vercel.app', 'http://localhost:8081', 'http://localhost:19006', 'http://localhost:3000'])
+        origins.add(origin);
+    const corsOptions = {
+        origin(origin, callback) {
             if (!origin)
                 return callback(null, true);
             let host = '';
@@ -46,11 +50,21 @@ export function createApp({ env, database, mailer, oauthClient }) {
             catch {
                 return callback(new AppError(403, 'CORS_FORBIDDEN', 'Origen no permitido.'));
             }
-            if (origins.has(origin) || host === 'localhost' || host === '127.0.0.1')
+            const allowed = origins.has(origin)
+                || host === 'localhost' || host === '127.0.0.1'
+                || /\.vercel\.app$/i.test(host);
+            if (allowed)
                 callback(null, true);
             else
                 callback(new AppError(403, 'CORS_FORBIDDEN', 'Origen no permitido.'));
-        }, credentials: true, methods: ['GET', 'POST', 'PATCH', 'DELETE', 'OPTIONS'], allowedHeaders: ['Content-Type', 'Authorization', 'Idempotency-Key'] }));
+        },
+        credentials: true,
+        methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
+        allowedHeaders: ['Content-Type', 'Authorization', 'Idempotency-Key'],
+    };
+    app.use(cors(corsOptions));
+    // Express 5 (path-to-regexp v8) exige comodín con nombre: '*' es inválido y rompería el arranque.
+    app.options('/*splat', cors(corsOptions));
     app.use(express.json({ limit: '16kb', strict: true }));
     const tokens = new AccessTokens(env);
     const auth = new AuthService(database, env, tokens, mailer);
