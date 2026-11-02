@@ -1,6 +1,12 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { purchaseAttempt } from "../src/features/concerts/purchaseAttempt";
+import {
+  formatCardCvv,
+  formatCardExpiry,
+  formatCardNumber,
+  purchaseAttempt,
+  validateSimulatedCard,
+} from "../src/features/concerts/purchaseAttempt";
 
 let counter = 0;
 const newKey = () => `key-${++counter}`;
@@ -24,4 +30,28 @@ test("el orden de los ítems no cambia la firma del carrito", () => {
   const first = purchaseAttempt(null, items, newKey);
   const reversed = purchaseAttempt(first, [...items].reverse(), newKey);
   assert.equal(reversed.key, first.key);
+});
+
+test("formulario de tarjeta simulada valida formato, vencimiento y longitud de CVV", () => {
+  const now = new Date("2026-11-02T12:00:00Z");
+  assert.equal(formatCardNumber("4509123456789010"), "4509 1234 5678 9010");
+  assert.equal(formatCardExpiry("0828"), "08/28");
+  assert.equal(formatCardCvv("123a"), "123");
+
+  assert.equal(
+    validateSimulatedCard({ cardNumber: "4509 1234 5678 9010", expiry: "08/28", cvv: "123" }, now),
+    null,
+  );
+  assert.match(
+    validateSimulatedCard({ cardNumber: "1234", expiry: "08/28", cvv: "123" }, now) ?? "",
+    /13 y 19 dígitos/,
+  );
+  assert.match(
+    validateSimulatedCard({ cardNumber: "4509 1234 5678 9010", expiry: "10/25", cvv: "123" }, now) ?? "",
+    /vencida/,
+  );
+  assert.match(
+    validateSimulatedCard({ cardNumber: "4509 1234 5678 9010", expiry: "08/28", cvv: "12" }, now) ?? "",
+    /3 o 4 dígitos/,
+  );
 });

@@ -47,11 +47,16 @@ export class AdminService {
         });
     }
     // The change and its audit row commit together: a role change is never left unrecorded.
-    grant(userId: string, role: string, reason: string | null | undefined, actor: Principal) {
+    grant(userId: string, role: string, reason: string | null | undefined, actor: Principal, replace = false) {
         return this.run(true, async repo => {
             const target = await this.lock(repo, role, userId);
             if (target.user.is_guest || target.user.status !== 'ACTIVE') fail(422, 'USER_NOT_ELIGIBLE', 'Solo se asignan perfiles a cuentas registradas y activas.');
-            const changed = await repo.grant(userId, target.role.id) === 1;
+            if (replace && role !== 'ADMIN' && await repo.isAdmin(userId)) {
+                const adminRole = await repo.lockRole('ADMIN');
+                if (adminRole && target.user.status === 'ACTIVE' && await repo.activeHolders(adminRole.id) <= 1)
+                    fail(409, 'LAST_ADMIN', 'La plataforma necesita al menos un ADMIN activo.');
+            }
+            const changed = replace ? await repo.setSingleRole(userId, target.role.id) : (await repo.grant(userId, target.role.id) === 1);
             if (changed) await repo.audit({ actor: actor.id, action: 'ROLE_GRANTED', target: userId, roleId: target.role.id,
                 details: { role, reason: reason ?? null, target_email: target.user.email } });
             return { changed, user: await repo.user(userId) };

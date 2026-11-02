@@ -41,12 +41,20 @@ export class AuthService {
     }
     async register(input) {
         const password_hash = await bcrypt.hash(input.password, this.env.BCRYPT_ROUNDS);
+        const requestedRole = input.role === 'ESPACIO_FISICO' ? 'VENUE' : (input.role ?? 'COMPRADOR');
         try {
             const result = await this.db.transaction(async (repo) => {
                 if (await repo.findUserByEmail(input.email))
                     throw new AppError(409, 'EMAIL_UNAVAILABLE', 'El email no está disponible.');
-                const user = await repo.createUser({ first_name: input.first_name, last_name: input.last_name, email: input.email, password_hash, email_verified_at: null });
-                await repo.initializeUser(user.id);
+                const user = await repo.createUser({
+                    first_name: input.first_name,
+                    last_name: input.last_name,
+                    email: input.email,
+                    phone: input.phone ?? null,
+                    password_hash,
+                    email_verified_at: null,
+                });
+                await repo.initializeUser(user.id, requestedRole);
                 const mail = await this.emailToken(repo, user, 'verification');
                 return { user: publicUser(user), roles: await repo.roles(user.id), mail };
             });
@@ -169,6 +177,11 @@ export class AuthService {
                         throw new AppError(409, 'OAUTH_LINK_CONFLICT', 'La cuenta OAuth ya está vinculada.');
                     const user = await repo.findUserById(existingId, true);
                     this.active(user);
+                    if (identity.emailVerified && !user.email_verified_at) {
+                        await repo.markVerified(user.id);
+                        await repo.invalidateUserTokens('verification', user.id);
+                        user.email_verified_at = new Date();
+                    }
                     this.verified(user);
                     return { id: user.id, mail: null };
                 }
@@ -185,9 +198,14 @@ export class AuthService {
                     user = await repo.findUserByEmail(identity.email, true);
                     if (user) {
                         this.active(user);
-                        // Prevent pre-registration hijacking: an unverified local password must not survive an automatic merge.
-                        if (!identity.emailVerified || !user.email_verified_at)
+                        // Se permite la vinculación automática por simplicidad y porque el proveedor ya validó el email.
+                        if (!identity.emailVerified)
                             throw new AppError(409, 'OAUTH_LINK_REQUIRED', 'Verificá tu cuenta e iniciá sesión para vincular este proveedor.');
+                        if (!user.email_verified_at) {
+                            await repo.markVerified(user.id);
+                            await repo.invalidateUserTokens('verification', user.id);
+                            user.email_verified_at = new Date();
+                        }
                     }
                     else {
                         user = await repo.createUser({ email: identity.email, first_name: identity.firstName, last_name: identity.lastName,

@@ -1,16 +1,15 @@
 import { router } from "expo-router";
-import { useEffect } from 'react';
-import { useNotifications } from '../../contexts/NotificationsContext';
-import { View } from "react-native";
+import { useEffect } from "react";
+import { useNotifications } from "../../contexts/NotificationsContext";
 import { usePreferences } from "../../contexts/PreferencesContext";
 import { useResource } from "../../hooks/useResource";
 import {
+  BentoGrid,
   Button,
   Card,
   Copy,
   Page,
   ResourceState,
-  styles,
 } from "../../components/ui";
 import { ConcertCard } from "../concerts/ConcertList";
 import type { Concert } from "../../types/api";
@@ -19,6 +18,7 @@ interface Recommendations {
   enabled: boolean;
   recommendations: { concert: Concert; reason: string }[];
 }
+
 export default function DiscoverScreen() {
   const { reload: reloadNotifications } = useNotifications();
   const preferences = usePreferences();
@@ -30,11 +30,30 @@ export default function DiscoverScreen() {
   const off =
     preferences.enabled === false ||
     (active && resource.result?.data.enabled === false);
-  useEffect(() => { if (resource.result) void reloadNotifications(); }, [resource.result, reloadNotifications]);
+  useEffect(() => {
+    if (resource.result) void reloadNotifications();
+  }, [resource.result, reloadNotifications]);
   return (
     <Page
+      eyebrow="VENTI · MOTOR DE DESCUBRIMIENTO"
       title="Venti Discover"
       subtitle="Conciertos para vos, a partir de tus entradas."
+      actions={
+        <>
+          {active && !off && (
+            <Button
+              title="Actualizar recomendaciones"
+              secondary
+              onPress={() => void resource.reload()}
+            />
+          )}
+          <Button
+            title="Explorar todos los conciertos"
+            secondary
+            onPress={() => router.push("/discover")}
+          />
+        </>
+      }
     >
       <ResourceState
         loading={preferences.loading || preferences.saving}
@@ -42,8 +61,8 @@ export default function DiscoverScreen() {
         retry={() => void preferences.reload()}
       />
       {off && (
-        <Card>
-          <Copy>Las recomendaciones personalizadas están desactivadas.</Copy>
+        <Card variant="featured">
+          <Copy strong>Las recomendaciones personalizadas están desactivadas.</Copy>
           <Copy muted>
             Podés activarlas desde Mi cuenta. La búsqueda de conciertos sigue
             disponible.
@@ -57,32 +76,23 @@ export default function DiscoverScreen() {
       )}
       {active && !off && (
         <>
-          <Button
-            title="Actualizar recomendaciones"
-            secondary
-            onPress={() => void resource.reload()}
-          />
           <ResourceState
             {...resource}
             empty={resource.result?.data.recommendations.length === 0}
             retry={() => void resource.reload()}
           />
-          <View style={[styles.row, { alignItems: "stretch" }]}>
-            {resource.result?.data.recommendations.map((item) => (
+          <BentoGrid>
+            {resource.result?.data.recommendations.map((item, index) => (
               <ConcertCard
                 key={item.concert.id}
                 concert={item.concert}
                 reason={item.reason}
+                featured={index === 0 && (resource.result?.data.recommendations.length ?? 0) > 1}
               />
             ))}
-          </View>
+          </BentoGrid>
         </>
       )}
-      <Button
-        title="Explorar todos los conciertos"
-        secondary
-        onPress={() => router.push("/discover")}
-      />
     </Page>
   );
 }

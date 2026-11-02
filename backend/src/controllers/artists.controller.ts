@@ -2,7 +2,7 @@ import type { Request, Response } from 'express';
 import { unauthorized } from '../utils/app-error.util.js';
 import { ArtistsService } from '../services/artists.service.ts';
 import { idSchema } from '../validators/management.schemas.ts';
-import { artistMemberPatchSchema, artistQuerySchema } from '../validators/artists.schemas.ts';
+import { artistMemberPatchSchema, artistQuerySchema, proposalDecisionSchema, proposalQuerySchema, proposalSchema } from '../validators/artists.schemas.ts';
 
 const principal = (req: Request) => { if (!req.user) throw unauthorized(); return req.user; };
 const id = (req: Request, key = 'id') => idSchema.parse(req.params[key]);
@@ -26,4 +26,17 @@ export class ArtistsController {
         ok(res, await this.service.updateMember(id(req), id(req, 'userId'), artistMemberPatchSchema.parse(req.body).member_role, principal(req)));
     };
     removeMember = async (req: Request, res: Response) => { await this.service.removeMember(id(req), id(req, 'userId'), principal(req)); res.sendStatus(204); };
+
+    proposals = async (req: Request, res: Response) => {
+        const query = proposalQuerySchema.parse(req.query);
+        const result = await this.service.proposals(query, principal(req));
+        res.json({ success: true, data: result.data, pagination: { page: query.page, limit: query.limit, total: result.total, total_pages: Math.ceil(result.total / query.limit) } });
+    };
+    proposal = async (req: Request, res: Response) => { ok(res, await this.service.proposal(id(req), principal(req))); };
+    createProposal = async (req: Request, res: Response) => { ok(res, await this.service.createProposal(proposalSchema.parse(req.body), principal(req)), 201); };
+    decideProposal = (action: 'accept' | 'reject' | 'cancel') => async (req: Request, res: Response) => {
+        const { reason } = proposalDecisionSchema.parse(req.body ?? {});
+        ok(res, await this.service.decideProposal(id(req), action, reason, principal(req)));
+    };
+    venueSummary = async (req: Request, res: Response) => { ok(res, await this.service.venueSummary(id(req, 'establishmentId'), principal(req))); };
 }

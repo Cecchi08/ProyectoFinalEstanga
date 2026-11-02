@@ -15,7 +15,12 @@ export type ScanResult = 'ACCEPTED' | 'ALREADY_USED' | 'CANCELLED' | 'WRONG_CONC
 const effectiveStatus = `CASE WHEN o.status = 'PENDING' AND (o.expires_at IS NULL OR o.expires_at <= NOW())
     THEN 'EXPIRED' ELSE o.status END`;
 const purchaseSelect = `SELECT o.id, o.public_code, o.user_id, ${effectiveStatus} AS status, o.expires_at, o.confirmed_at, o.cancelled_at,
-    o.refund_status, o.refunded_at, o.created_at, o.total_amount AS total, o.currency FROM orders o`;
+    o.refund_status, o.refunded_at, o.created_at, o.total_amount AS total, o.currency,
+    (SELECT c.title FROM order_items oi JOIN concerts c ON c.id = oi.concert_id WHERE oi.order_id = o.id LIMIT 1) AS concert_name,
+    (SELECT c.artist_name FROM order_items oi JOIN concerts c ON c.id = oi.concert_id WHERE oi.order_id = o.id LIMIT 1) AS artist_name,
+    (SELECT c.venue_name FROM order_items oi JOIN concerts c ON c.id = oi.concert_id WHERE oi.order_id = o.id LIMIT 1) AS venue_name,
+    (SELECT c.starts_at FROM order_items oi JOIN concerts c ON c.id = oi.concert_id WHERE oi.order_id = o.id LIMIT 1) AS start_datetime
+    FROM orders o`;
 const ticketJoins = `FROM tickets t JOIN order_items oi ON oi.id = t.order_item_id JOIN orders o ON o.id = oi.order_id
     JOIN ticket_types tt ON tt.id = t.ticket_type_id JOIN concerts c ON c.id = t.concert_id`;
 const ticketSelect = `SELECT t.id, t.order_item_id AS purchase_item_id, t.qr_token, t.status, t.used_at, t.created_at,
@@ -97,7 +102,8 @@ export class CommerceRepository {
     audit(entry: AuditEntry) { return audit(this.connection, entry); }
     async items(id: string): Promise<ItemRow[]> {
         return this.rows<ItemRow>(`SELECT oi.id, oi.ticket_type_id, oi.quantity, oi.unit_price, oi.line_total, oi.concert_id,
-            tt.name AS ticket_type_name FROM order_items oi JOIN ticket_types tt ON tt.id = oi.ticket_type_id
+            tt.name AS ticket_type_name, c.title AS concert_name, c.artist_name, c.venue_name, c.starts_at AS start_datetime
+            FROM order_items oi JOIN ticket_types tt ON tt.id = oi.ticket_type_id LEFT JOIN concerts c ON c.id = oi.concert_id
             WHERE oi.order_id = ? ORDER BY oi.ticket_type_id`, [id]);
     }
     async purchases(userId: string, query: PageQuery) {

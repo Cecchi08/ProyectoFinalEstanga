@@ -631,6 +631,8 @@ CREATE TABLE artist_profiles (
   city_id INT UNSIGNED NULL,
   image_url VARCHAR(500) NULL,
   website VARCHAR(255) NULL,
+  phone VARCHAR(30) NULL,
+  contact_email VARCHAR(255) NULL,
   status ENUM('DRAFT','PUBLISHED','ARCHIVED') NOT NULL DEFAULT 'DRAFT',
   published_at DATETIME NULL,
   created_by_user_id BIGINT UNSIGNED NULL,
@@ -736,6 +738,49 @@ CREATE TABLE concert_artists (
   KEY idx_concert_artists_artist (artist_profile_id),
   CONSTRAINT fk_concert_artists_concert FOREIGN KEY (concert_id) REFERENCES concerts (id) ON DELETE CASCADE,
   CONSTRAINT fk_concert_artists_artist FOREIGN KEY (artist_profile_id) REFERENCES artist_profiles (id) ON DELETE CASCADE
+) ENGINE=InnoDB;
+
+CREATE TABLE artist_proposals (
+  id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+  public_code VARCHAR(20) NOT NULL,
+  flow_type ENUM('VENUE_TO_ARTIST', 'ARTIST_TO_VENUE', 'ORGANIZER_TO_ARTIST') NOT NULL,
+  artist_profile_id BIGINT UNSIGNED NOT NULL,
+  venue_id BIGINT UNSIGNED NULL,
+  establishment_id BIGINT UNSIGNED NULL,
+  concert_id BIGINT UNSIGNED NULL,
+  sender_user_id BIGINT UNSIGNED NOT NULL,
+  event_title VARCHAR(200) NOT NULL,
+  event_description TEXT NULL,
+  genre_or_format VARCHAR(120) NULL,
+  proposed_date DATETIME NOT NULL,
+  proposed_end_date DATETIME NULL,
+  expected_attendance INT UNSIGNED NULL,
+  offered_amount DECIMAL(12,2) NULL,
+  currency CHAR(3) NOT NULL DEFAULT 'ARS',
+  economic_terms VARCHAR(255) NULL,
+  space_conditions TEXT NULL,
+  technical_requirements TEXT NULL,
+  message TEXT NULL,
+  status ENUM('PENDING', 'ACCEPTED', 'REJECTED', 'CANCELLED') NOT NULL DEFAULT 'PENDING',
+  rejection_reason TEXT NULL,
+  responded_by_user_id BIGINT UNSIGNED NULL,
+  responded_at DATETIME NULL,
+  created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (id),
+  UNIQUE KEY uq_artist_proposals_public_code (public_code),
+  KEY idx_artist_proposals_artist (artist_profile_id, status),
+  KEY idx_artist_proposals_venue (venue_id, status),
+  KEY idx_artist_proposals_establishment (establishment_id, status),
+  KEY idx_artist_proposals_sender (sender_user_id, status),
+  KEY idx_artist_proposals_concert (concert_id),
+  CONSTRAINT fk_artist_proposals_artist FOREIGN KEY (artist_profile_id) REFERENCES artist_profiles (id) ON DELETE CASCADE,
+  CONSTRAINT fk_artist_proposals_venue FOREIGN KEY (venue_id) REFERENCES venues (id) ON DELETE SET NULL,
+  CONSTRAINT fk_artist_proposals_establishment FOREIGN KEY (establishment_id) REFERENCES establishments (id) ON DELETE SET NULL,
+  CONSTRAINT fk_artist_proposals_concert FOREIGN KEY (concert_id) REFERENCES concerts (id) ON DELETE SET NULL,
+  CONSTRAINT fk_artist_proposals_sender FOREIGN KEY (sender_user_id) REFERENCES users (id) ON DELETE CASCADE,
+  CONSTRAINT fk_artist_proposals_responder FOREIGN KEY (responded_by_user_id) REFERENCES users (id) ON DELETE SET NULL,
+  CONSTRAINT chk_artist_proposals_amount CHECK (offered_amount IS NULL OR offered_amount >= 0)
 ) ENGINE=InnoDB;
 
 CREATE TABLE ticket_types (
@@ -894,6 +939,8 @@ CREATE TABLE service_categories (
 
 CREATE TABLE service_providers (
   organization_id BIGINT UNSIGNED NOT NULL,
+  logo_url VARCHAR(500) NULL,
+  primary_category_id SMALLINT UNSIGNED NULL,
   description TEXT NULL,
   city_id INT UNSIGNED NULL,
   coverage_area VARCHAR(255) NULL,
@@ -907,9 +954,11 @@ CREATE TABLE service_providers (
   PRIMARY KEY (organization_id),
   KEY idx_service_providers_status_city (status, city_id),
   KEY idx_service_providers_city (city_id),
+  KEY idx_service_providers_primary_cat (primary_category_id),
   KEY idx_service_providers_verified_by (verified_by_user_id),
   CONSTRAINT fk_service_providers_organization FOREIGN KEY (organization_id) REFERENCES organizations (id) ON DELETE CASCADE,
   CONSTRAINT fk_service_providers_city FOREIGN KEY (city_id) REFERENCES cities (id),
+  CONSTRAINT fk_service_providers_primary_cat FOREIGN KEY (primary_category_id) REFERENCES service_categories (id) ON DELETE SET NULL,
   CONSTRAINT fk_service_providers_verified_by FOREIGN KEY (verified_by_user_id) REFERENCES users (id) ON DELETE SET NULL,
   CONSTRAINT chk_service_providers_published CHECK (status <> 'PUBLISHED' OR published_at IS NOT NULL),
   CONSTRAINT chk_service_providers_verified CHECK (is_verified = 0 OR verified_at IS NOT NULL)
@@ -921,6 +970,7 @@ CREATE TABLE service_offerings (
   category_id SMALLINT UNSIGNED NOT NULL,
   name VARCHAR(150) NOT NULL,
   slug VARCHAR(170) NOT NULL,
+  image_url VARCHAR(500) NULL,
   description TEXT NULL,
   equipment TEXT NULL,
   conditions TEXT NULL,
@@ -1458,7 +1508,7 @@ INSERT IGNORE INTO roles (code, name, description) VALUES
   ('COMPRADOR', 'Comprador', 'Compra entradas y recibe recomendaciones'),
   ('ARTISTA', 'Artista', 'Busca espacios, pide presupuestos y reserva salas'),
   ('ORGANIZADOR', 'Organizador', 'Publica conciertos, vende entradas, asigna staff y reserva espacios'),
-  ('VENUE', 'Venue', 'Gestiona establecimientos y espacios de su organizacion, responde presupuestos y reservas'),
+  ('VENUE', 'Espacio Físico', 'Gestiona establecimientos y espacios de su organizacion, responde presupuestos, reservas y contrataciones de artistas'),
   ('EMPRESA_SERVICIOS', 'Empresa de servicios', 'Ofrece servicios para eventos y responde cotizaciones'),
   ('GUEST', 'Invitado', 'Usuario sin registro completo');
 

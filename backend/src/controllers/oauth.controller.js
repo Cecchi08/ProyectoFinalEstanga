@@ -5,7 +5,7 @@ export class OAuthController {
     cookie;
     constructor(oauth, env) {
         this.oauth = oauth;
-        this.cookie = { httpOnly: true, secure: env.NODE_ENV === 'production', sameSite: 'lax', path: '/auth/oauth', maxAge: 600000 };
+        this.cookie = { httpOnly: true, secure: env.NODE_ENV === 'production', sameSite: 'lax', path: '/', maxAge: 600000 };
     }
     start = (req, res) => {
         const provider = providerSchema.parse(req.params.provider);

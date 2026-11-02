@@ -9,8 +9,8 @@ const normalize = <T extends Row>(row: T): T => Object.fromEntries(Object.entrie
 const limit = (query: { page: number; limit: number }) => [String(query.limit), String((query.page - 1) * query.limit)];
 // Column allowlists: API field -> column. SQL identifiers never come from the request.
 const organizationColumns = ['name', 'legal_name', 'tax_id', 'slug', 'email', 'phone', 'created_by_user_id'] as const;
-const providerColumns = ['description', 'city_id', 'coverage_area', 'status', 'published_at', 'is_verified', 'verified_at', 'verified_by_user_id'] as const;
-const offeringColumns = ['organization_id', 'category_id', 'name', 'slug', 'description', 'equipment', 'conditions', 'pricing_unit', 'base_price',
+const providerColumns = ['logo_url', 'primary_category_id', 'description', 'city_id', 'coverage_area', 'status', 'published_at', 'is_verified', 'verified_at', 'verified_by_user_id'] as const;
+const offeringColumns = ['organization_id', 'category_id', 'name', 'slug', 'image_url', 'description', 'equipment', 'conditions', 'pricing_unit', 'base_price',
     'status', 'published_at'] as const;
 const quoteColumns = ['public_code', 'offering_id', 'organization_id', 'requester_user_id', 'concert_id', 'reservation_id', 'event_name', 'event_start_at',
     'event_end_at', 'location_text', 'requester_notes', 'status', 'subtotal', 'fees', 'discount', 'total_amount', 'currency', 'valid_until', 'provider_notes',
@@ -19,12 +19,14 @@ const pick = (columns: readonly string[], data: Fields) => columns.filter(key =>
 
 // Public: published company of an active organization; a public offering is also published.
 const publicProvider = "sp.status = 'PUBLISHED' AND o.status = 'ACTIVE'";
-const providerSelect = `SELECT o.id, o.name, o.legal_name, o.slug, o.email, o.phone, o.status AS organization_status, sp.description, sp.city_id,
+const providerSelect = `SELECT o.id, o.name, o.legal_name, o.slug, o.email, o.phone, o.status AS organization_status, sp.logo_url,
+    sp.primary_category_id, psc.code AS primary_category_code, psc.name AS primary_category_name, sp.description, sp.city_id,
     ci.name AS city_name, sp.coverage_area, sp.status, sp.published_at, sp.is_verified, sp.verified_at, sp.created_at, sp.updated_at,
     (SELECT COUNT(*) FROM service_offerings so WHERE so.organization_id = o.id AND so.status = 'PUBLISHED') AS published_offerings
-    FROM service_providers sp JOIN organizations o ON o.id = sp.organization_id LEFT JOIN cities ci ON ci.id = sp.city_id`;
+    FROM service_providers sp JOIN organizations o ON o.id = sp.organization_id LEFT JOIN cities ci ON ci.id = sp.city_id
+    LEFT JOIN service_categories psc ON psc.id = sp.primary_category_id`;
 const offeringSelect = `SELECT so.id, so.organization_id AS provider_id, o.name AS provider_name, sp.is_verified AS provider_verified, sp.city_id,
-    ci.name AS city_name, sp.coverage_area, sc.code AS category_code, sc.name AS category_name, so.name, so.slug, so.description, so.equipment,
+    ci.name AS city_name, sp.coverage_area, sc.code AS category_code, sc.name AS category_name, so.name, so.slug, so.image_url, so.description, so.equipment,
     so.conditions, so.pricing_unit, so.base_price, so.currency, so.status, so.published_at, so.created_at, so.updated_at
     FROM service_offerings so JOIN service_providers sp ON sp.organization_id = so.organization_id JOIN organizations o ON o.id = so.organization_id
     JOIN service_categories sc ON sc.id = so.category_id LEFT JOIN cities ci ON ci.id = sp.city_id`;

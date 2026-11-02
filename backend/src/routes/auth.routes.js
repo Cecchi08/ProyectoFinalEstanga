@@ -22,5 +22,6 @@ export function authRoutes(controller, oauth, authenticate, env) {
     router.get('/oauth/:provider', oauth.start);
     router.post('/oauth/:provider/link', authenticate, validateRequest(oauthStartSchema), oauth.link);
     router.get('/oauth/:provider/callback', oauth.callback);
+    router.get('/:provider/callback', oauth.callback);
     return router;
 }

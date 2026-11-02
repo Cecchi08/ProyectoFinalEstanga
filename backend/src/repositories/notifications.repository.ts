@@ -10,9 +10,18 @@ export class NotificationsRepository {
         const [counts] = await this.sql.rows(`SELECT COUNT(*) AS total, COALESCE(SUM(read_at IS NULL), 0) AS unread_count
             FROM notifications WHERE user_id = ?`, [userId]);
         const items = await this.sql.rows(`SELECT n.id, n.type, n.title, n.body AS message, n.concert_id, n.order_id AS purchase_id,
-            n.reservation_id, n.quote_id, JSON_UNQUOTE(JSON_EXTRACT(n.data, '$.service_quote_id')) AS service_quote_id,
-            n.read_at, n.created_at, c.status AS concert_status
-            FROM notifications n LEFT JOIN concerts c ON c.id = n.concert_id
+            n.reservation_id, n.quote_id,
+            JSON_UNQUOTE(JSON_EXTRACT(n.data, '$.service_quote_id')) AS service_quote_id,
+            JSON_UNQUOTE(JSON_EXTRACT(n.data, '$.proposal_id')) AS proposal_id,
+            JSON_UNQUOTE(JSON_EXTRACT(n.data, '$.sender_name')) AS sender_name,
+            JSON_UNQUOTE(JSON_EXTRACT(n.data, '$.entity_label')) AS entity_label,
+            n.read_at, n.created_at, c.status AS concert_status, c.title AS concert_name,
+            o.public_code AS purchase_code, r.public_code AS reservation_code, q.public_code AS quote_code
+            FROM notifications n
+            LEFT JOIN concerts c ON c.id = n.concert_id
+            LEFT JOIN orders o ON o.id = n.order_id
+            LEFT JOIN reservations r ON r.id = n.reservation_id
+            LEFT JOIN quotes q ON q.id = n.quote_id
             WHERE n.user_id = ? ORDER BY n.created_at DESC, n.id DESC LIMIT ? OFFSET ?`,
         [userId, String(query.limit), String((query.page - 1) * query.limit)]);
         return { items, total: Number(counts.total), unread_count: Number(counts.unread_count) };

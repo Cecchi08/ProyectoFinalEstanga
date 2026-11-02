@@ -6,6 +6,8 @@ coverage/
 **/.env
 **/.env.*
 !**/.env.example
+CREDENCIALES_DEMO.md
+.vercel/
 .local/
 *.log
 .npm-cache/

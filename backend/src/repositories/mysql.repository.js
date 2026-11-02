@@ -28,7 +28,7 @@ export class MysqlAuthRepository {
         return this.mapUser((await this.rows(`SELECT * FROM users WHERE id = ?${lock ? ' FOR UPDATE' : ''}`, [id]))[0]);
     }
     async createUser(input) {
-        await this.connection.execute('INSERT INTO users (first_name, last_name, email, password_hash, email_verified_at) VALUES (?, ?, ?, ?, ?)', [input.first_name, input.last_name, input.email, input.password_hash, input.email_verified_at]);
+        await this.connection.execute('INSERT INTO users (first_name, last_name, email, phone, password_hash, email_verified_at) VALUES (?, ?, ?, ?, ?, ?)', [input.first_name, input.last_name, input.email, input.phone ?? null, input.password_hash, input.email_verified_at]);
         // Read LAST_INSERT_ID as text: BIGINT identifiers must never lose precision in JS.
         const row = (await this.rows('SELECT CAST(LAST_INSERT_ID() AS CHAR) AS id'))[0];
         const user = await this.findUserById(String(row?.id));
@@ -36,11 +36,13 @@ export class MysqlAuthRepository {
             throw new Error('No se pudo recuperar el usuario creado.');
         return user;
     }
-    async initializeUser(id) {
-        const [result] = await this.connection.execute('INSERT INTO user_roles (user_id, role_id) SELECT ?, id FROM roles WHERE code = ?', [id, DEFAULT_ROLE]);
+    async initializeUser(id, roleCode = DEFAULT_ROLE) {
+        const normalizedRole = roleCode === 'ESPACIO_FISICO' ? 'VENUE' : (roleCode || DEFAULT_ROLE);
+        await this.connection.execute('DELETE FROM user_roles WHERE user_id = ?', [id]);
+        const [result] = await this.connection.execute('INSERT INTO user_roles (user_id, role_id) SELECT ?, id FROM roles WHERE code = ?', [id, normalizedRole]);
         if (result.affectedRows !== 1)
-            throw new Error(`Falta el rol ${DEFAULT_ROLE}. Importar venti_shema2.sql.`);
-        await this.connection.execute('INSERT INTO user_preferences (user_id) VALUES (?)', [id]);
+            throw new Error(`Falta el rol ${normalizedRole}. Importar venti_shema2.sql.`);
+        await this.connection.execute('INSERT IGNORE INTO user_preferences (user_id) VALUES (?)', [id]);
     }
     async roles(id) {
         const rows = await this.rows('SELECT r.code FROM roles r JOIN user_roles ur ON ur.role_id = r.id WHERE ur.user_id = ? ORDER BY r.id', [id]);

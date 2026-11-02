@@ -3,7 +3,8 @@ import { View } from "react-native";
 import { useResource } from "../../hooks/useResource";
 import { query } from "../../services/http";
 import type { Named } from "../../types/api";
-import { Button, Field, Pager, ResourceState, styles } from "./index";
+import { Button, Card, Field, Pager, ResourceState, styles } from "./index";
+
 export function Select({
   label,
   path,
@@ -30,14 +31,14 @@ export function Select({
     open ? path + (path.includes("?") ? params.replace(/^\?/, "&") : params) : null,
   );
   return (
-    <View style={{ gap: 10 }}>
+    <View style={{ gap: 8, minWidth: 0, maxWidth: "100%" }}>
       <Button
         title={`${label}${values.length ? ` (${values.join(", ")})` : ""}`}
         secondary
         onPress={() => setOpen(!open)}
       />
       {open && (
-        <>
+        <Card variant="subtle">
           {searchable && (
             <Field
               label={`Buscar ${label.toLowerCase()}`}
@@ -74,7 +75,7 @@ export function Select({
             ))}
           </View>
           <Pager pagination={resource.result?.pagination} onPage={setPage} />
-        </>
+        </Card>
       )}
     </View>
   );

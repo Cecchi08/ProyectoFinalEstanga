@@ -4,22 +4,29 @@ import { CameraView, useCameraPermissions } from "expo-camera";
 import { api } from "../../services/api";
 import { ApiError } from "../../services/http";
 import {
+  BentoGrid,
   Button,
   Card,
   Copy,
   Field,
   Notice,
   Page,
-  ResourceState,
   Pager,
+  ResourceState,
+  SectionHeader,
   dateLabel,
+  statusLabel,
+  styles,
+  useBento,
 } from "../../components/ui";
 import { useResource } from "../../hooks/useResource";
 import { useAuth } from "../../contexts/AuthContext";
 import type { Concert, Attendee } from "../../types/api";
 import { scanMessage } from "./validation";
+
 export default function StaffScreen() {
   const { can } = useAuth();
+  const { mobile } = useBento();
   const [page, setPage] = useState(1);
   const [selected, setSelected] = useState<Concert | null>(null);
   const [attendeePage, setAttendeePage] = useState(1);
@@ -31,98 +38,146 @@ export default function StaffScreen() {
   );
   return (
     <Page
+      eyebrow="VENTI · PUERTA Y VALIDACIÓN QR"
       title="Control de acceso"
       subtitle={
         can("tickets.validate_all")
           ? "Seleccioná un concierto para gestionar el ingreso."
           : "Seleccioná uno de tus conciertos asignados."
       }
-    >
-      {!selected ? (
-        <>
+      actions={
+        !selected ? (
           <Button
             title="Actualizar conciertos"
             secondary
             onPress={() => void assignments.reload()}
           />
+        ) : (
+          <Button
+            title="Cambiar concierto"
+            secondary
+            onPress={() => setSelected(null)}
+          />
+        )
+      }
+    >
+      {!selected ? (
+        <>
           <ResourceState
             {...assignments}
             empty={assignments.result?.data.length === 0}
             retry={() => void assignments.reload()}
           />
-          {assignments.result?.data.map((concert) => (
-            <Card key={concert.id}>
-              <Copy>{concert.name}</Copy>
-              <Copy muted>
-                {dateLabel(concert.start_datetime)} · {concert.venue_name} ·{" "}
-                {concert.status}
-              </Copy>
-              <Button
-                title={`Seleccionar ${concert.name}`}
-                onPress={() => {
-                  setAttendeePage(1);
-                  setSelected(concert);
+          <BentoGrid>
+            {assignments.result?.data.map((concert) => (
+              <View
+                key={concert.id}
+                style={{
+                  flexGrow: 1,
+                  flexShrink: 1,
+                  minWidth: 0,
+                  flexBasis: mobile ? "100%" : 340,
+                  maxWidth: "100%",
                 }}
-              />
-            </Card>
-          ))}
+              >
+                <Card style={{ height: "100%", justifyContent: "space-between" }}>
+                  <View style={{ gap: 6 }}>
+                    <Copy strong>{concert.name}</Copy>
+                    <Copy muted>
+                      {dateLabel(concert.start_datetime)} · {concert.venue_name} ·{" "}
+                      {statusLabel(concert.status)}
+                    </Copy>
+                  </View>
+                  <Button
+                    title={`Seleccionar ${concert.name}`}
+                    onPress={() => {
+                      setAttendeePage(1);
+                      setSelected(concert);
+                    }}
+                  />
+                </Card>
+              </View>
+            ))}
+          </BentoGrid>
           <Pager pagination={assignments.result?.pagination} onPage={setPage} />
         </>
       ) : (
-        <>
-          <Card>
-            <Copy>{selected.name}</Copy>
-            <Copy muted>
-              {dateLabel(selected.start_datetime)} · {selected.venue_name} ·{" "}
-              {selected.status}
-            </Copy>
-            <Button
-              title="Cambiar concierto"
-              secondary
-              onPress={() => setSelected(null)}
-            />
-          </Card>
-          <Scanner
-            key={selected.id}
-            concert={selected.id}
-            onValidated={() => void attendees.reload()}
-          />
-          <Copy>Asistentes</Copy>
-          <Copy muted>
-            Una fila por entrada emitida. El nombre corresponde al comprador.
-          </Copy>
-          <Button
-            title="Actualizar asistentes"
-            secondary
-            onPress={() => void attendees.reload()}
-          />
-          <ResourceState
-            {...attendees}
-            empty={attendees.result?.data.length === 0}
-            retry={() => void attendees.reload()}
-          />
-          {attendees.result?.data.map((attendee) => (
-            <Card key={attendee.ticket_id}>
-              <Copy>
-                {attendee.first_name} {attendee.last_name}
-              </Copy>
-              <Copy>
-                Entrada #{attendee.ticket_id} · {attendee.ticket_type_name} ·{" "}
-                {attendee.status}
-              </Copy>
+        <BentoGrid style={{ alignItems: "flex-start" }}>
+          <View
+            style={{
+              flexGrow: 1,
+              flexShrink: 1,
+              minWidth: 0,
+              flexBasis: mobile ? "100%" : 420,
+              maxWidth: "100%",
+              gap: 16,
+            }}
+          >
+            <Card variant="subtle">
+              <Copy strong>{selected.name}</Copy>
               <Copy muted>
-                Compra: {attendee.purchase_status}
-                {attendee.used_at
-                  ? ` · Ingresó ${dateLabel(attendee.used_at)}`
-                  : ""}
+                {dateLabel(selected.start_datetime)} · {selected.venue_name} ·{" "}
+                {statusLabel(selected.status)}
               </Copy>
             </Card>
-          ))}
-          <Pager
-            pagination={attendees.result?.pagination}
-            onPage={setAttendeePage}
-          />
-        </>
+            <Scanner
+              key={selected.id}
+              concert={selected.id}
+              onValidated={() => void attendees.reload()}
+            />
+          </View>
+
+          <View
+            style={{
+              flexGrow: 1,
+              flexShrink: 1,
+              minWidth: 0,
+              flexBasis: mobile ? "100%" : 460,
+              maxWidth: "100%",
+              gap: 14,
+            }}
+          >
+            <Card variant="subtle">
+              <SectionHeader
+                title="Asistentes"
+                subtitle="Una fila por entrada emitida. El nombre corresponde al comprador."
+                action={
+                  <Button
+                    title="Actualizar asistentes"
+                    secondary
+                    onPress={() => void attendees.reload()}
+                  />
+                }
+              />
+            </Card>
+            <ResourceState
+              {...attendees}
+              empty={attendees.result?.data.length === 0}
+              retry={() => void attendees.reload()}
+            />
+            {attendees.result?.data.map((attendee) => (
+              <Card key={attendee.ticket_id}>
+                <Copy strong>
+                  {attendee.first_name} {attendee.last_name}
+                </Copy>
+                <Copy>
+                  Entrada: {attendee.ticket_type_name} ·{" "}
+                  {statusLabel(attendee.status)}
+                </Copy>
+                <Copy muted>
+                  Compra: {statusLabel(attendee.purchase_status)}
+                  {attendee.used_at
+                    ? ` · Ingresó ${dateLabel(attendee.used_at)}`
+                    : ""}
+                </Copy>
+              </Card>
+            ))}
+            <Pager
+              pagination={attendees.result?.pagination}
+              onPage={setAttendeePage}
+            />
+          </View>
+        </BentoGrid>
       )}
     </Page>
   );
@@ -173,7 +228,8 @@ function Scanner({
     setValid(false);
   };
   return (
-    <Card>
+    <Card variant="featured">
+      <SectionHeader title="Escáner de acceso" subtitle="Validación instantánea de tokens QR" />
       <Field
         label="Token QR"
         value={token}
@@ -182,35 +238,37 @@ function Scanner({
         autoCorrect={false}
         onSubmitEditing={() => void scan(token)}
       />
-      <Button
-        title={busy ? "Validando…" : "Validar entrada"}
-        disabled={busy || locked.current || !concert.trim() || !token.trim()}
-        onPress={() => void scan(token)}
-      />
-      {Platform.OS !== "web" && !camera && (
+      <View style={styles.row}>
         <Button
-          title="Escanear con cámara"
-          secondary
-          disabled={busy || locked.current || !concert.trim()}
-          onPress={() => {
-            void (async () => {
-              try {
-                const granted =
-                  permission?.granted || (await requestPermission()).granted;
-                if (granted) setCamera(true);
-                else
-                  setResult(
-                    "Permiso de cámara denegado. Podés ingresar el token manualmente.",
-                  );
-              } catch {
-                setResult(
-                  "No se pudo abrir la cámara. Ingresá el token manualmente.",
-                );
-              }
-            })();
-          }}
+          title={busy ? "Validando…" : "Validar entrada"}
+          disabled={busy || locked.current || !concert.trim() || !token.trim()}
+          onPress={() => void scan(token)}
         />
-      )}
+        {Platform.OS !== "web" && !camera && (
+          <Button
+            title="Escanear con cámara"
+            secondary
+            disabled={busy || locked.current || !concert.trim()}
+            onPress={() => {
+              void (async () => {
+                try {
+                  const granted =
+                    permission?.granted || (await requestPermission()).granted;
+                  if (granted) setCamera(true);
+                  else
+                    setResult(
+                      "Permiso de cámara denegado. Podés ingresar el token manualmente.",
+                    );
+                } catch {
+                  setResult(
+                    "No se pudo abrir la cámara. Ingresá el token manualmente.",
+                  );
+                }
+              })();
+            }}
+          />
+        )}
+      </View>
       {camera && (
         <>
           <View style={{ height: 300, borderRadius: 12, overflow: "hidden" }}>

@@ -44,6 +44,13 @@ export class AdminRepository {
             'SELECT id, email, status, is_guest FROM users WHERE id = ? FOR UPDATE', [id]))[0];
     }
     grant(userId: string, roleId: string) { return this.execute('INSERT IGNORE INTO user_roles (user_id, role_id) VALUES (?, ?)', [userId, roleId]); }
+    async setSingleRole(userId: string, roleId: string): Promise<boolean> {
+        const alreadyOnly = (await this.rows('SELECT role_id FROM user_roles WHERE user_id = ?', [userId]));
+        if (alreadyOnly.length === 1 && String(alreadyOnly[0].role_id) === String(roleId)) return false;
+        await this.execute('DELETE FROM user_roles WHERE user_id = ? AND role_id <> ?', [userId, roleId]);
+        await this.execute('INSERT IGNORE INTO user_roles (user_id, role_id) VALUES (?, ?)', [userId, roleId]);
+        return true;
+    }
     revoke(userId: string, roleId: string) { return this.execute('DELETE FROM user_roles WHERE user_id = ? AND role_id = ?', [userId, roleId]); }
     roleCatalog(codes: string[]) {
         return this.rows(`SELECT code, name, description FROM roles WHERE code IN (${codes.map(() => '?').join(',')}) ORDER BY id`, codes);

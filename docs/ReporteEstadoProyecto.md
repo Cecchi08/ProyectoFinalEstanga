@@ -596,3 +596,19 @@ Check, lint y typecheck pasan en el backend y en el frontend.
 
 - solicitud de perfiles con aprobación de ADMIN (punto 11);
 - cambio de estado de organizaciones (`organizations.status = SUSPENDED` existe en el esquema, pero no tiene endpoint).
+
+## 16. Preparación para Vercel, migraciones y seed de demostración en Railway (2026-11-02)
+
+1. **Respaldo previo de Railway (`venti`)** con `backend/scripts/db-backup.mjs`:
+   - **Archivo:** `C:/Users/Mateo/venti_backups/venti-20261102-pre-migraciones-y-seed.sql` (99.204 bytes, SHA-256 `7C4B0926127DF034685B27C6E1A2D93B38B132F11072466CE533C7525364EA84`).
+   - **Contenido:** 57 tablas, 1 vista, 5 rutinas, 9 triggers, 1 evento y 197 filas previas.
+2. **Migraciones pendientes aplicadas en Railway** con `backend/scripts/db-migrate.mjs`:
+   - `database/migrations/20261029_idempotencia_compras.sql` (columnas `idempotency_key`, `request_hash` e índice único `uq_orders_idempotency` en `orders`).
+   - `database/migrations/20261030_retencion_espacios_15_minutos.sql` (`venues.hold_minutes` unificado en 15 minutos con `DEFAULT 15` y restricción `chk_venues_hold`).
+3. **Datos de demostración en Railway (`backend/scripts/demo-seed.mjs`)**:
+   - Se ejecutó el seed contra Railway (`DEMO_TARGET=remote`) y se verificó su idempotencia en una segunda corrida consecutiva sin duplicar registros ni alterar los 3 usuarios existentes.
+   - Creó 9 cuentas `@demo.venti.example` autenticables por login normal, 1 perfil de artista publicado, 2 organizaciones, 1 establecimiento aprobado, 2 espacios publicados, 1 bloqueo de mantenimiento, 1 reserva confirmada con pago simulado aprobado, 1 presupuesto de espacio enviado, 3 conciertos (2 publicados y 1 en borrador), 4 tipos de entrada, 3 compras (`CONFIRMED`, `PENDING` y `CANCELLED/REFUNDED`), 3 entradas QR (1 `USED` con su validación y 2 `VALID`), 1 asignación de staff, 1 empresa de servicios verificada con su servicio publicado, 1 cotización de servicio aceptada, 1 solicitud de perfil pendiente, preferencias, notificaciones y 12 eventos de auditoría.
+   - Las credenciales locales de demostración quedaron documentadas en `CREDENCIALES_DEMO.md`, excluido en `.gitignore` y `.vercelignore`.
+4. **Preparación para despliegue en Vercel (sin publicar)**:
+   - Se agregaron `frontend/vercel.json`, `vercel.json` (raíz), `.vercelignore` y `frontend/.vercelignore` para servir el bundle estático de Expo Web (`frontend/dist`) con rewrite SPA `/(.*) -> /index.html`, caché inmutable para `/_expo/static/*` y encabezados de seguridad.
+   - Se actualizaron `frontend/.env.example`, `backend/.env.example` y `docs/INSTALLATION.md` con las variables de producción para conectar el frontend en Vercel con la API Express y MySQL en Railway.

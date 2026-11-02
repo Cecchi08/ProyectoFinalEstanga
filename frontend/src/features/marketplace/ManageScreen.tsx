@@ -4,14 +4,54 @@ import { router } from "expo-router";
 import { useAuth } from "../../contexts/AuthContext";
 import { useResource } from "../../hooks/useResource";
 import { api } from "../../services/api";
-import type { Block, Establishment, MarketplaceCatalogs, Member, Named, Organization, Venue, VenueDetail } from "../../types/api";
-import { ActionFeedback, Button, Card, Copy, Field, FormScope, Notice, Page, ResourceState, styles, useAction, useForm } from "../../components/ui";
+import { query } from "../../services/http";
+import type {
+  Artist,
+  ArtistProposal,
+  Block,
+  Establishment,
+  MarketplaceCatalogs,
+  Member,
+  Named,
+  Organization,
+  Venue,
+  VenueDetail,
+  VenueHiringSummary,
+} from "../../types/api";
+import {
+  ActionFeedback,
+  BentoGrid,
+  Button,
+  Card,
+  Copy,
+  Field,
+  FormScope,
+  Notice,
+  Page,
+  ResourceState,
+  SectionHeader,
+  colors,
+  dateLabel,
+  flowLabel,
+  money,
+  statusLabel,
+  styles,
+  useAction,
+  useBento,
+  useForm,
+} from "../../components/ui";
 import { Codes, VenueCard } from "./MarketplaceScreen";
 import { at, days, isDate, range } from "./time";
 
 const text = (value?: string) => value?.trim() || null;
 const number = (value?: string) => (value?.trim() ? Number(value) : null);
 const roleNames = { OWNER: "Dueño", ADMIN: "Administrador", STAFF: "Staff" } as const;
+const reasonLabel: Record<string, string> = {
+  MAINTENANCE: "Mantenimiento",
+  PRIVATE_USE: "Uso privado",
+  HOLIDAY: "Feriado",
+  OTHER: "Otro",
+};
 
 export default function ManageScreen() {
   const organizations = useResource<Organization[]>("/marketplace/organizations/mine");
@@ -21,36 +61,81 @@ export default function ManageScreen() {
   const [form, setForm] = useState<Record<string, string>>({});
   const action = useAction();
   const validation = useForm();
+  const { mobile } = useBento();
   const createOrganization = () => action.run(async () => {
     validation.assertValid();
     await api.request("/marketplace/organizations", { method: "POST", body: { name: form.org_name ?? "", tax_id: text(form.tax_id) } });
     setForm({}); await organizations.reload(); action.setMessage("Organización creada.");
   });
   return (
-    <Page title="Mis establecimientos" subtitle="Organizaciones, establecimientos, espacios y bloqueos de agenda.">
-      <Button title="Volver al marketplace" secondary onPress={() => router.push("/marketplace")} />
-      <Copy>Organizaciones</Copy>
-      <ResourceState {...organizations} empty={organizations.result?.data.length === 0} retry={() => void organizations.reload()} />
-      <View style={styles.row}>
-        {organizations.result?.data.map((org) => (
-          <Button key={org.id} title={`${organization?.id === org.id ? "✓ " : ""}${org.name} (${roleNames[org.member_role]})`}
-            secondary={organization?.id !== org.id} onPress={() => setOrganization(organization?.id === org.id ? null : org)} />
-        ))}
-      </View>
-      {organization && <MembersPanel organization={organization} />}
-      <Card>
-        <FormScope form={validation}>
-        <Copy>Nueva organización</Copy>
-        <View style={styles.row}>
-          <Field label="Nombre de la organización" required value={form.org_name ?? ""} onChangeText={(v) => setForm({ ...form, org_name: v })} />
-          <Field label="CUIT (opcional)" value={form.tax_id ?? ""} onChangeText={(v) => setForm({ ...form, tax_id: v })} />
+    <Page
+      eyebrow="VENTI · PANEL DE ESPACIO FÍSICO"
+      title="Mis establecimientos y salas"
+      subtitle="Administración del espacio, capacidades, presupuestos, artistas contratados y organizadores relacionados."
+      actions={
+        <>
+          <Button title="Reservas recibidas" secondary onPress={() => router.push("/marketplace/reservations")} />
+          <Button title="Presupuestos recibidos" secondary onPress={() => router.push("/marketplace/quotes")} />
+          <Button title="Ver marketplace" secondary onPress={() => router.push("/marketplace")} />
+        </>
+      }
+    >
+      <BentoGrid style={{ alignItems: "flex-start" }}>
+        <View
+          style={{
+            flexGrow: 1,
+            flexShrink: 1,
+            minWidth: 0,
+            flexBasis: mobile ? "100%" : 440,
+            maxWidth: "100%",
+            gap: 14,
+          }}
+        >
+          <Card>
+            <SectionHeader title="Organizaciones" subtitle="Seleccioná una organización para administrar miembros" />
+            <ResourceState {...organizations} empty={organizations.result?.data.length === 0} retry={() => void organizations.reload()} />
+            <View style={styles.row}>
+              {organizations.result?.data.map((org) => (
+                <Button
+                  key={org.id}
+                  title={`${organization?.id === org.id ? "✓ " : ""}${org.name} (${roleNames[org.member_role]})`}
+                  secondary={organization?.id !== org.id}
+                  onPress={() => setOrganization(organization?.id === org.id ? null : org)}
+                />
+              ))}
+            </View>
+          </Card>
+          {organization && <MembersPanel organization={organization} />}
         </View>
-        <ActionFeedback action={action} />
-        <Button title="Crear organización" disabled={action.busy} onPress={() => void createOrganization()} />
-        </FormScope>
-      </Card>
-      <Copy>Establecimientos</Copy>
-      <Button title="Nuevo establecimiento" onPress={() => setEstablishment(null)} />
+
+        <View
+          style={{
+            flexGrow: 1,
+            flexShrink: 1,
+            minWidth: 0,
+            flexBasis: mobile ? "100%" : 420,
+            maxWidth: "100%",
+          }}
+        >
+          <Card variant="subtle">
+            <FormScope form={validation}>
+              <SectionHeader title="Nueva organización" />
+              <View style={styles.row}>
+                <Field label="Nombre de la organización" required value={form.org_name ?? ""} onChangeText={(v) => setForm({ ...form, org_name: v })} />
+                <Field label="CUIT (opcional)" value={form.tax_id ?? ""} onChangeText={(v) => setForm({ ...form, tax_id: v })} />
+              </View>
+              <ActionFeedback action={action} />
+              <Button title="Crear organización" disabled={action.busy} onPress={() => void createOrganization()} />
+            </FormScope>
+          </Card>
+        </View>
+      </BentoGrid>
+
+      <SectionHeader
+        title="A. Administración del Espacio y Contrataciones"
+        subtitle="Gestioná tus complejos, salas, disponibilidad, artistas contratados y organizadores."
+        action={<Button title="Nuevo establecimiento" onPress={() => setEstablishment(null)} />}
+      />
       {establishment === null && (
         <EstablishmentForm organizations={organizations.result?.data ?? []} done={async () => { setEstablishment(undefined); await establishments.reload(); }} />
       )}
@@ -64,7 +149,6 @@ export default function ManageScreen() {
 }
 
 // Also used by service companies: same organization_members rules, another endpoint and another required profile.
-// `admin` is the platform override (marketplace.admin / services.admin) for someone who is not a member.
 export function MembersPanel({ organization, path = `/marketplace/organizations/${organization.id}/members`, profile = "VENUE", admin = false }: {
   organization: Pick<Organization, "id" | "name"> & { member_role?: Organization["member_role"] | null };
   path?: string; profile?: string; admin?: boolean;
@@ -79,10 +163,18 @@ export function MembersPanel({ organization, path = `/marketplace/organizations/
   const manage = admin || ["OWNER", "ADMIN"].includes(organization.member_role ?? "");
   return (
     <Card>
-      <Copy>Miembros de {organization.name}</Copy>
+      <SectionHeader title={`Miembros de ${organization.name}`} />
       <ResourceState {...members} retry={() => void members.reload()} />
       {members.result?.data.map((member) => (
-        <View key={member.user_id} style={{ gap: 6 }}>
+        <View
+          key={member.user_id}
+          style={{
+            gap: 8,
+            paddingTop: 10,
+            borderTopWidth: 1,
+            borderColor: colors.border,
+          }}
+        >
           <Copy muted>{[member.first_name, member.last_name].filter(Boolean).join(" ") || member.email} · {member.email} · {roleNames[member.member_role]}</Copy>
           {manage && (
             <View style={styles.row}>
@@ -100,14 +192,16 @@ export function MembersPanel({ organization, path = `/marketplace/organizations/
       ))}
       {manage && (
         <FormScope form={validation}>
-          <Field required label={`Email del miembro (cuenta con perfil ${profile})`} keyboardType="email-address" value={email} onChangeText={setEmail} />
-          <View style={styles.row}>
-            {(Object.keys(roleNames) as Member["member_role"][]).map((value) => (
-              <Button key={value} title={`${role === value ? "✓ " : ""}${roleNames[value]}`} secondary={role !== value} onPress={() => setRole(value)} />
-            ))}
+          <View style={{ gap: 10, paddingTop: 10, borderTopWidth: 1, borderColor: colors.border }}>
+            <Field required label={`Email del miembro (cuenta con rol ${profile === "VENUE" ? "Espacio Físico" : "Empresa de Servicios"})`} keyboardType="email-address" value={email} onChangeText={setEmail} />
+            <View style={styles.row}>
+              {(Object.keys(roleNames) as Member["member_role"][]).map((value) => (
+                <Button key={value} title={`${role === value ? "✓ " : ""}${roleNames[value]}`} secondary={role !== value} onPress={() => setRole(value)} />
+              ))}
+            </View>
+            <Button title="Agregar miembro" disabled={action.busy}
+              onPress={() => void run(async () => { validation.assertValid(); await api.request(path, { method: "POST", body: { email, member_role: role } }); setEmail(""); }, "Miembro agregado.")} />
           </View>
-          <Button title="Agregar miembro" disabled={action.busy}
-            onPress={() => void run(async () => { validation.assertValid(); await api.request(path, { method: "POST", body: { email, member_role: role } }); setEmail(""); }, "Miembro agregado.")} />
         </FormScope>
       )}
       <ActionFeedback action={action} />
@@ -135,23 +229,32 @@ function EstablishmentForm({ establishment, organizations, done }: { establishme
     await done();
   });
   return (
-    <Card>
+    <Card variant="featured">
       <FormScope form={validation}>
-      <Copy>{establishment ? `Editar ${establishment.name}` : "Nuevo establecimiento"}</Copy>
-      {!establishment && (
-        <Codes label="Organización" items={organizations.filter((o) => o.member_role !== "STAFF")}
-          values={form.organization_id ? [form.organization_id] : []} onChange={(v) => set("organization_id", v[0] ?? "")} />
-      )}
-      <Codes label="Ciudad" items={cities.result?.data} values={form.city_id ? [form.city_id] : []} onChange={(v) => set("city_id", v[0] ?? "")} />
-      {([["name", "Nombre del establecimiento"], ["address_line", "Dirección"], ["description", "Descripción (opcional)"], ["postal_code", "Código postal (opcional)"],
-        ["phone", "Teléfono (opcional)"], ["email", "Email de contacto (opcional)"], ["website", "Sitio web (opcional)"]] as const).map(([key, label]) => (
-        <Field key={key} label={label} required={!label.includes("(opcional)")} value={form[key] ?? ""} onChangeText={(v) => set(key, v)} />
-      ))}
-      <ActionFeedback action={action} />
-      <View style={styles.row}>
-        <Button title="Guardar establecimiento" disabled={action.busy} onPress={() => void save()} />
-        <Button title="Cerrar formulario" secondary onPress={() => void done()} />
-      </View>
+        <SectionHeader title={establishment ? `Editar ${establishment.name}` : "Nuevo establecimiento"} />
+        {!establishment && (
+          <Codes label="Organización" items={organizations.filter((o) => o.member_role !== "STAFF")}
+            values={form.organization_id ? [form.organization_id] : []} onChange={(v) => set("organization_id", v[0] ?? "")} />
+        )}
+        <Codes label="Ciudad" items={cities.result?.data} values={form.city_id ? [form.city_id] : []} onChange={(v) => set("city_id", v[0] ?? "")} />
+        <View style={styles.row}>
+          <Field label="Nombre del establecimiento" required value={form.name ?? ""} onChangeText={(v) => set("name", v)} />
+          <Field label="Dirección" required value={form.address_line ?? ""} onChangeText={(v) => set("address_line", v)} />
+        </View>
+        <Field label="Descripción (opcional)" value={form.description ?? ""} onChangeText={(v) => set("description", v)} />
+        <View style={styles.row}>
+          <Field label="Código postal (opcional)" value={form.postal_code ?? ""} onChangeText={(v) => set("postal_code", v)} />
+          <Field label="Teléfono (opcional)" value={form.phone ?? ""} onChangeText={(v) => set("phone", v)} />
+        </View>
+        <View style={styles.row}>
+          <Field label="Email de contacto (opcional)" value={form.email ?? ""} onChangeText={(v) => set("email", v)} />
+          <Field label="Sitio web (opcional)" value={form.website ?? ""} onChangeText={(v) => set("website", v)} />
+        </View>
+        <ActionFeedback action={action} />
+        <View style={styles.row}>
+          <Button title="Guardar establecimiento" disabled={action.busy} onPress={() => void save()} />
+          <Button title="Cerrar formulario" secondary onPress={() => void done()} />
+        </View>
       </FormScope>
     </Card>
   );
@@ -159,16 +262,19 @@ function EstablishmentForm({ establishment, organizations, done }: { establishme
 
 // Publishing is a request: the owner sends the establishment to review and an ADMIN (marketplace.admin) publishes it.
 function EstablishmentPanel({ establishment, organizations, reload }: { establishment: Establishment; organizations: Organization[]; reload(): Promise<void> }) {
-  const [open, setOpen] = useState<"" | "edit" | "venues" | "blocks">("");
+  const [open, setOpen] = useState<"" | "edit" | "venues" | "blocks" | "hirings" | "hire_artist">("venues");
   const reviewer = useAuth().can("marketplace.admin");
   const action = useAction();
   const status = (next: "publish" | "archive") => action.run(async () => {
     await api.request(`/marketplace/establishments/${establishment.id}/${next}`, { method: "POST", body: {} }); await reload();
   });
   return (
-    <Card>
-      <Copy>{establishment.name} · {establishment.status}</Copy>
+    <Card variant="featured">
+      <Copy strong>{establishment.name} · {statusLabel(establishment.status)}</Copy>
       <Copy muted>{establishment.address_line} · {establishment.venues} espacio(s)</Copy>
+      {(establishment.phone || establishment.email) && (
+        <Copy muted>{[establishment.phone, establishment.email].filter(Boolean).join(" · ")}</Copy>
+      )}
       {establishment.status === "PENDING_REVIEW" && (
         <Notice tone="info" message="En revisión: aparece en las búsquedas cuando un administrador de Venti lo aprueba." />
       )}
@@ -176,9 +282,21 @@ function EstablishmentPanel({ establishment, organizations, reload }: { establis
         <Notice tone="warning" message={`Revisión rechazada: ${establishment.review_note}`} />
       )}
       <View style={styles.row}>
-        {(["edit", "venues", "blocks"] as const).map((panel) => (
-          <Button key={panel} title={`${{ edit: "Editar", venues: "Espacios", blocks: "Bloqueos" }[panel]} de ${establishment.name}`}
-            secondary={open !== panel} onPress={() => setOpen(open === panel ? "" : panel)} />
+        {(
+          [
+            ["edit", "A. Editar datos"],
+            ["venues", "A. Salas y capacidades"],
+            ["blocks", "A. Disponibilidad y bloqueos"],
+            ["hirings", "B. Artistas y organizadores"],
+            ["hire_artist", "C. Contratar artista"],
+          ] as const
+        ).map(([panel, label]) => (
+          <Button
+            key={panel}
+            title={label}
+            secondary={open !== panel}
+            onPress={() => setOpen(open === panel ? "" : panel)}
+          />
         ))}
         {establishment.status !== "PUBLISHED" && (reviewer || establishment.status !== "PENDING_REVIEW") && (
           <Button title={`${reviewer ? "Publicar" : "Enviar a revisión"} ${establishment.name}`} disabled={action.busy} onPress={() => void status("publish")} />
@@ -191,7 +309,334 @@ function EstablishmentPanel({ establishment, organizations, reload }: { establis
       {open === "edit" && <EstablishmentForm establishment={establishment} organizations={organizations} done={async () => { setOpen(""); await reload(); }} />}
       {open === "venues" && <VenuesPanel establishment={establishment} />}
       {open === "blocks" && <BlocksPanel establishment={establishment} />}
+      {open === "hirings" && <VenueHiringsPanel establishment={establishment} />}
+      {open === "hire_artist" && <HireArtistPanel establishment={establishment} onCreated={() => setOpen("hirings")} />}
     </Card>
+  );
+}
+
+function VenueHiringsPanel({ establishment }: { establishment: Establishment }) {
+  const summary = useResource<VenueHiringSummary>(`/proposals/venue-summary/${establishment.id}`);
+  const action = useAction();
+  const data = summary.result?.data;
+  const acceptedArtists = data?.proposals.filter((p) => p.status === "ACCEPTED") ?? [];
+
+  const respond = (proposal: ArtistProposal, operation: "accept" | "reject" | "cancel", responseNote?: string) =>
+    action.run(async () => {
+      await api.request(`/proposals/${proposal.id}/${operation}`, {
+        method: "POST",
+        body: responseNote ? { reason: responseNote } : {},
+      });
+      await summary.reload();
+      action.setMessage(
+        operation === "accept"
+          ? "Solicitud aceptada."
+          : operation === "reject"
+            ? "Solicitud rechazada."
+            : "Solicitud cancelada.",
+      );
+    });
+
+  return (
+    <View style={{ gap: 14, paddingTop: 12, borderTopWidth: 1, borderColor: colors.border }}>
+      <SectionHeader
+        title="B. Artistas Contratados y Organizadores Relacionados"
+        subtitle="Resumen operativo de artistas confirmados, productoras vinculadas, conciertos en agenda e historial de solicitudes."
+      />
+      <ResourceState {...summary} retry={() => void summary.reload()} />
+      <ActionFeedback action={action} />
+      {data && (
+        <View style={{ gap: 14 }}>
+          <Card variant="subtle">
+            <SectionHeader
+              title="Artistas confirmados en el establecimiento"
+              subtitle="Contrataciones directas o vinculadas a eventos aceptados"
+            />
+            {!acceptedArtists.length ? (
+              <Copy muted>Todavía no hay artistas confirmados para este establecimiento.</Copy>
+            ) : (
+              acceptedArtists.map((proposal) => (
+                <View
+                  key={proposal.id}
+                  style={{
+                    gap: 4,
+                    paddingVertical: 8,
+                    borderTopWidth: 1,
+                    borderColor: colors.border,
+                  }}
+                >
+                  <Copy strong>
+                    {proposal.artist_name} · {proposal.event_title} ({statusLabel(proposal.status)})
+                  </Copy>
+                  <Copy muted>
+                    {flowLabel(proposal.flow_type)}
+                    {proposal.venue_name ? ` · Sala: ${proposal.venue_name}` : ""}
+                    {proposal.proposed_date ? ` · Fecha: ${dateLabel(proposal.proposed_date)}` : ""}
+                    {proposal.offered_amount != null ? ` · Presupuesto: ${money(proposal.offered_amount)}` : ""}
+                  </Copy>
+                  {(proposal.artist_contact_email || proposal.artist_phone) && (
+                    <Copy muted>
+                      Contacto del artista: {[proposal.artist_contact_email, proposal.artist_phone].filter(Boolean).join(" · ")}
+                    </Copy>
+                  )}
+                </View>
+              ))
+            )}
+          </Card>
+
+          <Card variant="subtle">
+            <SectionHeader
+              title="Organizadores relacionados"
+              subtitle="Productoras y organizadores con reservas o conciertos en este espacio"
+            />
+            {!data.related_organizers.length ? (
+              <Copy muted>Todavía no hay organizadores con reservas o eventos en este espacio.</Copy>
+            ) : (
+              data.related_organizers.map((organizer) => (
+                <View
+                  key={`${organizer.reservation_code}-${organizer.organizer_email}`}
+                  style={{
+                    gap: 4,
+                    paddingVertical: 8,
+                    borderTopWidth: 1,
+                    borderColor: colors.border,
+                  }}
+                >
+                  <Copy strong>{organizer.organizer_name ?? organizer.organizer_email}</Copy>
+                  <Copy muted>
+                    {[organizer.organizer_email, organizer.organizer_phone, organizer.organization_name].filter(Boolean).join(" · ")}
+                  </Copy>
+                  <Copy muted>
+                    Reserva: {organizer.event_name} ({organizer.venue_name}) · {statusLabel(organizer.reservation_status)} · Ref. {organizer.reservation_code}
+                    {organizer.concert_name ? ` · Concierto: ${organizer.concert_name}` : ""}
+                  </Copy>
+                </View>
+              ))
+            )}
+          </Card>
+
+          <Card variant="subtle">
+            <SectionHeader
+              title="Eventos y conciertos programados"
+              subtitle="Shows vinculados a las salas de este establecimiento"
+            />
+            {!data.concerts.length ? (
+              <Copy muted>No hay conciertos programados actualmente.</Copy>
+            ) : (
+              data.concerts.map((concert) => (
+                <View
+                  key={concert.id}
+                  style={{
+                    gap: 4,
+                    paddingVertical: 8,
+                    borderTopWidth: 1,
+                    borderColor: colors.border,
+                  }}
+                >
+                  <Copy strong>
+                    {concert.name} · {statusLabel(concert.status)}
+                  </Copy>
+                  <Copy muted>
+                    Artista: {concert.artist_name} · Sala: {concert.venue_name} · {dateLabel(concert.start_datetime)}
+                  </Copy>
+                  <Copy muted>
+                    Organizador: {concert.organizer_name} ({concert.organizer_email})
+                  </Copy>
+                </View>
+              ))
+            )}
+          </Card>
+
+          <Card variant="subtle">
+            <SectionHeader
+              title="Solicitudes e historial de contrataciones con artistas"
+              subtitle="Propuestas enviadas por el espacio y solicitudes recibidas desde artistas"
+            />
+            {!data.proposals.length ? (
+              <Copy muted>Sin solicitudes registradas para este establecimiento.</Copy>
+            ) : (
+              data.proposals.map((proposal) => (
+                <View
+                  key={proposal.id}
+                  style={{
+                    gap: 6,
+                    paddingVertical: 10,
+                    borderTopWidth: 1,
+                    borderColor: colors.border,
+                  }}
+                >
+                  <Copy strong>
+                    {proposal.event_title} · {proposal.artist_name} · {statusLabel(proposal.status)}
+                  </Copy>
+                  <Copy muted>
+                    {flowLabel(proposal.flow_type)}
+                    {proposal.venue_name ? ` · Sala: ${proposal.venue_name}` : ""}
+                    {proposal.proposed_date ? ` · Fecha propuesta: ${dateLabel(proposal.proposed_date)}` : ""}
+                    {proposal.offered_amount != null ? ` · Monto: ${money(proposal.offered_amount)}` : ""}
+                  </Copy>
+                  {proposal.message ? <Copy>{proposal.message}</Copy> : null}
+                  {proposal.rejection_reason ? (
+                    <Copy muted>Respuesta: {proposal.rejection_reason}</Copy>
+                  ) : null}
+                  {proposal.status === "PENDING" && (
+                    <View style={styles.row}>
+                      {proposal.can_respond && (
+                        <>
+                          <Button
+                            title="Aceptar solicitud del artista"
+                            disabled={action.busy}
+                            onPress={() => void respond(proposal, "accept")}
+                          />
+                          <Button
+                            title="Rechazar solicitud"
+                            secondary
+                            danger
+                            disabled={action.busy}
+                            onPress={() => void respond(proposal, "reject", "Sin disponibilidad en la fecha solicitada.")}
+                          />
+                        </>
+                      )}
+                      {proposal.can_cancel && (
+                        <Button
+                          title="Cancelar propuesta enviada"
+                          secondary
+                          danger
+                          disabled={action.busy}
+                          onPress={() => void respond(proposal, "cancel")}
+                        />
+                      )}
+                    </View>
+                  )}
+                </View>
+              ))
+            )}
+          </Card>
+        </View>
+      )}
+    </View>
+  );
+}
+
+function HireArtistPanel({
+  establishment,
+  onCreated,
+}: {
+  establishment: Establishment;
+  onCreated(): void;
+}) {
+  const [search, setSearch] = useState("");
+  const artists = useResource<Artist[]>(`/artists${query({ q: search.trim(), limit: 12 })}`);
+  const venues = useResource<Venue[]>(`/marketplace/establishments/${establishment.id}/venues`);
+  const [selectedArtist, setSelectedArtist] = useState<Artist | null>(null);
+  const [venueId, setVenueId] = useState<string[]>([]);
+  const [form, setForm] = useState<Record<string, string>>({});
+  const action = useAction();
+  const validation = useForm();
+
+  const sendProposal = () =>
+    action.run(async () => {
+      validation.assertValid();
+      if (!selectedArtist) throw new Error("Seleccioná un artista del catálogo.");
+      if (!form.event_name?.trim()) throw new Error("Ingresá el nombre del show o propuesta.");
+      const budget = form.offered_budget?.trim() ? Number(form.offered_budget.trim()) : null;
+      if (budget !== null && (!Number.isFinite(budget) || budget < 0)) {
+        throw new Error("El presupuesto ofrecido debe ser un monto válido.");
+      }
+      const proposedDate = form.event_date?.trim()
+        ? new Date(`${form.event_date.trim()}T21:00:00Z`).toISOString()
+        : new Date(Date.now() + 14 * 86400000).toISOString();
+      await api.request("/proposals", {
+        method: "POST",
+        body: {
+          flow_type: "VENUE_TO_ARTIST",
+          artist_profile_id: selectedArtist.id,
+          establishment_id: establishment.id,
+          venue_id: venueId[0] ?? null,
+          event_title: form.event_name.trim(),
+          proposed_date: proposedDate,
+          offered_amount: budget,
+          message: form.message?.trim() || null,
+        },
+      });
+      setForm({});
+      setSelectedArtist(null);
+      action.setMessage("Propuesta de contratación enviada al artista.");
+      onCreated();
+    });
+
+  return (
+    <View style={{ gap: 12, paddingTop: 12, borderTopWidth: 1, borderColor: colors.border }}>
+      <SectionHeader
+        title="C. Contratar a un Artista"
+        subtitle="Buscá un artista publicado en Venti y enviale una propuesta formal para presentarse en tu espacio."
+      />
+      <Field
+        label="Buscar artista por nombre o género"
+        value={search}
+        onChangeText={setSearch}
+        placeholder="Ej. Marea Suburbana, Atlántico..."
+      />
+      <ResourceState {...artists} empty={artists.result?.data.length === 0} retry={() => void artists.reload()} />
+      <View style={styles.row}>
+        {artists.result?.data.map((artist) => (
+          <Button
+            key={artist.id}
+            title={`${selectedArtist?.id === artist.id ? "✓ " : ""}${artist.stage_name}${artist.city_name ? ` (${artist.city_name})` : ""}`}
+            secondary={selectedArtist?.id !== artist.id}
+            onPress={() => setSelectedArtist(artist)}
+          />
+        ))}
+      </View>
+
+      {selectedArtist && (
+        <Card variant="subtle">
+          <FormScope form={validation}>
+            <Copy strong>Propuesta para {selectedArtist.stage_name}</Copy>
+            <Codes
+              label="Sala del establecimiento (opcional)"
+              items={venues.result?.data}
+              values={venueId}
+              onChange={setVenueId}
+            />
+            <Field
+              label="Nombre del evento / ciclo propuesto"
+              required
+              value={form.event_name ?? ""}
+              onChangeText={(v) => setForm({ ...form, event_name: v })}
+              placeholder="Ej. Ciclo Acústico de Primavera"
+            />
+            <View style={styles.row}>
+              <Field
+                label="Fecha propuesta (AAAA-MM-DD, opcional)"
+                value={form.event_date ?? ""}
+                onChangeText={(v) => setForm({ ...form, event_date: v })}
+                placeholder="2026-11-28"
+              />
+              <Field
+                label="Cachet / Presupuesto ofrecido (ARS, opcional)"
+                keyboardType="decimal-pad"
+                value={form.offered_budget ?? ""}
+                onChangeText={(v) => setForm({ ...form, offered_budget: v })}
+                placeholder="850000"
+              />
+            </View>
+            <Field
+              label="Condiciones técnicas y mensaje para el artista"
+              multiline
+              value={form.message ?? ""}
+              onChangeText={(v) => setForm({ ...form, message: v })}
+              placeholder="Detallá horarios de prueba de sonido, backline incluido y modalidad..."
+            />
+            <ActionFeedback action={action} />
+            <Button
+              title={`Enviar propuesta a ${selectedArtist.stage_name}`}
+              disabled={action.busy}
+              onPress={() => void sendProposal()}
+            />
+          </FormScope>
+        </Card>
+      )}
+    </View>
   );
 }
 
@@ -199,28 +644,41 @@ function VenuesPanel({ establishment }: { establishment: Establishment }) {
   const venues = useResource<Venue[]>(`/marketplace/establishments/${establishment.id}/venues`);
   const [editing, setEditing] = useState<string | null | undefined>(undefined);
   const action = useAction();
+  const { mobile } = useBento();
   const status = (venue: Venue, next: "publish" | "archive") => action.run(async () => {
     await api.request(`/marketplace/venues/${venue.id}/${next}`, { method: "POST", body: {} }); await venues.reload();
   });
   return (
-    <View style={{ gap: 10 }}>
+    <View style={{ gap: 12, paddingTop: 10, borderTopWidth: 1, borderColor: colors.border }}>
       <Button title={`Nuevo espacio en ${establishment.name}`} onPress={() => setEditing(null)} />
       {editing !== undefined && (
         <VenueForm key={editing ?? "new"} establishmentId={establishment.id} venueId={editing} done={async () => { setEditing(undefined); await venues.reload(); }} />
       )}
       <ActionFeedback action={action} />
       <ResourceState {...venues} empty={venues.result?.data.length === 0} retry={() => void venues.reload()} />
-      {venues.result?.data.map((venue) => (
-        <View key={venue.id} style={{ gap: 6 }}>
-          <VenueCard venue={venue} manage />
-          <View style={styles.row}>
-            <Button title={`Editar espacio ${venue.name}`} secondary onPress={() => setEditing(venue.id)} />
-            {venue.status !== "PUBLISHED"
-              ? <Button title={`Publicar espacio ${venue.name}`} disabled={action.busy} onPress={() => void status(venue, "publish")} />
-              : <Button title={`Archivar espacio ${venue.name}`} secondary danger disabled={action.busy} onPress={() => void status(venue, "archive")} />}
+      <BentoGrid>
+        {venues.result?.data.map((venue) => (
+          <View
+            key={venue.id}
+            style={{
+              flexGrow: 1,
+              flexShrink: 1,
+              minWidth: 0,
+              flexBasis: mobile ? "100%" : 320,
+              maxWidth: "100%",
+              gap: 8,
+            }}
+          >
+            <VenueCard venue={venue} manage />
+            <View style={styles.row}>
+              <Button title={`Editar espacio ${venue.name}`} secondary onPress={() => setEditing(venue.id)} />
+              {venue.status !== "PUBLISHED"
+                ? <Button title={`Publicar espacio ${venue.name}`} disabled={action.busy} onPress={() => void status(venue, "publish")} />
+                : <Button title={`Archivar espacio ${venue.name}`} secondary danger disabled={action.busy} onPress={() => void status(venue, "archive")} />}
+            </View>
           </View>
-        </View>
-      ))}
+        ))}
+      </BentoGrid>
     </View>
   );
 }
@@ -231,6 +689,7 @@ const parseHours = (value: string) => value.split("\n").map((line) => line.trim(
   if (!match) throw new Error(`Horario inválido: "${line}". Usá "1 10:00-23:00".`);
   return { day_of_week: Number(match[1]), opens_at: match[2], closes_at: match[3] };
 });
+
 function VenueForm({ establishmentId, venueId, done }: { establishmentId: string; venueId: string | null; done(): Promise<void> }) {
   const catalogs = useResource<MarketplaceCatalogs>("/marketplace/catalogs");
   const current = useResource<VenueDetail>(venueId ? `/marketplace/venues/${venueId}` : null);
@@ -269,26 +728,34 @@ function VenueForm({ establishmentId, venueId, done }: { establishmentId: string
     await done();
   });
   return (
-    <Card>
+    <Card variant="subtle">
       <FormScope form={validation}>
-      <Copy>{venueId ? `Editar ${venue?.name ?? "espacio"}` : "Nuevo espacio"}</Copy>
-      <ResourceState {...current} retry={() => void current.reload()} />
-      <Codes label="Tipo de espacio" items={catalogs.result?.data.venue_types} values={type} onChange={setType} />
-      {([["name", "Nombre del espacio"], ["description", "Descripción (opcional)"], ["price_per_hour", "Precio por hora"],
-        ["capacity_standing", "Capacidad de pie (opcional)"], ["capacity_seated", "Capacidad sentados (opcional)"], ["area_m2", "Superficie m² (opcional)"],
-        ["min_booking_minutes", "Reserva mínima (minutos)"]] as const).map(([key, label]) => (
-        <Field key={key} label={label} required={!label.includes("(opcional)")} value={form[key] ?? ""} onChangeText={(v) => set(key, v)} />
-      ))}
-      <Copy muted>La reserva temporal dura 15 minutos hasta el pago, igual para todos los espacios.</Copy>
-      <Codes label="Comodidades" multiple items={catalogs.result?.data.amenities} values={amenities} onChange={setAmenities} />
-      <Field label="Fotos (una URL por línea, la primera es la portada)" multiline value={form.photos ?? ""} onChangeText={(v) => set("photos", v)} />
-      <Field label={`Horarios (una línea por franja, ej. "1 10:00-23:00"; ${days.slice(1).map((d, i) => `${i + 1}=${d}`).join(", ")})`} multiline
-        value={form.hours ?? ""} onChangeText={(v) => set("hours", v)} />
-      <ActionFeedback action={action} />
-      <View style={styles.row}>
-        <Button title="Guardar espacio" disabled={action.busy} onPress={() => void save()} />
-        <Button title="Cerrar formulario de espacio" secondary onPress={() => void done()} />
-      </View>
+        <SectionHeader title={venueId ? `Editar ${venue?.name ?? "espacio"}` : "Nuevo espacio"} />
+        <ResourceState {...current} retry={() => void current.reload()} />
+        <Codes label="Tipo de espacio" items={catalogs.result?.data.venue_types} values={type} onChange={setType} />
+        <View style={styles.row}>
+          <Field label="Nombre del espacio" required value={form.name ?? ""} onChangeText={(v) => set("name", v)} />
+          <Field label="Precio por hora" required value={form.price_per_hour ?? ""} onChangeText={(v) => set("price_per_hour", v)} />
+        </View>
+        <Field label="Descripción (opcional)" value={form.description ?? ""} onChangeText={(v) => set("description", v)} />
+        <View style={styles.row}>
+          <Field label="Capacidad de pie (opcional)" value={form.capacity_standing ?? ""} onChangeText={(v) => set("capacity_standing", v)} />
+          <Field label="Capacidad sentados (opcional)" value={form.capacity_seated ?? ""} onChangeText={(v) => set("capacity_seated", v)} />
+        </View>
+        <View style={styles.row}>
+          <Field label="Superficie m² (opcional)" value={form.area_m2 ?? ""} onChangeText={(v) => set("area_m2", v)} />
+          <Field label="Reserva mínima (minutos)" required value={form.min_booking_minutes ?? ""} onChangeText={(v) => set("min_booking_minutes", v)} />
+        </View>
+        <Copy muted>La reserva temporal dura 15 minutos hasta el pago, igual para todos los espacios.</Copy>
+        <Codes label="Comodidades" multiple items={catalogs.result?.data.amenities} values={amenities} onChange={setAmenities} />
+        <Field label="Fotos (una URL por línea, la primera es la portada)" multiline value={form.photos ?? ""} onChangeText={(v) => set("photos", v)} />
+        <Field label={`Horarios (una línea por franja, ej. "1 10:00-23:00"; ${days.slice(1).map((d, i) => `${i + 1}=${d}`).join(", ")})`} multiline
+          value={form.hours ?? ""} onChangeText={(v) => set("hours", v)} />
+        <ActionFeedback action={action} />
+        <View style={styles.row}>
+          <Button title="Guardar espacio" disabled={action.busy} onPress={() => void save()} />
+          <Button title="Cerrar formulario de espacio" secondary onPress={() => void done()} />
+        </View>
       </FormScope>
     </Card>
   );
@@ -314,29 +781,29 @@ function BlocksPanel({ establishment }: { establishment: Establishment }) {
     } });
     setForm({}); await blocks.reload(); action.setMessage("Bloqueo creado.");
   });
-  const name = (id: string | null) => (id ? venues.result?.data.find((v) => v.id === id)?.name ?? `Espacio #${id}` : "Todo el establecimiento");
+  const name = (id: string | null) => (id ? venues.result?.data.find((v) => v.id === id)?.name ?? "Sala del establecimiento" : "Todo el establecimiento");
   return (
     <FormScope form={validation}>
-    <View style={{ gap: 10 }}>
-      <ResourceState {...blocks} empty={blocks.result?.data.length === 0} retry={() => void blocks.reload()} />
-      {blocks.result?.data.map((block) => (
-        <View key={block.id} style={styles.row}>
-          <Copy muted>{range(block.starts_at, block.ends_at)} · {name(block.venue_id)} · {block.reason}{block.description ? ` · ${block.description}` : ""}</Copy>
-          <Button title={`Quitar bloqueo ${block.id}`} secondary danger disabled={action.busy}
-            onPress={() => void action.run(async () => { await api.request(`/marketplace/blocks/${block.id}`, { method: "DELETE" }); await blocks.reload(); })} />
+      <View style={{ gap: 12, paddingTop: 10, borderTopWidth: 1, borderColor: colors.border }}>
+        <ResourceState {...blocks} empty={blocks.result?.data.length === 0} retry={() => void blocks.reload()} />
+        {blocks.result?.data.map((block) => (
+          <View key={block.id} style={styles.row}>
+            <Copy muted>{range(block.starts_at, block.ends_at)} · {name(block.venue_id)} · {reasonLabel[block.reason] ?? statusLabel(block.reason)}{block.description ? ` · ${block.description}` : ""}</Copy>
+            <Button title="Quitar bloqueo" secondary danger disabled={action.busy}
+              onPress={() => void action.run(async () => { await api.request(`/marketplace/blocks/${block.id}`, { method: "DELETE" }); await blocks.reload(); })} />
+          </View>
+        ))}
+        <Codes label="Espacio bloqueado (sin elegir: todo el establecimiento)" items={venues.result?.data} values={venue} onChange={setVenue} />
+        <Codes label="Motivo" items={reasons.map(([code, label]) => ({ id: code, code, name: label }))} values={reason} onChange={setReason} />
+        <View style={styles.row}>
+          <Field label="Fecha del bloqueo (AAAA-MM-DD)" required value={form.date ?? ""} onChangeText={(v) => set("date", v)} />
+          <Field label="Bloqueo desde (HH:MM)" required value={form.from ?? ""} onChangeText={(v) => set("from", v)} />
+          <Field label="Bloqueo hasta (HH:MM)" required value={form.to ?? ""} onChangeText={(v) => set("to", v)} />
         </View>
-      ))}
-      <Codes label="Espacio bloqueado (sin elegir: todo el establecimiento)" items={venues.result?.data} values={venue} onChange={setVenue} />
-      <Codes label="Motivo" items={reasons.map(([code, label]) => ({ id: code, code, name: label }))} values={reason} onChange={setReason} />
-      <View style={styles.row}>
-        <Field label="Fecha del bloqueo (AAAA-MM-DD)" required value={form.date ?? ""} onChangeText={(v) => set("date", v)} />
-        <Field label="Bloqueo desde (HH:MM)" required value={form.from ?? ""} onChangeText={(v) => set("from", v)} />
-        <Field label="Bloqueo hasta (HH:MM)" required value={form.to ?? ""} onChangeText={(v) => set("to", v)} />
+        <Field label="Detalle del bloqueo (opcional)" value={form.description ?? ""} onChangeText={(v) => set("description", v)} />
+        <ActionFeedback action={action} />
+        <Button title="Crear bloqueo" disabled={action.busy} onPress={() => void create()} />
       </View>
-      <Field label="Detalle del bloqueo (opcional)" value={form.description ?? ""} onChangeText={(v) => set("description", v)} />
-      <ActionFeedback action={action} />
-      <Button title="Crear bloqueo" disabled={action.busy} onPress={() => void create()} />
-    </View>
     </FormScope>
   );
 }

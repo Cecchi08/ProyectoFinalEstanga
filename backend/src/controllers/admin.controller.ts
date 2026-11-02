@@ -15,7 +15,7 @@ export class AdminController {
     users = async (req: Request, res: Response) => { const query = userQuerySchema.parse(req.query); page(res, await this.service.users(query), query); };
     user = async (req: Request, res: Response) => { res.json({ success: true, data: await this.service.user(id(req)) }); };
     grant = async (req: Request, res: Response) => {
-        const result = await this.service.grant(id(req), req.body.role, req.body.reason, principal(req));
+        const result = await this.service.grant(id(req), req.body.role, req.body.reason, principal(req), Boolean(req.body.replace));
         res.status(result.changed ? 201 : 200).json({ success: true, data: result });
     };
     revoke = async (req: Request, res: Response) => {

@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { cityIdSchema, idSchema, nameSchema } from './management.schemas.ts';
+import { cityIdSchema, idSchema, imageSchema, nameSchema } from './management.schemas.ts';
 import { pageSchema } from './commerce.schemas.ts';
 import { MARKETPLACE_UTC_OFFSET, organizationSchema } from './marketplace.schemas.ts';
 
@@ -10,14 +10,20 @@ const when = z.iso.datetime({ offset: true }).transform(value => new Date(value)
 const code = z.string().trim().regex(/^[A-Z_]{1,40}$/);
 
 // A service company is an organization (same fields) plus its commercial profile.
-const providerFields = { description: text(16000), city_id: cityIdSchema.nullable().optional(), coverage_area: text(255) };
+const providerFields = {
+    description: text(16000),
+    city_id: cityIdSchema.nullable().optional(),
+    coverage_area: text(255),
+    logo_url: imageSchema,
+    primary_category_code: code.nullable().optional(),
+};
 export const providerSchema = organizationSchema.extend(providerFields);
 export const providerPatchSchema = organizationSchema.partial().extend(providerFields)
     .refine(value => Object.keys(value).length > 0, 'Enviar al menos un campo.');
 
 const pricing = z.enum(['HOUR', 'DAY', 'EVENT', 'UNIT', 'QUOTE']);
 const offeringFields = {
-    category_code: code, name: nameSchema(150), description: text(16000), equipment: text(16000), conditions: text(16000),
+    category_code: code, name: nameSchema(150), image_url: imageSchema, description: text(16000), equipment: text(16000), conditions: text(16000),
     pricing_unit: pricing.default('QUOTE'), base_price: money.nullable().optional(),
 };
 // Without a list price the offering works only through quotes (pricing_unit QUOTE).

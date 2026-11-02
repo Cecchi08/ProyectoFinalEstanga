@@ -88,10 +88,11 @@ export class ServicesService {
     mine(user: Principal) { return this.run(false, repo => repo.mine(user.id)); }
     createProvider(input: ProviderInput, user: Principal) {
         return this.run(true, async repo => {
-            const { description, city_id, coverage_area, ...organization } = input;
+            const { description, city_id, coverage_area, logo_url, primary_category_code, ...organization } = input;
             await this.city(repo, city_id);
+            const primary_category_id = primary_category_code ? await repo.category(primary_category_code) ?? fail(422, 'UNKNOWN_CATEGORY', 'Categoría inexistente.') : null;
             const id = await repo.createProvider({ ...organization, tax_id: organization.tax_id?.replaceAll('-', ''), slug: slugify(organization.name) },
-                { description, city_id, coverage_area }, user.id);
+                { description, city_id, coverage_area, logo_url, primary_category_id }, user.id);
             return { ...await repo.provider(id), member_role: 'OWNER', offerings: [] };
         });
     }
@@ -99,10 +100,13 @@ export class ServicesService {
         return this.run(true, async repo => {
             required(await repo.lockProvider(id), 'Empresa inexistente.');
             await this.operator(repo, user, id, true);
-            const { description, city_id, coverage_area, ...organization } = input;
+            const { description, city_id, coverage_area, logo_url, primary_category_code, ...organization } = input;
             await this.city(repo, city_id);
+            const primary_category_id = primary_category_code === undefined ? undefined
+                : primary_category_code === null ? null
+                : await repo.category(primary_category_code) ?? fail(422, 'UNKNOWN_CATEGORY', 'Categoría inexistente.');
             await repo.updateOrganization(id, { ...organization, tax_id: organization.tax_id === undefined ? undefined : organization.tax_id?.replaceAll('-', '') ?? null });
-            await repo.updateProvider(id, { description, city_id, coverage_area });
+            await repo.updateProvider(id, { description, city_id, coverage_area, logo_url, primary_category_id });
             return { ...await repo.provider(id), offerings: await repo.providerOfferings(id, true) };
         });
     }

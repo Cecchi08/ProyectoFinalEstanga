@@ -6,46 +6,98 @@ import { useResource } from "../../hooks/useResource";
 import { api } from "../../services/api";
 import { query } from "../../services/http";
 import type { PricingUnit, PublicationStatus, ServiceAvailability, ServiceCategory, ServiceOffering, ServiceProvider, ServiceQuote } from "../../types/api";
-import { ActionFeedback, Button, Card, Copy, Field, FormScope, Notice, Page, Pager, ResourceState, money, styles, useAction, useForm } from "../../components/ui";
+import {
+  ActionFeedback,
+  BentoGrid,
+  Button,
+  Card,
+  Copy,
+  Field,
+  FormScope,
+  MusicalCover,
+  Notice,
+  Page,
+  Pager,
+  ResourceState,
+  SectionHeader,
+  colors,
+  money,
+  statusLabel,
+  styles,
+  useAction,
+  useBento,
+  useForm,
+} from "../../components/ui";
 import { Select } from "../../components/ui/Select";
 import { Codes } from "../marketplace/MarketplaceScreen";
 import { isDate, range, slot } from "../marketplace/time";
 
 export const PRICING: Record<PricingUnit, string> = { HOUR: "por hora", DAY: "por día", EVENT: "por evento", UNIT: "por unidad", QUOTE: "a cotizar" };
-export const PUBLICATION: Record<PublicationStatus, string> = { DRAFT: "Borrador", PUBLISHED: "Publicado", ARCHIVED: "Archivado" };
+export const PUBLICATION: Record<PublicationStatus, string> = { DRAFT: "Borrador", PUBLISHED: "Activo / Publicado", ARCHIVED: "Inactivo / Archivado" };
+
 // A QUOTE offering may still show a reference price.
 export const priceLabel = (offering: Pick<ServiceOffering, "pricing_unit" | "base_price">) =>
   offering.base_price == null ? "Precio a cotizar"
     : offering.pricing_unit === "QUOTE" ? `Desde ${money(offering.base_price)}, a cotizar` : `${money(offering.base_price)} ${PRICING[offering.pricing_unit]}`;
+
 const PRICE = /^\d+(\.\d{1,2})?$/;
 
 export function OfferingCard({ offering, manage = false }: { offering: ServiceOffering; manage?: boolean }) {
+  const { mobile } = useBento();
   return (
-    <View style={{ flexGrow: 1, flexShrink: 1, minWidth: 0, flexBasis: 300, maxWidth: 560 }}>
-      <Card>
-        <Copy muted>{offering.category_name}{manage ? ` · ${PUBLICATION[offering.status]}` : ""}</Copy>
-        <Copy>{offering.name}</Copy>
-        <Copy muted>
-          {offering.provider_name}{offering.provider_verified ? " · ✓ verificada" : ""}
-          {offering.city_name ? ` · ${offering.city_name}` : ""}
-        </Copy>
-        <Copy muted>{priceLabel(offering)}</Copy>
-        <Button title={`Ver servicio ${offering.name}`} secondary onPress={() => router.push(`/services/offerings/${offering.id}`)} />
+    <View style={{ flexGrow: 1, flexShrink: 1, minWidth: 0, flexBasis: mobile ? "100%" : 320, maxWidth: "100%" }}>
+      <Card style={{ height: "100%", justifyContent: "space-between" }}>
+        <View style={{ gap: 8 }}>
+          <MusicalCover
+            uri={offering.image_url}
+            alt={offering.name}
+            kind="service"
+            height={145}
+            badge={offering.category_name}
+            subBadge={manage ? PUBLICATION[offering.status] : offering.provider_verified ? "VERIFICADA" : undefined}
+          />
+          <Copy strong>{offering.name}</Copy>
+          <Copy muted>
+            {offering.provider_name}{offering.provider_verified ? " · ✓ Verificada" : ""}
+            {offering.city_name ? ` · ${offering.city_name}` : ""}
+          </Copy>
+          <Copy muted>{priceLabel(offering)}</Copy>
+        </View>
+        <View style={{ paddingTop: 8, borderTopWidth: 1, borderColor: colors.border }}>
+          <Button title={`Ver servicio ${offering.name}`} secondary onPress={() => router.push(`/services/offerings/${offering.id}`)} />
+        </View>
       </Card>
     </View>
   );
 }
+
 export function ProviderCard({ provider }: { provider: ServiceProvider }) {
+  const { mobile } = useBento();
   return (
-    <View style={{ flexGrow: 1, flexShrink: 1, minWidth: 0, flexBasis: 300, maxWidth: 560 }}>
-      <Card>
-        <Copy>{provider.name}{provider.is_verified ? " · ✓ verificada" : ""}</Copy>
-        <Copy muted>{[provider.city_name, provider.coverage_area].filter(Boolean).join(" · ") || "Zona a consultar"}</Copy>
-        <Copy muted>
-          {provider.published_offerings} {provider.published_offerings === 1 ? "servicio publicado" : "servicios publicados"}
-          {provider.member_role ? ` · ${PUBLICATION[provider.status]} · sos ${provider.member_role}` : ""}
-        </Copy>
-        <Button title={`Ver empresa ${provider.name}`} secondary onPress={() => router.push(`/services/providers/${provider.id}`)} />
+    <View style={{ flexGrow: 1, flexShrink: 1, minWidth: 0, flexBasis: mobile ? "100%" : 320, maxWidth: "100%" }}>
+      <Card style={{ height: "100%", justifyContent: "space-between" }}>
+        <View style={{ gap: 8 }}>
+          <MusicalCover
+            uri={provider.logo_url}
+            alt={provider.name}
+            kind="service"
+            height={140}
+            badge={provider.primary_category_name ?? "Empresa de servicios"}
+            subBadge={provider.is_verified ? "VERIFICADA" : undefined}
+          />
+          <Copy strong>{provider.name}{provider.is_verified ? " · ✓ Verificada" : ""}</Copy>
+          {provider.primary_category_name ? (
+            <Copy muted>Categoría principal: {provider.primary_category_name}</Copy>
+          ) : null}
+          <Copy muted>{[provider.city_name, provider.coverage_area].filter(Boolean).join(" · ") || "Zona a consultar"}</Copy>
+          <Copy muted>
+            {provider.published_offerings} {provider.published_offerings === 1 ? "servicio activo" : "servicios activos"}
+            {provider.member_role ? ` · ${PUBLICATION[provider.status]} · Rol: ${statusLabel(provider.member_role)}` : ""}
+          </Copy>
+        </View>
+        <View style={{ paddingTop: 8, borderTopWidth: 1, borderColor: colors.border }}>
+          <Button title={`Administrar ${provider.name}`} secondary onPress={() => router.push(`/services/providers/${provider.id}`)} />
+        </View>
       </Card>
     </View>
   );
@@ -71,15 +123,21 @@ export default function ServicesScreen() {
     setInvalid(""); setFilters({ ...draft, q: draft.q?.trim() ?? "", max_price: max }); setPage(1);
   };
   return (
-    <Page title="Servicios para eventos" subtitle="Sonido, iluminación, seguridad, limpieza y más. Pedí cotización a empresas de servicios.">
-      <View style={styles.row}>
-        {can("services.quotes.request", "services.quotes.respond", "services.admin") && (
-          <Button title="Cotizaciones de servicios" secondary onPress={() => router.push("/services/quotes")} />
-        )}
-        {can("services.manage", "services.admin") && (
-          <Button title="Mis empresas de servicios" secondary onPress={() => router.push("/services/mine")} />
-        )}
-      </View>
+    <Page
+      eyebrow="VENTI · PRODUCCIÓN Y TÉCNICA"
+      title="Servicios para eventos"
+      subtitle="Sonido, iluminación, seguridad, limpieza y más. Pedí cotización a empresas de servicios."
+      actions={
+        <>
+          {can("services.quotes.request", "services.quotes.respond", "services.admin") && (
+            <Button title="Cotizaciones de servicios" secondary onPress={() => router.push("/services/quotes")} />
+          )}
+          {can("services.manage", "services.admin") && (
+            <Button title="Mis empresas de servicios" secondary onPress={() => router.push("/services/mine")} />
+          )}
+        </>
+      }
+    >
       <View style={styles.row}>
         {(["offerings", "providers"] as const).map((value) => (
           <Button key={value} title={value === "offerings" ? "Servicios" : "Empresas"} secondary={tab !== value}
@@ -90,13 +148,15 @@ export default function ServicesScreen() {
         <Field label="Buscar" value={draft.q ?? ""} onChangeText={(v) => set("q", v)} onSubmitEditing={apply} />
         <Codes label="Categoría" items={categories.result?.data} values={draft.category ? [draft.category] : []}
           onChange={(v) => set("category", v[0] ?? "")} />
-        <Select label="Ciudad" path="/cities" values={draft.city_id ? [draft.city_id] : []} onChange={(v) => set("city_id", v[0] ?? "")} />
-        {tab === "offerings" ? (
-          <Field label="Precio máximo (opcional)" keyboardType="decimal-pad" value={draft.max_price ?? ""} onChangeText={(v) => set("max_price", v)} />
-        ) : (
-          <Button title={`${draft.verified === "true" ? "✓ " : ""}Solo empresas verificadas`} secondary={draft.verified !== "true"}
-            onPress={() => set("verified", draft.verified === "true" ? "" : "true")} />
-        )}
+        <View style={styles.row}>
+          <Select label="Ciudad" path="/cities" values={draft.city_id ? [draft.city_id] : []} onChange={(v) => set("city_id", v[0] ?? "")} />
+          {tab === "offerings" ? (
+            <Field label="Precio máximo (opcional)" keyboardType="decimal-pad" value={draft.max_price ?? ""} onChangeText={(v) => set("max_price", v)} />
+          ) : (
+            <Button title={`${draft.verified === "true" ? "✓ " : ""}Solo empresas verificadas`} secondary={draft.verified !== "true"}
+              onPress={() => set("verified", draft.verified === "true" ? "" : "true")} />
+          )}
+        </View>
         <Notice message={invalid} error />
         <View style={styles.row}>
           <Button title="Buscar servicios" onPress={apply} />
@@ -104,11 +164,11 @@ export default function ServicesScreen() {
         </View>
       </Card>
       <ResourceState {...resource} empty={resource.result?.data.length === 0} retry={() => void resource.reload()} />
-      <View style={[styles.row, { alignItems: "stretch" }]}>
+      <BentoGrid>
         {tab === "offerings"
           ? offerings.result?.data.map((offering) => <OfferingCard key={offering.id} offering={offering} />)
           : providers.result?.data.map((provider) => <ProviderCard key={provider.id} provider={provider} />)}
-      </View>
+      </BentoGrid>
       <Pager pagination={resource.result?.pagination} onPage={setPage} />
     </Page>
   );
@@ -119,6 +179,7 @@ export default function ServicesScreen() {
 export function OfferingScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const { can } = useAuth();
+  const { mobile } = useBento();
   const resource = useResource<ServiceOffering>(`/services/offerings/${id}`);
   const offering = resource.result?.data;
   const [date, setDate] = useState("");
@@ -130,40 +191,76 @@ export function OfferingScreen() {
     setAvailability(data);
   });
   return (
-    <Page title={offering?.name ?? "Servicio"}>
+    <Page
+      eyebrow="VENTI · FICHA DE SERVICIO"
+      title={offering?.name ?? "Servicio"}
+      actions={<Button title="Volver a servicios" secondary onPress={() => router.push("/services")} />}
+    >
       <ResourceState {...resource} retry={() => void resource.reload()} />
       {offering && (
-        <>
-          <Card>
-            <Copy muted>{offering.category_name}{offering.status !== "PUBLISHED" ? ` · ${PUBLICATION[offering.status]}` : ""}</Copy>
-            <Copy>{priceLabel(offering)}</Copy>
-            {offering.description && <Copy>{offering.description}</Copy>}
-            {offering.equipment && <Copy muted>Equipamiento: {offering.equipment}</Copy>}
-            {offering.conditions && <Copy muted>Condiciones: {offering.conditions}</Copy>}
-            <Copy muted>
-              {offering.provider_name}{offering.provider_verified ? " · ✓ verificada" : ""}
-              {[offering.city_name, offering.coverage_area].filter(Boolean).map((part) => ` · ${part}`).join("")}
-            </Copy>
-            <Button title={`Ver empresa ${offering.provider_name}`} secondary onPress={() => router.push(`/services/providers/${offering.provider_id}`)} />
-          </Card>
-          <Card>
-            <Copy>Disponibilidad</Copy>
-            <Copy muted>Muestra las fechas ya contratadas. La empresa confirma si puede tomar tu evento al cotizar.</Copy>
-            <View style={styles.row}>
-              <Field label="Fecha (AAAA-MM-DD)" value={date} onChangeText={setDate} onSubmitEditing={() => void lookup()} />
-              <Button title="Consultar disponibilidad" secondary disabled={check.busy} onPress={() => void lookup()} />
-            </View>
-            <ActionFeedback action={check} />
-            {availability && (availability.busy.length ? availability.busy.map((slot) => (
-              <Copy key={`${slot.starts_at}-${slot.quote_id ?? ""}`} muted>
-                Contratado: {range(slot.starts_at, slot.ends_at)}{slot.event_name ? ` · ${slot.event_name}` : ""}
+        <BentoGrid style={{ alignItems: "flex-start" }}>
+          <View
+            style={{
+              flexGrow: 1,
+              flexShrink: 1,
+              minWidth: 0,
+              flexBasis: mobile ? "100%" : 480,
+              maxWidth: "100%",
+              gap: 16,
+            }}
+          >
+            <Card variant="featured">
+              <MusicalCover
+                uri={offering.image_url}
+                alt={offering.name}
+                kind="service"
+                height={190}
+                badge={offering.category_name}
+                subBadge={offering.provider_verified ? "VERIFICADA" : undefined}
+              />
+              <Copy muted>{offering.category_name}{offering.status !== "PUBLISHED" ? ` · ${PUBLICATION[offering.status]}` : ""}</Copy>
+              <Copy strong>{priceLabel(offering)}</Copy>
+              {offering.description && <Copy>{offering.description}</Copy>}
+              {offering.equipment && <Copy muted>Equipamiento: {offering.equipment}</Copy>}
+              {offering.conditions && <Copy muted>Condiciones: {offering.conditions}</Copy>}
+              <Copy muted>
+                {offering.provider_name}{offering.provider_verified ? " · ✓ Verificada" : ""}
+                {[offering.city_name, offering.coverage_area].filter(Boolean).map((part) => ` · ${part}`).join("")}
               </Copy>
-            )) : <Copy muted>Sin contrataciones ese día.</Copy>)}
-          </Card>
-          {offering.status === "PUBLISHED" && can("services.quotes.request") && <QuoteRequest offering={offering} />}
-        </>
+              <Button title={`Ver empresa ${offering.provider_name}`} secondary onPress={() => router.push(`/services/providers/${offering.provider_id}`)} />
+            </Card>
+
+            <Card>
+              <SectionHeader title="Disponibilidad" />
+              <Copy muted>Muestra las fechas ya contratadas. La empresa confirma si puede tomar tu evento al cotizar.</Copy>
+              <View style={styles.row}>
+                <Field label="Fecha (AAAA-MM-DD)" value={date} onChangeText={setDate} onSubmitEditing={() => void lookup()} />
+                <Button title="Consultar disponibilidad" secondary disabled={check.busy} onPress={() => void lookup()} />
+              </View>
+              <ActionFeedback action={check} />
+              {availability && (availability.busy.length ? availability.busy.map((slot) => (
+                <Copy key={`${slot.starts_at}-${slot.quote_id ?? ""}`} muted>
+                  Contratado: {range(slot.starts_at, slot.ends_at)}{slot.event_name ? ` · ${slot.event_name}` : ""}
+                </Copy>
+              )) : <Copy muted>Sin contrataciones ese día.</Copy>)}
+            </Card>
+          </View>
+
+          {offering.status === "PUBLISHED" && can("services.quotes.request") && (
+            <View
+              style={{
+                flexGrow: 1,
+                flexShrink: 1,
+                minWidth: 0,
+                flexBasis: mobile ? "100%" : 420,
+                maxWidth: "100%",
+              }}
+            >
+              <QuoteRequest offering={offering} />
+            </View>
+          )}
+        </BentoGrid>
       )}
-      <Button title="Volver a servicios" secondary onPress={() => router.push("/services")} />
     </Page>
   );
 }
@@ -176,7 +273,6 @@ function QuoteRequest({ offering }: { offering: ServiceOffering }) {
   const action = useAction();
   const validation = useForm();
   const set = (key: string, value: string) => setForm((current) => ({ ...current, [key]: value }));
-  // Times are local to Argentina, like the marketplace; an end earlier than the start belongs to the next day.
   const send = () => action.run(async () => {
     validation.assertValid();
     if (!form.event_name?.trim()) throw new Error("Poné el nombre del evento.");
@@ -193,27 +289,27 @@ function QuoteRequest({ offering }: { offering: ServiceOffering }) {
     router.push(`/services/quotes/${data.id}`);
   });
   return (
-    <Card>
+    <Card variant="featured">
       <FormScope form={validation}>
-      <Copy>Pedir cotización</Copy>
-      <Field label="Nombre del evento" required value={form.event_name ?? ""} onChangeText={(v) => set("event_name", v)} />
-      <View style={styles.row}>
-        <Field label="Fecha (AAAA-MM-DD)" required value={form.date ?? ""} onChangeText={(v) => set("date", v)} />
-        <Field label="Desde (HH:MM)" required value={form.start ?? ""} onChangeText={(v) => set("start", v)} />
-        <Field label="Hasta (HH:MM)" required value={form.end ?? ""} onChangeText={(v) => set("end", v)} />
-      </View>
-      <Field label="Lugar (opcional)" value={form.location_text ?? ""} onChangeText={(v) => set("location_text", v)} />
-      <Field label="Detalles para la empresa (opcional)" multiline value={form.requester_notes ?? ""} onChangeText={(v) => set("requester_notes", v)} />
-      {can("concerts.manage", "concerts.manage_all") && (
-        <Select label="Concierto propio (opcional)" path="/concerts?mine=true" values={concert} onChange={setConcert} />
-      )}
-      {can("marketplace.reservations.create", "marketplace.reservations.manage") && (
-        <Select label="Reserva de espacio confirmada (opcional)" path="/marketplace/reservations?status=CONFIRMED" searchable={false}
-          itemLabel={(item) => `${String(item.event_name)} · ${String(item.venue_name)} · ${String(item.public_code)}`}
-          values={reservation} onChange={setReservation} />
-      )}
-      <ActionFeedback action={action} />
-      <Button title="Enviar pedido de cotización" disabled={action.busy} onPress={() => void send()} />
+        <SectionHeader title="Pedir cotización" subtitle="Enviá los requerimientos de tu evento a la empresa" />
+        <Field label="Nombre del evento" required value={form.event_name ?? ""} onChangeText={(v) => set("event_name", v)} />
+        <View style={styles.row}>
+          <Field label="Fecha (AAAA-MM-DD)" required value={form.date ?? ""} onChangeText={(v) => set("date", v)} />
+          <Field label="Desde (HH:MM)" required value={form.start ?? ""} onChangeText={(v) => set("start", v)} />
+          <Field label="Hasta (HH:MM)" required value={form.end ?? ""} onChangeText={(v) => set("end", v)} />
+        </View>
+        <Field label="Lugar (opcional)" value={form.location_text ?? ""} onChangeText={(v) => set("location_text", v)} />
+        <Field label="Detalles para la empresa (opcional)" multiline value={form.requester_notes ?? ""} onChangeText={(v) => set("requester_notes", v)} />
+        {can("concerts.manage", "concerts.manage_all") && (
+          <Select label="Concierto propio (opcional)" path="/concerts?mine=true" values={concert} onChange={setConcert} />
+        )}
+        {can("marketplace.reservations.create", "marketplace.reservations.manage") && (
+          <Select label="Reserva de espacio confirmada (opcional)" path="/marketplace/reservations?status=CONFIRMED" searchable={false}
+            itemLabel={(item) => `${String(item.event_name)} · ${String(item.venue_name)} · ${String(item.public_code)}`}
+            values={reservation} onChange={setReservation} />
+        )}
+        <ActionFeedback action={action} />
+        <Button title="Enviar pedido de cotización" disabled={action.busy} onPress={() => void send()} />
       </FormScope>
     </Card>
   );

@@ -7,7 +7,7 @@ export const ASSIGNABLE_ROLES = ROLES.filter(role => role !== 'GUEST') as [strin
 export const roleCodeSchema = z.enum(ASSIGNABLE_ROLES);
 export const userQuerySchema = z.strictObject({ ...paginationShape, q: nameSchema(190).optional(), role: z.enum(ROLES as [string, ...string[]]).optional(),
     status: z.enum(['ACTIVE', 'BLOCKED', 'DELETED']).optional() });
-export const grantSchema = z.strictObject({ role: roleCodeSchema, reason: z.string().trim().max(255).nullable().optional() });
+export const grantSchema = z.strictObject({ role: roleCodeSchema, reason: z.string().trim().max(255).nullable().optional(), replace: z.boolean().optional() });
 export const revokeSchema = z.strictObject({ reason: z.string().trim().max(255).nullable().optional() }).default({});
 // Any assignable code is accepted so the service can explain which profiles need an ADMIN (403) instead of a bare 422.
 export const selfProfileSchema = z.strictObject({ role: roleCodeSchema });

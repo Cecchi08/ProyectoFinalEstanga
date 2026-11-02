@@ -5,7 +5,7 @@ import { ArtistsController } from '../controllers/artists.controller.ts';
 import { ArtistsService } from '../services/artists.service.ts';
 import { PERMISSIONS as P } from '../utils/access.util.js';
 import { emptySchema, idSchema } from '../validators/management.schemas.ts';
-import { artistMemberSchema, artistPatchSchema, artistSchema } from '../validators/artists.schemas.ts';
+import { artistMemberSchema, artistPatchSchema, artistSchema, proposalDecisionSchema, proposalSchema } from '../validators/artists.schemas.ts';
 import type { Database } from '../types/management.types.ts';
 
 // Public: published profiles. Writes: artist.profile.manage plus membership (artists.admin overrides).
@@ -14,8 +14,8 @@ export function artistsRoutes(database: Database, authenticate: RequestHandler):
     const controller = new ArtistsController(new ArtistsService(database));
     const optionalAuth: RequestHandler = (req, res, next) => req.headers.authorization !== undefined ? authenticate(req, res, next) : next();
     const manage = requirePermission(P.artistProfileManage, P.artistsAdmin);
-    router.use('/artists', (_req, res, next) => { res.setHeader('Cache-Control', 'no-store'); next(); });
-    for (const param of ['id', 'userId']) router.param(param, (_req, _res, next, value) => { idSchema.parse(value); next(); });
+    router.use(['/artists', '/proposals'], (_req, res, next) => { res.setHeader('Cache-Control', 'no-store'); next(); });
+    for (const param of ['id', 'userId', 'establishmentId']) router.param(param, (_req, _res, next, value) => { idSchema.parse(value); next(); });
     router.get('/artists', controller.list);
     router.get('/artists/mine', authenticate, manage, controller.mine);
     router.get('/artists/:id', optionalAuth, controller.get);
@@ -28,5 +28,14 @@ export function artistsRoutes(database: Database, authenticate: RequestHandler):
     router.post('/artists/:id/members', authenticate, manage, validateRequest(artistMemberSchema), controller.addMember);
     router.patch('/artists/:id/members/:userId', authenticate, manage, controller.updateMember);
     router.delete('/artists/:id/members/:userId', authenticate, manage, controller.removeMember);
+
+    // Bidirectional hiring & presentation proposals (Venue <-> Artist, Organizer -> Artist)
+    router.get('/proposals', authenticate, controller.proposals);
+    router.get('/proposals/venue-summary/:establishmentId', authenticate, controller.venueSummary);
+    router.get('/proposals/:id', authenticate, controller.proposal);
+    router.post('/proposals', authenticate, validateRequest(proposalSchema), controller.createProposal);
+    router.post('/proposals/:id/accept', authenticate, validateRequest(proposalDecisionSchema), controller.decideProposal('accept'));
+    router.post('/proposals/:id/reject', authenticate, validateRequest(proposalDecisionSchema), controller.decideProposal('reject'));
+    router.post('/proposals/:id/cancel', authenticate, validateRequest(proposalDecisionSchema), controller.decideProposal('cancel'));
     return router;
 }

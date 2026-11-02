@@ -83,6 +83,37 @@ Abrir `http://localhost:8081`. Para teléfono, `npm start` y abrir el proyecto d
 
 Export Web: `npm run build` genera `frontend/dist`. Alojar como SPA con fallback de rutas a `index.html`, por HTTPS junto a una API HTTPS; no abrir `index.html` con `file://`. `npm run build:native` produce bundles Hermes y recursos en `dist-native`, sin APK.
 
+## Despliegue Web en Vercel (Frontend) + Railway (API y MySQL)
+
+La arquitectura de producción mantiene:
+
+- **Frontend (Expo Web SPA)** en **Vercel**, servido como estáticos desde `frontend/dist` con fallback de rutas a `/index.html`.
+- **Backend (Express 5)** como **servicio persistente en Railway**, dentro del mismo proyecto que MySQL (`MYSQL_URL` por red privada `*.railway.internal`). No se convierte a funciones serverless porque el backend mantiene un pool de conexiones SQL persistente, estado PKCE de OAuth en memoria y ventanas de rate limit en memoria.
+
+Archivos de configuración listos en el repositorio:
+
+- `frontend/vercel.json`: configuración cuando el proyecto en Vercel tiene **Root Directory = `frontend`** (`buildCommand: npm run build`, `outputDirectory: dist`, rewrites SPA `/(.*) -> /index.html`, encabezados de caché para `/_expo/static/*` y encabezados de seguridad).
+- `vercel.json` (raíz): configuración equivalente si el proyecto en Vercel usa la **raíz del repositorio** (`installCommand: npm ci --prefix frontend`, `buildCommand: npm --prefix frontend run build`, `outputDirectory: frontend/dist`).
+- `.vercelignore` y `frontend/.vercelignore`: excluyen `.env*`, `CREDENCIALES_DEMO.md`, `.local/`, `dist-native/` y reportes de pruebas.
+
+Variables de entorno de producción (nombres y ejemplos ficticios):
+
+1. **En Vercel (Frontend)**:
+   - `EXPO_PUBLIC_API_URL=https://venti-api-ejemplo.up.railway.app` (URL pública HTTPS del servicio backend en Railway, sin barra final).
+2. **En Railway (Servicio Backend)**:
+   - `NODE_ENV=production`
+   - `PORT=3000`
+   - `MYSQL_URL=mysql://usuario:password@mysql.railway.internal:3306/venti` (red privada de Railway; `MYSQL_PUBLIC_URL` se ignora automáticamente cuando `RAILWAY_SERVICE_ID` está presente)
+   - `MYSQLDATABASE=venti`
+   - `JWT_ACCESS_SECRET=<secreto-hex-96-caracteres>`
+   - `BCRYPT_ROUNDS=12`
+   - `CORS_ORIGINS=https://venti-web-ejemplo.vercel.app` (origen exacto HTTPS asignado por Vercel, sin barra final)
+   - `TRUST_PROXY_HOPS=1`
+   - `EMAIL_VERIFY_URL=https://venti-web-ejemplo.vercel.app/verify-email`
+   - `PASSWORD_RESET_URL=https://venti-web-ejemplo.vercel.app/reset-password`
+   - `WEB_OAUTH_REDIRECT_URL=https://venti-web-ejemplo.vercel.app/oauth-callback`
+   - `SMTP_HOST`, `SMTP_PORT`, `SMTP_SECURE`, `SMTP_USER`, `SMTP_PASSWORD`, `SMTP_FROM` según proveedor SMTP.
+
 ## SMTP y OAuth
 
 Con Docker disponible, una bandeja SMTP local opcional:

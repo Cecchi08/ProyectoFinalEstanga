@@ -6,7 +6,17 @@ export const tokenSchema = z.string().regex(/^[a-f0-9]{64}$/);
 // Same rule in frontend/src/utils/validation.ts.
 const name = z.string().trim().min(1).max(80).regex(/^[\p{L}\p{M}][\p{L}\p{M} '’.-]*$/u, 'Usá solo letras, espacios, apóstrofos, puntos o guiones.');
 export const phoneSchema = z.string().trim().regex(/^\+?[\d\s()-]{6,30}$/, 'Teléfono inválido.');
-export const registerSchema = z.strictObject({ first_name: name, last_name: name, email: emailSchema, password: passwordSchema });
+// Roles públicos elegibles durante el registro inicial (un único rol principal por cuenta; nunca ADMIN ni GUEST).
+export const PUBLIC_REGISTRATION_ROLES = ['COMPRADOR', 'ARTISTA', 'ORGANIZADOR', 'VENUE', 'ESPACIO_FISICO', 'EMPRESA_SERVICIOS'];
+export const publicRoleSchema = z.enum(PUBLIC_REGISTRATION_ROLES);
+export const registerSchema = z.strictObject({
+    first_name: name,
+    last_name: name,
+    email: emailSchema,
+    password: passwordSchema,
+    phone: phoneSchema.nullable().optional(),
+    role: publicRoleSchema.optional(),
+});
 // Campos seguros del perfil propio: nunca email, contraseña, roles, permisos ni estado.
 export const profileUpdateSchema = z.strictObject({
     first_name: name.optional(),

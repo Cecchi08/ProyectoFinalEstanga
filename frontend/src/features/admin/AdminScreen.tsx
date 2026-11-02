@@ -8,6 +8,7 @@ import { query } from "../../services/http";
 import type { Catalog, CatalogItem } from "../../types/api";
 import {
   ActionFeedback,
+  BentoGrid,
   Button,
   Card,
   Copy,
@@ -16,8 +17,10 @@ import {
   Page,
   Pager,
   ResourceState,
+  colors,
   styles,
   useAction,
+  useBento,
   useForm,
 } from "../../components/ui";
 import { rules } from "../../utils/validation";
@@ -31,7 +34,7 @@ const names: Record<Catalog, string> = {
   cities: "Ciudades",
 };
 const detail = (item: CatalogItem) =>
-  [`#${item.id}`, item.code, item.postal_code ? `CP ${item.postal_code}` : ""].filter(Boolean).join(" · ");
+  [item.code, item.postal_code ? `CP ${item.postal_code}` : ""].filter(Boolean).join(" · ") || "Registro activo";
 export default function AdminScreen() {
   const [kind, setKind] = useState<Catalog>("genres");
   const [page, setPage] = useState(1);
@@ -45,87 +48,115 @@ export default function AdminScreen() {
   const resource = useResource<CatalogItem[]>(
     catalogs ? `/${kind}${query({ page, q: search.trim() })}` : null,
   );
+  const bento = useBento();
+  const cols = bento.cols;
+
   return (
-    <Page title="Administración">
-      {can("users.manage") && (
-        <>
-          <Button title="Usuarios y perfiles" onPress={() => router.push("/admin/users")} />
-          <Button title="Auditoría" secondary onPress={() => router.push("/admin/audit")} />
-        </>
-      )}
-      {can("users.manage", "marketplace.admin") && (
-        <Button title="Organizaciones" secondary onPress={() => router.push("/admin/organizations")} />
-      )}
-      {can("marketplace.admin") && (
-        <Button title="Establecimientos en revisión" secondary onPress={() => router.push("/admin/establishments")} />
-      )}
-      {can("statistics.global") && (
-        <Button title="Estadísticas globales" onPress={() => router.push('/admin/statistics')} />
-      )}
-      {can("concerts.manage_all") && (
-        <Button
-          title="Gestionar todos los conciertos"
-          onPress={() => router.push("/admin/concerts")}
-        />
-      )}
+    <Page title="Administración" subtitle="Panel central de control de cuentas, auditoría, organizaciones, espacios y catálogos.">
+      <Card variant="featured">
+        <View style={styles.between}>
+          <Copy size="subheading" weight="700">Accesos de gestión</Copy>
+          <View style={styles.badge}>
+            <Copy size="label" color={colors.accentText}>ADMIN HUB</Copy>
+          </View>
+        </View>
+        <View style={styles.row}>
+          {can("users.manage") && (
+            <>
+              <Button title="Usuarios y perfiles" onPress={() => router.push("/admin/users")} />
+              <Button title="Auditoría" secondary onPress={() => router.push("/admin/audit")} />
+            </>
+          )}
+          {can("users.manage", "marketplace.admin") && (
+            <Button title="Organizaciones" secondary onPress={() => router.push("/admin/organizations")} />
+          )}
+          {can("marketplace.admin") && (
+            <Button title="Establecimientos en revisión" secondary onPress={() => router.push("/admin/establishments")} />
+          )}
+          {can("statistics.global") && (
+            <Button title="Estadísticas globales" onPress={() => router.push('/admin/statistics')} />
+          )}
+          {can("concerts.manage_all") && (
+            <Button
+              title="Gestionar todos los conciertos"
+              onPress={() => router.push("/admin/concerts")}
+            />
+          )}
+        </View>
+      </Card>
+
       {!catalogs ? null : (
-      <>
-      <View style={styles.row}>
-        {(Object.keys(names) as Catalog[]).map((key) => (
-          <Button
-            key={key}
-            title={names[key]}
-            secondary={kind !== key}
-            onPress={() => {
-              setKind(key);
-              setPage(1);
-              setSearch("");
-              setSelected(undefined);
-            }}
+        <>
+          <Card variant="subtle">
+            <View style={styles.between}>
+              <Copy size="subheading" weight="700">Catálogos del sistema</Copy>
+              <Button
+                title={`Crear en ${names[kind]}`}
+                onPress={() => setSelected(null)}
+              />
+            </View>
+            <View style={styles.row}>
+              {(Object.keys(names) as Catalog[]).map((key) => (
+                <Button
+                  key={key}
+                  title={names[key]}
+                  secondary={kind !== key}
+                  onPress={() => {
+                    setKind(key);
+                    setPage(1);
+                    setSearch("");
+                    setSelected(undefined);
+                  }}
+                />
+              ))}
+            </View>
+            <Field
+              label={`Buscar ${names[kind].toLowerCase()}`}
+              value={search}
+              onChangeText={(value) => {
+                setSearch(value);
+                setPage(1);
+              }}
+            />
+          </Card>
+
+          {selected !== undefined && (
+            <CatalogEditor
+              key={`${kind}-${selected?.id ?? "new"}`}
+              kind={kind}
+              item={selected}
+              done={async () => {
+                setSelected(undefined);
+                await resource.reload();
+              }}
+            />
+          )}
+
+          <ResourceState
+            {...resource}
+            empty={!resource.result?.data.length}
+            retry={() => void resource.reload()}
           />
-        ))}
-      </View>
-      <Field
-        label={`Buscar ${names[kind].toLowerCase()}`}
-        value={search}
-        onChangeText={(value) => {
-          setSearch(value);
-          setPage(1);
-        }}
-      />
-      <Button
-        title={`Crear en ${names[kind]}`}
-        onPress={() => setSelected(null)}
-      />
-      {selected !== undefined && (
-        <CatalogEditor
-          key={`${kind}-${selected?.id ?? "new"}`}
-          kind={kind}
-          item={selected}
-          done={async () => {
-            setSelected(undefined);
-            await resource.reload();
-          }}
-        />
-      )}
-      <ResourceState
-        {...resource}
-        empty={!resource.result?.data.length}
-        retry={() => void resource.reload()}
-      />
-      {resource.result?.data.map((item) => (
-        <Card key={item.id}>
-          <Copy>{item.name}</Copy>
-          <Copy muted>{detail(item)}</Copy>
-          <Button
-            title={`Editar ${item.name}`}
-            secondary
-            onPress={() => setSelected(item)}
-          />
-        </Card>
-      ))}
-      <Pager pagination={resource.result?.pagination} onPage={setPage} />
-      </>
+
+          <BentoGrid>
+            {resource.result?.data.map((item) => (
+              <View key={item.id} style={bento.cell(1, cols)}>
+                <Card style={{ flex: 1, justifyContent: "space-between" }}>
+                  <View style={{ gap: 6 }}>
+                    <Copy size="subheading" weight="700">{item.name}</Copy>
+                    <Copy muted size="small">{detail(item)}</Copy>
+                  </View>
+                  <Button
+                    title={`Editar ${item.name}`}
+                    secondary
+                    onPress={() => setSelected(item)}
+                  />
+                </Card>
+              </View>
+            ))}
+          </BentoGrid>
+          <Pager pagination={resource.result?.pagination} onPage={setPage} />
+        </>
       )}
     </Page>
   );
@@ -155,9 +186,9 @@ function CatalogEditor({
   const set = (key: string, value: string) =>
     setForm({ ...form, [key]: value });
   return (
-    <Card>
+    <Card variant="featured">
       <FormScope form={validation}>
-      <Copy>{item ? `Editar ${item.name}` : "Nuevo registro"}</Copy>
+      <Copy size="subheading" weight="700">{item ? `Editar ${item.name}` : "Nuevo registro"}</Copy>
       <Field
         label="Nombre"
         required
@@ -204,51 +235,53 @@ function CatalogEditor({
         </>
       )}
       <ActionFeedback action={action} />
-      <Button
-        title="Guardar catálogo"
-        disabled={action.busy}
-        onPress={() =>
-          void action.run(async () => {
-            validation.assertValid();
-            const body = {
-              name: form.name,
-              ...(kind === "provinces" ? { code: form.code } : {}),
-              ...(kind === "districts" ? { province_id: form.province_id } : {}),
-              ...(kind === "cities"
-                ? {
-                    province_id: form.province_id,
-                    district_id: form.district_id,
-                    postal_code: form.postal_code || null,
-                  }
-                : {}),
-            };
-            await api.request(`/${kind}${item ? `/${item.id}` : ""}`, {
-              method: item ? "PATCH" : "POST",
-              body,
-            });
-            await done();
-          })
-        }
-      />
-      {item && (
+      <View style={styles.row}>
         <Button
-          title={confirm ? "Confirmar eliminación" : "Eliminar registro"}
-          secondary
-          danger
+          title="Guardar catálogo"
           disabled={action.busy}
           onPress={() =>
-            confirm
-              ? void action.run(async () => {
-                  await api.request(`/${kind}/${item.id}`, {
-                    method: "DELETE",
-                  });
-                  await done();
-                })
-              : setConfirm(true)
+            void action.run(async () => {
+              validation.assertValid();
+              const body = {
+                name: form.name,
+                ...(kind === "provinces" ? { code: form.code } : {}),
+                ...(kind === "districts" ? { province_id: form.province_id } : {}),
+                ...(kind === "cities"
+                  ? {
+                      province_id: form.province_id,
+                      district_id: form.district_id,
+                      postal_code: form.postal_code || null,
+                    }
+                  : {}),
+              };
+              await api.request(`/${kind}${item ? `/${item.id}` : ""}`, {
+                method: item ? "PATCH" : "POST",
+                body,
+              });
+              await done();
+            })
           }
         />
-      )}
-      <Button title="Cerrar edición" secondary onPress={() => void done()} />
+        {item && (
+          <Button
+            title={confirm ? "Confirmar eliminación" : "Eliminar registro"}
+            secondary
+            danger
+            disabled={action.busy}
+            onPress={() =>
+              confirm
+                ? void action.run(async () => {
+                    await api.request(`/${kind}/${item.id}`, {
+                      method: "DELETE",
+                    });
+                    await done();
+                  })
+                : setConfirm(true)
+            }
+          />
+        )}
+        <Button title="Cerrar edición" secondary onPress={() => void done()} />
+      </View>
       </FormScope>
     </Card>
   );

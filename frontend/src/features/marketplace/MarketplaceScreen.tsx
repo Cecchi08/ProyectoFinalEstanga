@@ -1,39 +1,76 @@
 import { useState } from "react";
-import { Image, View } from "react-native";
+import { View } from "react-native";
 import { router } from "expo-router";
 import { useAuth } from "../../contexts/AuthContext";
 import { useResource } from "../../hooks/useResource";
 import { query } from "../../services/http";
 import type { MarketplaceCatalogs, Named, OccupancyMode, Venue } from "../../types/api";
-import { Button, Card, Copy, Field, Notice, Page, Pager, ResourceState, money, styles } from "../../components/ui";
+import {
+  BentoGrid,
+  Button,
+  Card,
+  Copy,
+  Field,
+  MusicalCover,
+  Notice,
+  Page,
+  Pager,
+  ResourceState,
+  colors,
+  money,
+  statusLabel,
+  styles,
+  useBento,
+} from "../../components/ui";
 import { at, isDate } from "./time";
 
 export const capacityLabel = (venue: Pick<Venue, "capacity_standing" | "capacity_seated">) =>
   [venue.capacity_standing ? `${venue.capacity_standing} de pie` : "", venue.capacity_seated ? `${venue.capacity_seated} sentados` : ""]
     .filter(Boolean).join(" · ") || "Capacidad a consultar";
-export function VenueCard({ venue, manage = false }: { venue: Venue; manage?: boolean }) {
+
+export function VenueCard({ venue, manage = false, featured = false }: { venue: Venue; manage?: boolean; featured?: boolean }) {
+  const { desktop, mobile } = useBento();
+  const isHero = featured && desktop;
   return (
-    <View style={{ flexGrow: 1, flexShrink: 1, minWidth: 0, flexBasis: 300, maxWidth: 560 }}>
-      <Card>
-        {venue.cover_url && (
-          <Image source={{ uri: venue.cover_url }} accessibilityLabel={venue.name} style={{ height: 160, borderRadius: 12 }} />
-        )}
-        <Copy muted>{venue.venue_type_name}{manage ? ` · ${venue.status}` : ""}</Copy>
-        <Copy>{venue.name}</Copy>
-        <Copy muted>{venue.establishment_name} · {venue.address_line} · {venue.city_name}</Copy>
-        <Copy muted>{capacityLabel(venue)} · {money(venue.price_per_hour)} por hora</Copy>
-        <Button title={`Ver ${venue.name}`} secondary onPress={() => router.push(`/marketplace/venues/${venue.id}`)} />
+    <View
+      style={{
+        flexGrow: 1,
+        flexShrink: 1,
+        minWidth: 0,
+        flexBasis: mobile ? "100%" : isHero ? 560 : 320,
+        maxWidth: "100%",
+      }}
+    >
+      <Card variant={isHero ? "featured" : "default"} style={{ height: "100%", justifyContent: "space-between" }}>
+        <View style={{ gap: 10 }}>
+          <MusicalCover
+            uri={venue.cover_url}
+            alt={venue.name}
+            kind="venue"
+            height={isHero ? 200 : 165}
+            badge={venue.venue_type_name}
+            subBadge={venue.city_name}
+          />
+          <Copy muted>{venue.venue_type_name}{manage ? ` · ${statusLabel(venue.status)}` : ""}</Copy>
+          <Copy strong>{venue.name}</Copy>
+          <Copy muted>{venue.establishment_name} · {venue.address_line} · {venue.city_name}</Copy>
+          <Copy muted>{capacityLabel(venue)} · {money(venue.price_per_hour)} por hora</Copy>
+        </View>
+        <View style={{ paddingTop: 8, borderTopWidth: 1, borderColor: colors.border }}>
+          <Button title={`Ver ${venue.name}`} secondary onPress={() => router.push(`/marketplace/venues/${venue.id}`)} />
+        </View>
       </Card>
     </View>
   );
 }
+
 // Toggle buttons for a catalog; multiple keeps every selected code.
 export function Codes({ items, values, onChange, multiple = false, label }: {
   items: Named[] | undefined; values: string[]; onChange(values: string[]): void; multiple?: boolean; label: string;
 }) {
   if (!items) return null;
   return (
-    <View style={{ gap: 8 }}>
+    <View style={{ gap: 8, minWidth: 0, maxWidth: "100%" }}>
       <Copy muted>{label}</Copy>
       <View style={styles.row}>
         {items.map((item) => {
@@ -77,21 +114,25 @@ export default function MarketplaceScreen() {
       setInvalid(e instanceof Error ? e.message : "Filtros inválidos.");
     }
   };
-  // Each list opens for whoever asks (requester) or answers for a space (provider); a provider-only account
-  // (VENUE) lands on what its spaces received.
   const requester = can("marketplace.quotes.request", "marketplace.reservations.create", "marketplace.admin");
   const quotes = can("marketplace.quotes.request", "marketplace.quotes.respond", "marketplace.admin");
   const reservations = can("marketplace.reservations.create", "marketplace.reservations.manage", "marketplace.admin");
   return (
-    <Page title="Espacios para tu evento" subtitle="Salas de ensayo, estudios y escenarios. Reservá o pedí presupuesto.">
-      <View style={styles.row}>
-        {quotes && <Button title={requester ? "Mis presupuestos" : "Presupuestos recibidos"} secondary onPress={() => router.push("/marketplace/quotes")} />}
-        {reservations && <Button title={requester ? "Mis reservas de espacios" : "Reservas recibidas"} secondary onPress={() => router.push("/marketplace/reservations")} />}
-        {can("marketplace.establishments.manage", "marketplace.admin") && (
-          <Button title="Gestionar establecimientos" secondary onPress={() => router.push("/marketplace/manage")} />
-        )}
-        <Button title="Servicios para eventos" secondary onPress={() => router.push("/services")} />
-      </View>
+    <Page
+      eyebrow="VENTI · MARKETPLACE DE ESPACIOS"
+      title="Espacios para tu evento"
+      subtitle="Salas de ensayo, estudios y escenarios. Reservá o pedí presupuesto."
+      actions={
+        <>
+          {quotes && <Button title={requester ? "Mis presupuestos" : "Presupuestos recibidos"} secondary onPress={() => router.push("/marketplace/quotes")} />}
+          {reservations && <Button title={requester ? "Mis reservas de espacios" : "Reservas recibidas"} secondary onPress={() => router.push("/marketplace/reservations")} />}
+          {can("marketplace.establishments.manage", "marketplace.admin") && (
+            <Button title="Gestionar establecimientos" secondary onPress={() => router.push("/marketplace/manage")} />
+          )}
+          <Button title="Servicios para eventos" secondary onPress={() => router.push("/services")} />
+        </>
+      }
+    >
       <Card>
         <Field label="Buscar espacios" value={draft.q ?? ""} onChangeText={(v) => set("q", v)} onSubmitEditing={apply} />
         <Codes label="Ciudad" items={cities.result?.data} values={draft.city_id ? [draft.city_id] : []} onChange={(v) => set("city_id", v[0] ?? "")} />
@@ -101,14 +142,16 @@ export default function MarketplaceScreen() {
           <Field label="Capacidad mínima" keyboardType="number-pad" value={draft.min_capacity ?? ""} onChangeText={(v) => set("min_capacity", v)} />
           <Field label="Precio máximo por hora" keyboardType="decimal-pad" value={draft.max_price ?? ""} onChangeText={(v) => set("max_price", v)} />
         </View>
-        <Copy muted>Libre en una franja (hora de Argentina, opcional)</Copy>
-        <View style={styles.row}>
-          <Field label="Fecha (AAAA-MM-DD)" value={draft.date ?? ""} onChangeText={(v) => set("date", v)} />
-          <Field label="Desde (HH:MM)" value={draft.from ?? ""} onChangeText={(v) => set("from", v)} />
-          <Field label="Hasta (HH:MM)" value={draft.to ?? ""} onChangeText={(v) => set("to", v)} />
+        <View style={{ gap: 8, paddingTop: 8, borderTopWidth: 1, borderColor: colors.border }}>
+          <Copy muted>Libre en una franja (hora de Argentina, opcional)</Copy>
+          <View style={styles.row}>
+            <Field label="Fecha (AAAA-MM-DD)" value={draft.date ?? ""} onChangeText={(v) => set("date", v)} />
+            <Field label="Desde (HH:MM)" value={draft.from ?? ""} onChangeText={(v) => set("from", v)} />
+            <Field label="Hasta (HH:MM)" value={draft.to ?? ""} onChangeText={(v) => set("to", v)} />
+          </View>
+          <Codes label="Modalidad" items={catalogs.result?.data.occupancy_modes.map((m) => ({ id: m.code, code: m.code, name: m.name }))}
+            values={draft.mode ? [draft.mode] : []} onChange={(v) => set("mode", v[0] ?? "")} />
         </View>
-        <Codes label="Modalidad" items={catalogs.result?.data.occupancy_modes.map((m) => ({ id: m.code, code: m.code, name: m.name }))}
-          values={draft.mode ? [draft.mode] : []} onChange={(v) => set("mode", v[0] ?? "")} />
         <Notice message={invalid} error />
         <View style={styles.row}>
           <Button title="Aplicar búsqueda" onPress={apply} />
@@ -116,9 +159,15 @@ export default function MarketplaceScreen() {
         </View>
       </Card>
       <ResourceState {...resource} empty={resource.result?.data.length === 0} retry={() => void resource.reload()} />
-      <View style={[styles.row, { alignItems: "stretch" }]}>
-        {resource.result?.data.map((venue) => <VenueCard key={venue.id} venue={venue} />)}
-      </View>
+      <BentoGrid>
+        {resource.result?.data.map((venue, index) => (
+          <VenueCard
+            key={venue.id}
+            venue={venue}
+            featured={index === 0 && (resource.result?.data.length ?? 0) > 1}
+          />
+        ))}
+      </BentoGrid>
       <Pager pagination={resource.result?.pagination} onPage={setPage} />
     </Page>
   );

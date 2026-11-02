@@ -22,14 +22,73 @@ export const ROLE_LABELS: Record<Role, string> = {
   COMPRADOR: "Comprador",
   ARTISTA: "Artista",
   ORGANIZADOR: "Organizador",
-  VENUE: "Espacios",
-  EMPRESA_SERVICIOS: "Empresa de servicios",
+  VENUE: "Espacio Físico",
+  EMPRESA_SERVICIOS: "Empresa de Servicios",
   GUEST: "Invitado",
 };
+export const PUBLIC_REGISTRATION_ROLES = [
+  "COMPRADOR",
+  "ARTISTA",
+  "ORGANIZADOR",
+  "VENUE",
+  "EMPRESA_SERVICIOS",
+] as const;
+export type PublicRegistrationRole = (typeof PUBLIC_REGISTRATION_ROLES)[number];
+export const ROLE_GUIDES: Record<Exclude<Role, "GUEST">, { title: string; subtitle: string; allows: string }> = {
+  COMPRADOR: {
+    title: "Comprador",
+    subtitle: "Asistente y público musical",
+    allows: "Explorar conciertos, recibir recomendaciones de Venti Discover, comprar entradas con código QR y consultar tu historial.",
+  },
+  ARTISTA: {
+    title: "Artista",
+    subtitle: "Solista, banda o proyecto musical",
+    allows: "Gestionar tu perfil artístico, publicar tu propuesta, enviar solicitudes a espacios físicos y responder contrataciones de espacios y organizadores.",
+  },
+  ORGANIZADOR: {
+    title: "Organizador",
+    subtitle: "Productor de eventos y ciclos en vivo",
+    allows: "Crear y publicar conciertos, configurar tipos de entradas, contratar artistas, reservar espacios físicos, cotizar servicios y ver estadísticas.",
+  },
+  VENUE: {
+    title: "Espacio Físico",
+    subtitle: "Sala de conciertos, teatro, centro cultural o estudio",
+    allows: "Administrar tu establecimiento y salas, gestionar reservas y presupuestos recibidos, y contratar artistas para tu programación.",
+  },
+  EMPRESA_SERVICIOS: {
+    title: "Empresa de Servicios",
+    subtitle: "Proveedor técnico de sonido, iluminación, puesta o producción",
+    allows: "Gestionar el perfil comercial de tu empresa, publicar y editar tu catálogo de servicios y responder solicitudes de cotización.",
+  },
+  ADMIN: {
+    title: "Administración",
+    subtitle: "Supervisión integral de la plataforma",
+    allows: "Gestionar usuarios, roles, catálogos, revisión de establecimientos, verificación de empresas, auditoría y métricas globales.",
+  },
+};
+const ROLE_PRIORITY: readonly Role[] = [
+  "ADMIN",
+  "ORGANIZADOR",
+  "VENUE",
+  "EMPRESA_SERVICIOS",
+  "ARTISTA",
+  "COMPRADOR",
+  "GUEST",
+];
+export function primaryRole(roles: readonly Role[] | undefined | null): Role {
+  if (!roles || roles.length === 0) return "COMPRADOR";
+  if (roles.length === 1) return roles[0];
+  for (const candidate of ROLE_PRIORITY) {
+    if (roles.includes(candidate)) return candidate;
+  }
+  return roles[0];
+}
 export interface User {
   id: string;
   first_name: string;
   last_name: string;
+  display_name?: string | null;
+  phone?: string | null;
   email: string;
   avatar_url?: string | null;
   email_verified_at: string | null;
@@ -59,6 +118,13 @@ export interface Notification {
   concert_id: string | null; purchase_id: string | null; reservation_id: string | null; quote_id: string | null; concert_status: string | null;
   // Service-company quotes (QUOTE_UPDATE): quote_id is only for space quotes.
   service_quote_id: string | null;
+  proposal_id?: string | null;
+  sender_name?: string | null;
+  entity_label?: string | null;
+  concert_name?: string | null;
+  purchase_code?: string | null;
+  reservation_code?: string | null;
+  quote_code?: string | null;
 }
 export interface Notifications { items: Notification[]; unread_count: number }
 export interface Statistics {
@@ -130,6 +196,11 @@ export interface ConcertArtist {
 }
 export interface Purchase {
   id: string;
+  public_code?: string;
+  concert_name?: string | null;
+  artist_name?: string | null;
+  venue_name?: string | null;
+  start_datetime?: string | null;
   status: string;
   total: string;
   created_at: string;
@@ -142,6 +213,10 @@ export interface Purchase {
     ticket_type_name: string;
     quantity: number;
     unit_price: string;
+    concert_name?: string | null;
+    artist_name?: string | null;
+    venue_name?: string | null;
+    start_datetime?: string | null;
   }[];
 }
 export interface Ticket {
@@ -302,6 +377,8 @@ export interface Artist {
   city_name: string | null;
   image_url: string | null;
   website: string | null;
+  phone?: string | null;
+  contact_email?: string | null;
   status: ArtistStatus;
   published_at: string | null;
   created_at: string;
@@ -310,6 +387,83 @@ export interface Artist {
 }
 export interface ArtistDetail extends Artist {
   members: ArtistMember[];
+}
+export type ProposalFlow = "VENUE_TO_ARTIST" | "ARTIST_TO_VENUE" | "ORGANIZER_TO_ARTIST";
+// EXPIRED is computed by the API for PENDING proposals whose date already passed.
+export type ProposalStatus = "PENDING" | "ACCEPTED" | "REJECTED" | "CANCELLED" | "EXPIRED";
+export interface ArtistProposal {
+  id: string;
+  public_code: string;
+  flow_type: ProposalFlow;
+  artist_profile_id: string;
+  artist_name: string;
+  artist_image_url?: string | null;
+  artist_phone?: string | null;
+  artist_contact_email?: string | null;
+  venue_id: string | null;
+  venue_name: string | null;
+  venue_capacity: number | null;
+  establishment_id: string | null;
+  establishment_name: string | null;
+  establishment_address: string | null;
+  city_name: string | null;
+  concert_id: string | null;
+  concert_name: string | null;
+  sender_user_id: string;
+  sender_name: string | null;
+  sender_email: string;
+  event_title: string;
+  event_description: string | null;
+  genre_or_format: string | null;
+  proposed_date: string;
+  proposed_end_date: string | null;
+  expected_attendance: number | null;
+  offered_amount: string | null;
+  currency: string;
+  economic_terms: string | null;
+  space_conditions: string | null;
+  technical_requirements: string | null;
+  message: string | null;
+  status: ProposalStatus;
+  rejection_reason: string | null;
+  responded_at: string | null;
+  created_at: string;
+  can_respond?: boolean;
+  can_cancel?: boolean;
+  viewer_side?: "SENDER" | "ARTIST" | "VENUE" | "ADMIN";
+}
+export interface VenueRelatedOrganizer {
+  reservation_code: string;
+  reservation_status: string;
+  event_name: string;
+  event_start_at: string;
+  event_end_at: string;
+  expected_attendance: number | null;
+  venue_name: string;
+  organizer_name: string | null;
+  organizer_email: string;
+  organizer_phone: string | null;
+  organization_name: string | null;
+  concert_id: string | null;
+  concert_name: string | null;
+  concert_artist: string | null;
+  concert_status: string | null;
+}
+export interface VenueSummaryConcert {
+  id: string;
+  name: string;
+  artist_name: string;
+  start_datetime: string;
+  end_datetime: string | null;
+  status: string;
+  venue_name: string;
+  organizer_name: string | null;
+  organizer_email: string;
+}
+export interface VenueHiringSummary {
+  proposals: ArtistProposal[];
+  related_organizers: VenueRelatedOrganizer[];
+  concerts: VenueSummaryConcert[];
 }
 // ---- Marketplace ----
 export type OccupancyMode = "VENUE" | "ESTABLISHMENT";
@@ -461,6 +615,7 @@ export interface ServiceOffering extends Named {
   category_code: string;
   category_name: string;
   slug: string;
+  image_url?: string | null;
   description: string | null;
   equipment: string | null;
   conditions: string | null;
@@ -476,6 +631,10 @@ export interface ServiceProvider extends Named {
   email: string | null;
   phone: string | null;
   organization_status: string;
+  logo_url?: string | null;
+  primary_category_id?: string | null;
+  primary_category_code?: string | null;
+  primary_category_name?: string | null;
   description: string | null;
   city_id: string | null;
   city_name: string | null;

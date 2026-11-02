@@ -37,7 +37,8 @@ export function createApp({ env, database, mailer, oauthClient }) {
     const tokens = new AccessTokens(env);
     const auth = new AuthService(database, env, tokens, mailer);
     const oauth = new OAuthService(env, auth, oauthClient ?? new HttpOAuthProviderClient(env));
-    app.use('/auth', authRoutes(new AuthController(auth), new OAuthController(oauth, env), authenticate(tokens, auth), env));
+    const authRouter = authRoutes(new AuthController(auth), new OAuthController(oauth, env), authenticate(tokens, auth), env);
+    app.use(['/api/auth', '/auth'], authRouter);
     app.use(managementRoutes(database, authenticate(tokens, auth)));
     app.use(commerceRoutes(database, authenticate(tokens, auth)));
     app.use(participationRoutes(database, authenticate(tokens, auth)));
