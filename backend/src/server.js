@@ -30,6 +30,20 @@ async function main() {
     };
     process.on('SIGINT', shutdown);
     process.on('SIGTERM', shutdown);
-    server.on('error', () => { console.error('No se pudo iniciar el servidor HTTP.'); shutdown(); process.exitCode = 1; });
+    server.on('error', (error) => {
+        const details = error && typeof error === 'object' && 'code' in error && typeof error.code === 'string'
+            ? ` (code: ${error.code})`
+            : '';
+        if (error && typeof error === 'object' && 'code' in error && error.code === 'EADDRINUSE') {
+            console.error(`El puerto ${env.PORT} ya está en uso. Cierra la otra instancia del backend o usa otro puerto.${details}`);
+        }
+        else {
+            console.error(`No se pudo iniciar el servidor HTTP.${details}`);
+            if (error instanceof Error)
+                console.error(error.message);
+        }
+        shutdown();
+        process.exitCode = 1;
+    });
 }
 void main().catch(error => { console.error(error instanceof Error ? error.message : 'Error de inicio.'); process.exitCode = 1; });
