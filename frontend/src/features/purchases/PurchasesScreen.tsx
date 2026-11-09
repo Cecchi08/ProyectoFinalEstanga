@@ -197,9 +197,9 @@ export function PurchaseDetail() {
                     gap: 6,
                     padding: 14,
                     borderRadius: radius.md,
-                    backgroundColor: colors.accentSoft,
+                    backgroundColor: colors.primarySoft,
                     borderWidth: 1,
-                    borderColor: colors.accentBorder,
+                    borderColor: colors.primary,
                   }}
                 >
                   <Copy strong>¡Compra realizada con éxito!</Copy>

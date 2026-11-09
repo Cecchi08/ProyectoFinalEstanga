@@ -222,9 +222,9 @@ export default function ConcertDetail() {
                     paddingHorizontal: 12,
                     borderRadius: radius.pill,
                     alignSelf: "flex-start",
-                    backgroundColor: colors.accentSoft,
+                    backgroundColor: colors.primarySoft,
                     borderWidth: 1,
-                    borderColor: colors.accentBorder,
+                    borderColor: colors.primary,
                   }}
                 >
                   <Text style={[styles.label, { color: colors.accent }]}>COMPRA CONFIRMADA</Text>

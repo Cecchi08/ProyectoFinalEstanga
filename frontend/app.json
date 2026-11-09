@@ -30,7 +30,16 @@
     },
     "android": {
       "package": "com.venti.app",
-      "versionCode": 1
+      "versionCode": 1,
+      "permissions": [
+        "android.permission.CAMERA"
+      ]
+    },
+    "extra": {
+      "router": {},
+      "eas": {
+        "projectId": "2f344811-5556-421e-aa91-60d4dfed8f7e"
+      }
     }
   }
 }

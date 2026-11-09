@@ -4,7 +4,7 @@ export const api = new HttpClient(
   normalizeApiBase(
     process.env.EXPO_PUBLIC_API_URL,
     "http://localhost:3000",
-    typeof window !== "undefined" ? window.location.hostname.toLowerCase() : "",
+    typeof window !== "undefined" ? (window.location?.hostname ?? "").toLowerCase() : "",
   ),
   storage,
 );

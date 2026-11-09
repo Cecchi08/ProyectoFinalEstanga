@@ -189,7 +189,7 @@ export class HttpClient {
 export const normalizeApiBase = (
   value: string | undefined,
   fallback = "http://localhost:3000",
-  currentHost = typeof window !== "undefined" ? window.location.hostname.toLowerCase() : "",
+  currentHost = typeof window !== "undefined" ? (window.location?.hostname ?? "").toLowerCase() : "",
 ) => {
   const raw = value?.trim();
   if (!raw) return fallback;
