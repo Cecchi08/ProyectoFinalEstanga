@@ -69,6 +69,37 @@ test('admin: validaciones, último perfil, último ADMIN y cuentas no elegibles'
     assert.equal((await audit()).length, 1);
 });
 
+test('admin: la gestión de perfiles es aditiva y conserva los existentes', async () => {
+    const first = (await call('post', `/admin/users/${ids.admin2}/roles`, 'admin', { role: 'ARTISTA' }).expect(201)).body.data;
+    assert.deepEqual(first.user.roles, ['ADMIN', 'COMPRADOR', 'ARTISTA']);
+    const second = (await call('post', `/admin/users/${ids.admin2}/roles`, 'admin', { role: 'ORGANIZADOR' }).expect(201)).body.data;
+    assert.deepEqual(second.user.roles, ['ADMIN', 'COMPRADOR', 'ARTISTA', 'ORGANIZADOR']);
+    const revoked = (await call('delete', `/admin/users/${ids.admin2}/roles/ARTISTA`, 'admin').expect(200)).body.data;
+    assert.deepEqual(revoked.user.roles, ['ADMIN', 'COMPRADOR', 'ORGANIZADOR']);
+    assert.deepEqual((await audit()).map(row => [row.action, row.details.role]), [['ROLE_GRANTED', 'ARTISTA'], ['ROLE_GRANTED', 'ORGANIZADOR'], ['ROLE_REVOKED', 'ARTISTA']]);
+});
+
+test('admin: autoquitarse ADMIN solo si queda otro ADMIN activo; GUEST no cuenta como perfil habilitante', async () => {
+    roles.admin = ['ADMIN', 'COMPRADOR'];
+    await db.rows("INSERT INTO user_roles (user_id, role_id) SELECT ?, id FROM roles WHERE code = 'COMPRADOR'", [ids.admin]);
+    try {
+        // admin2 is still an active ADMIN: the self-removal leaves the platform administered.
+        await call('delete', `/admin/users/${ids.admin}/roles/ADMIN`, 'admin').expect(200);
+        // Now admin2 is the last one and cannot remove itself.
+        const self = await call('delete', `/admin/users/${ids.admin2}/roles/ADMIN`, 'admin2');
+        assert.equal(self.status, 409); assert.equal(self.body.error.code, 'LAST_ADMIN'); assert.match(self.body.error.message, /último administrador/);
+    } finally { roles.admin = ['ADMIN']; }
+    await db.rows("INSERT INTO user_roles (user_id, role_id) SELECT ?, id FROM roles WHERE code = 'GUEST'", [ids.buyer]);
+    await error(call('delete', `/admin/users/${ids.buyer}/roles/COMPRADOR`, 'admin2'), 409, 'LAST_ROLE');
+});
+
+test('admin: el modo heredado replace audita cada perfil quitado', async () => {
+    await call('post', `/admin/users/${ids.admin2}/roles`, 'admin', { role: 'ARTISTA' }).expect(201);
+    const replaced = (await call('post', `/admin/users/${ids.admin2}/roles`, 'admin', { role: 'ORGANIZADOR', replace: true }).expect(201)).body.data;
+    assert.deepEqual(replaced.user.roles, ['ORGANIZADOR']);
+    const log = (await audit()).slice(1).map(row => [row.action, row.details.role]).sort();
+    assert.deepEqual(log, [['ROLE_GRANTED', 'ORGANIZADOR'], ['ROLE_REVOKED', 'ADMIN'], ['ROLE_REVOKED', 'ARTISTA'], ['ROLE_REVOKED', 'COMPRADOR']]);
+});
 test('admin: dos admins quitándose ADMIN a la vez dejan siempre uno', async () => {
     roles.admin = ['ADMIN', 'COMPRADOR'];
     await db.rows("INSERT INTO user_roles (user_id, role_id) SELECT ?, id FROM roles WHERE code = 'COMPRADOR'", [ids.admin]);

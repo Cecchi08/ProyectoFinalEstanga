@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, type ReactNode } from "react";
 import { View } from "react-native";
 import { router, useLocalSearchParams } from "expo-router";
 import { useAuth } from "../../contexts/AuthContext";
@@ -12,6 +12,7 @@ import {
   Button,
   Card,
   Copy,
+  DateTimeField,
   Field,
   FormScope,
   MusicalCover,
@@ -42,11 +43,19 @@ export const priceLabel = (offering: Pick<ServiceOffering, "pricing_unit" | "bas
 
 const PRICE = /^\d+(\.\d{1,2})?$/;
 
-export function OfferingCard({ offering, manage = false }: { offering: ServiceOffering; manage?: boolean }) {
+export function OfferingCard({
+  offering,
+  manage = false,
+  footerActions,
+}: {
+  offering: ServiceOffering;
+  manage?: boolean;
+  footerActions?: ReactNode;
+}) {
   const { mobile } = useBento();
   return (
-    <View style={{ flexGrow: 1, flexShrink: 1, minWidth: 0, flexBasis: mobile ? "100%" : 320, maxWidth: "100%" }}>
-      <Card style={{ height: "100%", justifyContent: "space-between" }}>
+    <View style={{ flexGrow: 1, flexShrink: 1, minWidth: 0, flexBasis: mobile ? "auto" : 320, width: mobile ? "100%" : undefined, maxWidth: "100%" }}>
+      <Card style={{ flexGrow: 1, justifyContent: "space-between" }}>
         <View style={{ gap: 8 }}>
           <MusicalCover
             uri={offering.image_url}
@@ -63,8 +72,9 @@ export function OfferingCard({ offering, manage = false }: { offering: ServiceOf
           </Copy>
           <Copy muted>{priceLabel(offering)}</Copy>
         </View>
-        <View style={{ paddingTop: 8, borderTopWidth: 1, borderColor: colors.border }}>
+        <View style={[styles.row, { paddingTop: 8, borderTopWidth: 1, borderColor: colors.border }]}>
           <Button title={`Ver servicio ${offering.name}`} secondary onPress={() => router.push(`/services/offerings/${offering.id}`)} />
+          {footerActions}
         </View>
       </Card>
     </View>
@@ -74,8 +84,8 @@ export function OfferingCard({ offering, manage = false }: { offering: ServiceOf
 export function ProviderCard({ provider }: { provider: ServiceProvider }) {
   const { mobile } = useBento();
   return (
-    <View style={{ flexGrow: 1, flexShrink: 1, minWidth: 0, flexBasis: mobile ? "100%" : 320, maxWidth: "100%" }}>
-      <Card style={{ height: "100%", justifyContent: "space-between" }}>
+    <View style={{ flexGrow: 1, flexShrink: 1, minWidth: 0, flexBasis: mobile ? "auto" : 320, width: mobile ? "100%" : undefined, maxWidth: "100%" }}>
+      <Card style={{ flexGrow: 1, justifyContent: "space-between" }}>
         <View style={{ gap: 8 }}>
           <MusicalCover
             uri={provider.logo_url}
@@ -186,7 +196,7 @@ export function OfferingScreen() {
   const [availability, setAvailability] = useState<ServiceAvailability | null>(null);
   const check = useAction();
   const lookup = () => check.run(async () => {
-    if (!isDate(date)) throw new Error("Ingresá la fecha como AAAA-MM-DD.");
+    if (!isDate(date)) throw new Error("Elegí una fecha para consultar disponibilidad.");
     const { data } = await api.request<ServiceAvailability>(`/services/offerings/${id}/availability${query({ date: date.trim() })}`);
     setAvailability(data);
   });
@@ -204,7 +214,8 @@ export function OfferingScreen() {
               flexGrow: 1,
               flexShrink: 1,
               minWidth: 0,
-              flexBasis: mobile ? "100%" : 480,
+              flexBasis: mobile ? "auto" : 480,
+              width: mobile ? "100%" : undefined,
               maxWidth: "100%",
               gap: 16,
             }}
@@ -234,7 +245,7 @@ export function OfferingScreen() {
               <SectionHeader title="Disponibilidad" />
               <Copy muted>Muestra las fechas ya contratadas. La empresa confirma si puede tomar tu evento al cotizar.</Copy>
               <View style={styles.row}>
-                <Field label="Fecha (AAAA-MM-DD)" value={date} onChangeText={setDate} onSubmitEditing={() => void lookup()} />
+                <DateTimeField label="Fecha de consulta" mode="date" value={date} onChange={setDate} />
                 <Button title="Consultar disponibilidad" secondary disabled={check.busy} onPress={() => void lookup()} />
               </View>
               <ActionFeedback action={check} />
@@ -252,7 +263,8 @@ export function OfferingScreen() {
                 flexGrow: 1,
                 flexShrink: 1,
                 minWidth: 0,
-                flexBasis: mobile ? "100%" : 420,
+                flexBasis: mobile ? "auto" : 420,
+                width: mobile ? "100%" : undefined,
                 maxWidth: "100%",
               }}
             >
@@ -276,7 +288,7 @@ function QuoteRequest({ offering }: { offering: ServiceOffering }) {
   const send = () => action.run(async () => {
     validation.assertValid();
     if (!form.event_name?.trim()) throw new Error("Poné el nombre del evento.");
-    if (!isDate(form.date ?? "")) throw new Error("Ingresá la fecha como AAAA-MM-DD.");
+    if (!isDate(form.date ?? "")) throw new Error("Elegí la fecha del evento.");
     const times = slot(form.date ?? "", { start: form.start ?? "", end: form.end ?? "" });
     const { data } = await api.request<ServiceQuote>("/services/quotes", {
       method: "POST",
@@ -294,9 +306,9 @@ function QuoteRequest({ offering }: { offering: ServiceOffering }) {
         <SectionHeader title="Pedir cotización" subtitle="Enviá los requerimientos de tu evento a la empresa" />
         <Field label="Nombre del evento" required value={form.event_name ?? ""} onChangeText={(v) => set("event_name", v)} />
         <View style={styles.row}>
-          <Field label="Fecha (AAAA-MM-DD)" required value={form.date ?? ""} onChangeText={(v) => set("date", v)} />
-          <Field label="Desde (HH:MM)" required value={form.start ?? ""} onChangeText={(v) => set("start", v)} />
-          <Field label="Hasta (HH:MM)" required value={form.end ?? ""} onChangeText={(v) => set("end", v)} />
+          <DateTimeField label="Fecha del evento" mode="date" required value={form.date ?? ""} onChange={(v) => set("date", v)} />
+          <DateTimeField label="Horario de inicio" mode="time" required defaultTime="20:00" value={form.start ?? ""} onChange={(v) => set("start", v)} />
+          <DateTimeField label="Horario de fin" mode="time" required defaultTime="23:00" value={form.end ?? ""} onChange={(v) => set("end", v)} />
         </View>
         <Field label="Lugar (opcional)" value={form.location_text ?? ""} onChangeText={(v) => set("location_text", v)} />
         <Field label="Detalles para la empresa (opcional)" multiline value={form.requester_notes ?? ""} onChangeText={(v) => set("requester_notes", v)} />

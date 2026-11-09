@@ -8,12 +8,15 @@ import {
   type PropsWithChildren,
 } from "react";
 import { AppState } from "react-native";
+import { invalidateCatalogCache } from "../hooks/useResource";
 import { api } from "../services/api";
 import type { Access, Me, Permission, Role, Session, User } from "../types/api";
-import { can as allows } from "../types/api";
+import { can as allows, resolveActiveRole } from "../types/api";
 interface Auth {
   user: User | null;
   roles: Role[];
+  activeRole: Role;
+  setActiveRole(role: Role): void;
   permissions: Permission[];
   loading: boolean;
   error: string;
@@ -38,6 +41,7 @@ export function AuthProvider({ children }: PropsWithChildren) {
   const [access, setAccess] = useState<Access | null>(null);
   const [accessLoading, setAccessLoading] = useState(false);
   const [accessError, setAccessError] = useState("");
+  const [preferredRole, setPreferredRole] = useState<Role | null>(null);
   const sequence = useRef(0);
   const userId = session?.user.id ?? null;
   // silent: refresh in the background without unmounting guarded screens; a failure keeps the known access.
@@ -86,6 +90,7 @@ export function AuthProvider({ children }: PropsWithChildren) {
     };
   }, []);
   useEffect(() => {
+    setPreferredRole(null);
     void loadAccess();
     return () => {
       sequence.current++;
@@ -113,13 +118,21 @@ export function AuthProvider({ children }: PropsWithChildren) {
       clearInterval(timer);
     };
   }, [userId, loadAccess]);
+  const roles = access?.roles ?? session?.roles ?? [];
+  const activeRole: Role = resolveActiveRole(roles, preferredRole);
   const permissions = access?.permissions ?? [];
   return (
     <Context.Provider
       value={{
         user: session?.user ?? null,
         // /auth/me is authoritative: a profile granted after login shows up on the next load.
-        roles: access?.roles ?? session?.roles ?? [],
+        roles,
+        activeRole,
+        setActiveRole: (nextRole) => {
+          if (roles.includes(nextRole)) {
+            setPreferredRole(nextRole);
+          }
+        },
         permissions,
         loading,
         error,
@@ -143,7 +156,10 @@ export function AuthProvider({ children }: PropsWithChildren) {
           setError("");
         },
         accept: (session) => api.accept(session),
-        logout: () => api.logout(),
+        logout: async () => {
+          invalidateCatalogCache();
+          await api.logout();
+        },
       }}
     >
       {children}

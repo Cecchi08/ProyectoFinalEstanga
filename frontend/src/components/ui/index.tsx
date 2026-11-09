@@ -1,7 +1,8 @@
-import { createContext, useContext, useEffect, useId, useMemo, useRef, useState, type PropsWithChildren, type ReactNode } from "react";
+import { createContext, memo, useContext, useEffect, useId, useMemo, useRef, useState, type PropsWithChildren, type ReactNode } from "react";
 import {
-  AccessibilityInfo,
   ActivityIndicator,
+  Animated,
+  AppState,
   Image,
   Platform,
   Pressable,
@@ -11,25 +12,30 @@ import {
   TextInput,
   View,
   useWindowDimensions,
+  type DimensionValue,
   type StyleProp,
   type TextInputProps,
   type TextStyle,
   type ViewStyle,
 } from "react-native";
 import Svg, { Circle, Defs, LinearGradient, Line, Path, Rect, Stop } from "react-native-svg";
+import { getServerNow } from "../../services/http";
 import type { Pagination } from "../../types/api";
 import { fieldError, inferRules, type Rule } from "../../utils/validation";
 import { shouldShowBackToTop } from "./scroll";
 import { colors, onNativePalette, radius, shadows, type } from "./theme";
 import { useThemeMode } from "./themeMode";
 export { colors, fonts, radius, shadows, space, type } from "./theme";
+export { DateTimeField, type DateTimeMode } from "./DateTimeField";
+export { useReducedMotion } from "../../hooks/useReducedMotion";
+export { useDebouncedValue } from "../../hooks/useDebouncedValue";
 
 export function useBento() {
   const { width } = useWindowDimensions();
   const compact = width < 380;
-  const mobile = width < 680;
-  const tablet = width >= 680 && width < 1040;
-  const desktop = width >= 1040;
+  const mobile = width < 720;
+  const tablet = width >= 720 && width < 1024;
+  const desktop = width >= 1024;
   const columns = desktop ? 3 : tablet ? 2 : 1;
   const cell = (span = 1, total = columns): ViewStyle => {
     if (mobile || total <= 1 || span >= total) {
@@ -65,11 +71,11 @@ export function useBento() {
 const buildStyles = () => ({
   page: {
     flexGrow: 1,
-    paddingHorizontal: 22,
+    paddingHorizontal: 24,
     paddingTop: 26,
     // Room below the last control so the floating "Volver arriba" never covers it.
     paddingBottom: 96,
-    gap: 18,
+    gap: 20,
     width: "100%",
     maxWidth: 1240,
     alignSelf: "center",
@@ -87,9 +93,9 @@ const buildStyles = () => ({
     boxShadow: shadows.card,
   },
   cardFeatured: {
-    backgroundColor: colors.surface,
+    backgroundColor: colors.featuredBg,
     borderWidth: 1,
-    borderColor: colors.borderStrong,
+    borderColor: colors.featuredBorder,
     borderRadius: radius.xl,
     padding: 22,
     gap: 14,
@@ -137,9 +143,9 @@ const buildStyles = () => ({
     paddingHorizontal: 10,
     paddingVertical: 4,
     borderRadius: radius.pill,
-    backgroundColor: colors.primarySoft,
+    backgroundColor: colors.accentSoft,
     borderWidth: 1,
-    borderColor: colors.primary,
+    borderColor: colors.accentBorder,
     alignSelf: "flex-start",
   },
   badgeMuted: {
@@ -197,19 +203,7 @@ onNativePalette(() => {
   Object.assign(switchColors, buildSwitchColors());
 });
 
-function useReducedMotion() {
-  const [reduced, setReduced] = useState(false);
-  useEffect(() => {
-    let active = true;
-    void AccessibilityInfo.isReduceMotionEnabled().then((value) => active && setReduced(value));
-    const subscription = AccessibilityInfo.addEventListener("reduceMotionChanged", setReduced);
-    return () => {
-      active = false;
-      subscription.remove();
-    };
-  }, []);
-  return reduced;
-}
+import { useReducedMotion } from "../../hooks/useReducedMotion";
 
 type Focusable = { setAttribute(name: string, value: string): void; focus(options?: { preventScroll?: boolean }): void };
 
@@ -271,7 +265,7 @@ export function Page({
         automaticallyAdjustKeyboardInsets
         contentContainerStyle={[
           styles.page,
-          compact ? { paddingHorizontal: 14, paddingTop: 18, gap: 14 } : mobile ? { paddingHorizontal: 18, paddingTop: 22, gap: 16 } : null,
+          compact ? { paddingHorizontal: 14, paddingTop: 18, gap: 12 } : mobile ? { paddingHorizontal: 16, paddingTop: 20, gap: 16 } : null,
         ]}
         scrollEventThrottle={32}
         onScroll={(event) => setShowTop(shouldShowBackToTop(event.nativeEvent.contentOffset.y))}
@@ -288,14 +282,14 @@ export function Page({
             borderColor: colors.border,
           }}
         >
-          <View style={{ gap: 6, flexShrink: 1, minWidth: 0, maxWidth: "100%" }}>
+          <View style={{ gap: 4, flexShrink: 1, minWidth: 0, maxWidth: "100%" }}>
             <View aria-hidden style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
               <View style={{ width: 8, height: 8, borderRadius: radius.pill, backgroundColor: colors.primary }} />
-              <Text style={{ color: colors.accent, fontSize: 11, fontWeight: "700", letterSpacing: 1.1, textTransform: "uppercase" }}>
+              <Text style={{ color: colors.accentText, fontSize: 12, lineHeight: 16, fontWeight: "700", letterSpacing: 0.8, textTransform: "uppercase" }}>
                 {eyebrow}
               </Text>
             </View>
-            <Text accessibilityRole="header" style={[styles.title, compact && { fontSize: 22, lineHeight: 28 }]}>
+            <Text accessibilityRole="header" style={[styles.title, !mobile && type.hero, compact && { fontSize: 22, lineHeight: 28 }]}>
               {title}
             </Text>
             {subtitle && (
@@ -326,7 +320,7 @@ export function Card({
   flush?: boolean;
   style?: StyleProp<ViewStyle>;
 }>) {
-  const { compact } = useBento();
+  const { compact, mobile } = useBento();
   const base =
     variant === "featured"
       ? styles.cardFeatured
@@ -338,6 +332,7 @@ export function Card({
       {...bentoCardData}
       style={[
         base,
+        mobile && !flush ? { padding: 16 } : null,
         compact && !flush ? { padding: 14 } : null,
         flush ? { padding: 0, overflow: "hidden" } : null,
         style,
@@ -349,7 +344,18 @@ export function Card({
 }
 
 export function BentoGrid({ children, style }: PropsWithChildren<{ style?: StyleProp<ViewStyle> }>) {
-  return <View style={[styles.bentoGrid, style]}>{children}</View>;
+  const { mobile } = useBento();
+  return (
+    <View
+      style={[
+        styles.bentoGrid,
+        mobile ? { flexDirection: "column", flexWrap: "nowrap", alignItems: "stretch", gap: 12 } : null,
+        style,
+      ]}
+    >
+      {children}
+    </View>
+  );
 }
 
 export function SectionHeader({
@@ -393,11 +399,12 @@ export function StatTile({
         flexGrow: 1,
         flexShrink: 1,
         minWidth: 0,
-        flexBasis: mobile ? "100%" : featured ? 260 : 185,
+        flexBasis: mobile ? "auto" : featured ? 260 : 185,
+        width: mobile ? "100%" : undefined,
         maxWidth: "100%",
       }}
     >
-      <Card variant={featured ? "featured" : "default"} style={{ height: "100%", justifyContent: "space-between", gap: 8 }}>
+      <Card variant={featured ? "featured" : "default"} style={{ flexGrow: 1, justifyContent: "space-between", gap: 8 }}>
         <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center", gap: 8 }}>
           <Copy muted>{label}</Copy>
           <View
@@ -426,7 +433,7 @@ const hashSeed = (text: string) => {
   return Math.abs(h);
 };
 
-export function MusicalCover({
+export const MusicalCover = memo(function MusicalCover({
   uri,
   alt,
   kind = "concert",
@@ -456,44 +463,58 @@ export function MusicalCover({
       style={{
         width: "100%",
         height,
-        borderRadius: radius.md,
+        borderRadius: radius.lg,
         overflow: "hidden",
-        backgroundColor: "#0D0D11",
+        backgroundColor: "#141417",
         borderWidth: 1,
         borderColor: colors.border,
         position: "relative",
       }}
     >
       {uri && !imgFailed ? (
-        <Image
-          source={{ uri }}
-          accessibilityLabel={alt}
-          resizeMode="cover"
-          onError={() => setImgFailed(true)}
-          style={{ width: "100%", height: "100%" }}
-        />
+        <>
+          <Image
+            source={{ uri }}
+            accessibilityLabel={alt}
+            resizeMode="cover"
+            onError={() => setImgFailed(true)}
+            style={{ width: "100%", height: "100%" }}
+          />
+          <View
+            aria-hidden
+            pointerEvents="none"
+            style={{
+              position: "absolute",
+              top: 0,
+              left: 0,
+              right: 0,
+              height: 52,
+              backgroundColor: "rgba(17, 17, 19, 0.52)",
+            }}
+          />
+        </>
       ) : (
         <View aria-hidden style={{ width: "100%", height: "100%" }}>
           <Svg width="100%" height="100%" viewBox="0 0 400 200" preserveAspectRatio="none">
             <Defs>
               <LinearGradient id={`bg-${seed}`} x1="0" y1="0" x2="1" y2="1">
-                <Stop offset="0%" stopColor="#09090B" />
-                <Stop offset="55%" stopColor="#13131A" />
-                <Stop offset="100%" stopColor="#1E1B4B" />
+                <Stop offset="0%" stopColor="#141417" />
+                <Stop offset="55%" stopColor="#1B1B20" />
+                <Stop offset="100%" stopColor="#232329" />
               </LinearGradient>
               <LinearGradient id={`glow-${seed}`} x1="0" y1="0" x2="0" y2="1">
-                <Stop offset="0%" stopColor="#4F46E5" stopOpacity="0.42" />
-                <Stop offset="100%" stopColor="#4F46E5" stopOpacity="0.0" />
+                <Stop offset="0%" stopColor="#F5C542" stopOpacity="0.18" />
+                <Stop offset="100%" stopColor="#F5C542" stopOpacity="0.0" />
               </LinearGradient>
             </Defs>
             <Rect width="400" height="200" fill={`url(#bg-${seed})`} />
             {/* Architectural grid lines */}
-            <Line x1="0" y1="50" x2="400" y2="50" stroke="#27272A" strokeWidth="0.7" strokeOpacity="0.6" />
-            <Line x1="0" y1="100" x2="400" y2="100" stroke="#27272A" strokeWidth="0.7" strokeOpacity="0.6" />
-            <Line x1="0" y1="150" x2="400" y2="150" stroke="#27272A" strokeWidth="0.7" strokeOpacity="0.6" />
-            <Line x1="100" y1="0" x2="100" y2="200" stroke="#27272A" strokeWidth="0.7" strokeOpacity="0.5" />
-            <Line x1="200" y1="0" x2="200" y2="200" stroke="#27272A" strokeWidth="0.7" strokeOpacity="0.5" />
-            <Line x1="300" y1="0" x2="300" y2="200" stroke="#27272A" strokeWidth="0.7" strokeOpacity="0.5" />
+            <Line x1="0" y1="50" x2="400" y2="50" stroke="#383842" strokeWidth="0.7" strokeOpacity="0.6" />
+            <Line x1="0" y1="100" x2="400" y2="100" stroke="#383842" strokeWidth="0.7" strokeOpacity="0.6" />
+            <Line x1="0" y1="150" x2="400" y2="150" stroke="#383842" strokeWidth="0.7" strokeOpacity="0.6" />
+            <Line x1="100" y1="0" x2="100" y2="200" stroke="#383842" strokeWidth="0.7" strokeOpacity="0.5" />
+            <Line x1="200" y1="0" x2="200" y2="200" stroke="#383842" strokeWidth="0.7" strokeOpacity="0.5" />
+            <Line x1="300" y1="0" x2="300" y2="200" stroke="#383842" strokeWidth="0.7" strokeOpacity="0.5" />
             {kind === "concert" && (
               <>
                 <Path d="M 80 0 L 10 200 L 170 200 Z" fill={`url(#glow-${seed})`} />
@@ -506,7 +527,7 @@ export function MusicalCover({
                     width={10}
                     height={barHeight}
                     rx={3}
-                    fill={i % 4 === 0 ? "#818CF8" : i % 2 === 0 ? "#4F46E5" : "#27272A"}
+                    fill={i % 6 === 0 ? "#D9383A" : i % 3 === 0 ? "#F5C542" : "#383842"}
                     opacity={0.85}
                   />
                 ))}
@@ -514,18 +535,18 @@ export function MusicalCover({
             )}
             {kind === "venue" && (
               <>
-                <Rect x="44" y="34" width="312" height="132" rx="14" stroke="#3F3F46" strokeWidth="1.5" fill="#121217" fillOpacity="0.6" />
-                <Rect x="74" y="54" width="110" height="92" rx="8" stroke="#6366F1" strokeWidth="1.5" fill="#4F46E5" fillOpacity="0.15" />
-                <Circle cx="268" cy="100" r="38" stroke="#818CF8" strokeWidth="1.5" fill="#4F46E5" fillOpacity="0.12" />
-                <Circle cx="268" cy="100" r="16" stroke="#A5B4FC" strokeWidth="1.5" fill="none" />
+                <Rect x="44" y="34" width="312" height="132" rx="14" stroke="#383842" strokeWidth="1.5" fill="#18181C" fillOpacity="0.7" />
+                <Rect x="74" y="54" width="110" height="92" rx="8" stroke="#F5C542" strokeWidth="1.5" fill="#F5C542" fillOpacity="0.14" />
+                <Circle cx="268" cy="100" r="38" stroke="#F5C542" strokeWidth="1.5" fill="#F5C542" fillOpacity="0.1" />
+                <Circle cx="268" cy="100" r="16" stroke="#D9383A" strokeWidth="1.5" fill="none" />
               </>
             )}
             {kind === "artist" && (
               <>
-                <Circle cx="200" cy="100" r="72" stroke="#3F3F46" strokeWidth="1.5" fill="#18181B" fillOpacity="0.7" />
-                <Circle cx="200" cy="100" r="50" stroke="#4F46E5" strokeWidth="1.5" fill="none" />
-                <Circle cx="200" cy="100" r="28" stroke="#818CF8" strokeWidth="1.5" fill="#4F46E5" fillOpacity="0.25" />
-                <Circle cx="200" cy="100" r="7" fill="#A5B4FC" />
+                <Circle cx="200" cy="100" r="72" stroke="#383842" strokeWidth="1.5" fill="#18181B" fillOpacity="0.7" />
+                <Circle cx="200" cy="100" r="50" stroke="#F5C542" strokeWidth="1.5" fill="none" />
+                <Circle cx="200" cy="100" r="28" stroke="#F7CE5B" strokeWidth="1.5" fill="#F5C542" fillOpacity="0.18" />
+                <Circle cx="200" cy="100" r="7" fill="#D9383A" />
               </>
             )}
             {kind === "service" && (
@@ -538,7 +559,7 @@ export function MusicalCover({
                     width={12}
                     height={120}
                     rx={6}
-                    fill="#1F1F26"
+                    fill="#232329"
                   />
                 ))}
                 {bars.slice(0, 12).map((barHeight, i) => (
@@ -547,7 +568,7 @@ export function MusicalCover({
                     cx={58 + i * 26}
                     cy={60 + (barHeight % 75)}
                     r={6}
-                    fill={i % 3 === 0 ? "#818CF8" : "#4F46E5"}
+                    fill={i % 4 === 0 ? "#D9383A" : "#F5C542"}
                   />
                 ))}
               </>
@@ -567,20 +588,27 @@ export function MusicalCover({
             justifyContent: "space-between",
             alignItems: "center",
             gap: 8,
+            minWidth: 0,
           }}
         >
           {badge ? (
             <View
               style={{
+                flexShrink: 1,
+                maxWidth: subBadge ? "48%" : "100%",
                 paddingHorizontal: 10,
                 paddingVertical: 4,
                 borderRadius: radius.pill,
-                backgroundColor: "#09090BE6",
+                backgroundColor: "rgba(17, 17, 19, 0.90)",
                 borderWidth: 1,
-                borderColor: "#27272A",
+                borderColor: "#383842",
               }}
             >
-              <Text style={{ color: "#FAFAFA", fontSize: 10, fontWeight: "700", letterSpacing: 0.8, textTransform: "uppercase" }}>
+              <Text
+                numberOfLines={1}
+                ellipsizeMode="tail"
+                style={{ color: "#F5F5F2", fontSize: 12, lineHeight: 16, fontWeight: "700", letterSpacing: 0.8, textTransform: "uppercase", flexShrink: 1 }}
+              >
                 {badge}
               </Text>
             </View>
@@ -588,13 +616,21 @@ export function MusicalCover({
           {subBadge ? (
             <View
               style={{
+                flexShrink: 1,
+                maxWidth: badge ? "58%" : "100%",
                 paddingHorizontal: 10,
                 paddingVertical: 4,
                 borderRadius: radius.pill,
-                backgroundColor: "#4F46E5E6",
+                backgroundColor: "rgba(25, 25, 29, 0.90)",
+                borderWidth: 1,
+                borderColor: "#5C4B1B",
               }}
             >
-              <Text style={{ color: "#FFFFFF", fontSize: 10, fontWeight: "700", letterSpacing: 0.6 }}>
+              <Text
+                numberOfLines={1}
+                ellipsizeMode="tail"
+                style={{ color: "#F7CE5B", fontSize: 12, lineHeight: 16, fontWeight: "700", letterSpacing: 0.6, flexShrink: 1 }}
+              >
                 {subBadge}
               </Text>
             </View>
@@ -603,7 +639,7 @@ export function MusicalCover({
       )}
     </View>
   );
-}
+});
 
 export function Copy({
   children,
@@ -653,7 +689,7 @@ export function Button({
   const [hovered, setHovered] = useState(false);
   const [focused, setFocused] = useState(false);
   const active = hovered && !disabled;
-  const solid = danger ? colors.dangerStrong : colors.primary;
+  const solid = danger ? colors.danger : colors.primary;
   return (
     <Pressable
       accessibilityRole="button"
@@ -666,7 +702,7 @@ export function Button({
       onFocus={() => setFocused(true)}
       onBlur={() => setFocused(false)}
       style={({ pressed }) => ({
-        minHeight: 44,
+        minHeight: 48,
         maxWidth: "100%",
         flexShrink: 1,
         alignSelf: secondary ? "flex-start" : undefined,
@@ -676,21 +712,23 @@ export function Button({
         borderWidth: 1,
         borderColor: secondary
           ? danger
+            ? colors.dangerBorder
+            : colors.borderStrong
+          : danger
             ? colors.danger
-            : active
-              ? colors.borderStrong
-              : colors.border
-          : solid,
+            : colors.primaryHover,
         backgroundColor: secondary
           ? danger
-            ? active
-              ? colors.dangerSoft
-              : "transparent"
+            ? active || pressed
+              ? colors.dangerBorder
+              : colors.dangerSoft
             : active || pressed
               ? colors.secondaryHover
               : colors.secondary
           : danger
-            ? solid
+            ? pressed || active
+              ? colors.dangerHover
+              : solid
             : pressed
               ? colors.primaryPressed
               : active
@@ -701,16 +739,16 @@ export function Button({
           : !secondary && !danger && !disabled && active
             ? shadows.primary
             : undefined,
-        opacity: disabled ? 0.5 : pressed && (secondary || danger) ? 0.84 : 1,
+        opacity: disabled ? 0.55 : pressed && (secondary || danger) ? 0.9 : 1,
         transform: [{ scale: pressed && !disabled ? 0.985 : 1 }],
         justifyContent: "center",
       })}
     >
       <Text
         style={{
-          color: secondary ? (danger ? colors.danger : colors.onSecondary) : danger ? colors.onDanger : colors.onPrimary,
+          color: secondary ? (danger ? colors.dangerText : colors.onSecondary) : danger ? colors.onDanger : colors.onPrimary,
           fontSize: 14,
-          fontWeight: "600",
+          fontWeight: secondary ? "600" : "700",
           letterSpacing: 0.15,
           textAlign: "center",
         }}
@@ -785,6 +823,12 @@ export function FormScope({ form, children }: PropsWithChildren<{ form: ReturnTy
   return <FormContext.Provider value={form.api}>{children}</FormContext.Provider>;
 }
 
+export function useFormRegistration(id: string, check: () => string | null): boolean {
+  const form = useContext(FormContext);
+  useEffect(() => form?.register(id, check), [form, id, check]);
+  return Boolean(form?.submitted);
+}
+
 // A blur caused by pressing a button must not show its error (and move the layout) before that click lands:
 // while a pointer is down on the web, the blur error waits for the release.
 let pointerDown = false;
@@ -816,10 +860,10 @@ export function Field({
   const message = error ?? (touched || form?.submitted ? check.current() : null);
   const errorId = `${id}-error`;
   return (
-    <View style={{ gap: 6, flexGrow: 1, flexShrink: 1, minWidth: 0, maxWidth: "100%" }}>
-      <Text style={[styles.label, focused && { color: colors.accent }, message ? { color: colors.danger } : null]}>
+    <View style={{ gap: 6, flexShrink: 1, minWidth: 0, maxWidth: "100%" }}>
+      <Text style={[styles.label, focused && { color: colors.accentText }, message ? { color: colors.dangerText } : null]}>
         {label}
-        {required ? <Text aria-hidden style={{ color: colors.accent }}> *</Text> : null}
+        {required ? <Text aria-hidden style={{ color: colors.accentText }}> *</Text> : null}
       </Text>
       <TextInput
         accessibilityLabel={label}
@@ -842,13 +886,13 @@ export function Field({
         style={[
           styles.input,
           props.multiline ? { minHeight: 84, textAlignVertical: "top" } : null,
-          message ? { borderColor: colors.danger } : null,
-          focused && { borderColor: message ? colors.danger : colors.primary, boxShadow: shadows.focus },
+          message ? { borderColor: colors.dangerBorder } : null,
+          focused && { borderColor: message ? colors.dangerBorder : colors.focus, boxShadow: shadows.focus },
           props.style,
         ]}
       />
       {message ? (
-        <Text nativeID={errorId} accessibilityLiveRegion="polite" style={{ color: colors.danger, ...type.small }}>
+        <Text nativeID={errorId} accessibilityLiveRegion="polite" style={{ color: colors.dangerText, ...type.small }}>
           {message}
         </Text>
       ) : null}
@@ -857,11 +901,11 @@ export function Field({
 }
 
 type Tone = "success" | "error" | "warning" | "info";
-const tones = (): Record<Tone, { color: string; soft: string; glyph: string }> => ({
-  success: { color: colors.success, soft: colors.successSoft, glyph: "✓" },
-  error: { color: colors.danger, soft: colors.dangerSoft, glyph: "!" },
-  warning: { color: colors.warning, soft: colors.warningSoft, glyph: "!" },
-  info: { color: colors.info, soft: colors.infoSoft, glyph: "i" },
+const tones = (): Record<Tone, { color: string; border: string; text: string; soft: string; glyphColor: string; glyph: string }> => ({
+  success: { color: colors.success, border: colors.successBorder, text: colors.successText, soft: colors.successSoft, glyphColor: "#FFFFFF", glyph: "✓" },
+  error: { color: colors.danger, border: colors.dangerBorder, text: colors.dangerText, soft: colors.dangerSoft, glyphColor: colors.onDanger, glyph: "!" },
+  warning: { color: colors.warning, border: colors.warningBorder, text: colors.warningText, soft: colors.warningSoft, glyphColor: colors.bg, glyph: "!" },
+  info: { color: colors.info, border: colors.infoBorder, text: colors.infoText, soft: colors.infoSoft, glyphColor: colors.bg, glyph: "i" },
 });
 
 export function Notice({
@@ -874,7 +918,7 @@ export function Notice({
   tone?: Tone;
 }) {
   if (!message) return null;
-  const { color, soft, glyph } = tones()[error ? "error" : (tone ?? "success")];
+  const { color, border, text, soft, glyphColor, glyph } = tones()[error ? "error" : (tone ?? "success")];
   return (
     <View
       accessibilityRole="alert"
@@ -888,7 +932,8 @@ export function Notice({
         borderRadius: radius.md,
         borderWidth: 1,
         borderLeftWidth: 4,
-        borderColor: color,
+        borderColor: border,
+        borderLeftColor: color,
         backgroundColor: soft,
         minWidth: 0,
         maxWidth: "100%",
@@ -902,7 +947,7 @@ export function Notice({
           marginTop: 1,
           borderRadius: radius.pill,
           backgroundColor: color,
-          color: colors.bg,
+          color: glyphColor,
           fontSize: 12,
           lineHeight: 20,
           fontWeight: "800",
@@ -911,7 +956,151 @@ export function Notice({
       >
         {glyph}
       </Text>
-      <Text style={{ flex: 1, color, ...type.body }}>{message}</Text>
+      <Text style={{ flex: 1, color: text, ...type.body }}>{message}</Text>
+    </View>
+  );
+}
+
+export function SkeletonBox({
+  width = "100%",
+  height = 20,
+  borderRadius = radius.md,
+  style,
+}: {
+  width?: DimensionValue;
+  height?: DimensionValue;
+  borderRadius?: number;
+  style?: StyleProp<ViewStyle>;
+}) {
+  const reducedMotion = useReducedMotion();
+  const pulseAnim = useRef(new Animated.Value(0.4)).current;
+
+  useEffect(() => {
+    if (reducedMotion) {
+      pulseAnim.setValue(0.7);
+      return;
+    }
+    const anim = Animated.loop(
+      Animated.sequence([
+        Animated.timing(pulseAnim, {
+          toValue: 0.85,
+          duration: 750,
+          useNativeDriver: Platform.OS !== "web",
+        }),
+        Animated.timing(pulseAnim, {
+          toValue: 0.4,
+          duration: 750,
+          useNativeDriver: Platform.OS !== "web",
+        }),
+      ]),
+    );
+    anim.start();
+    return () => anim.stop();
+  }, [pulseAnim, reducedMotion]);
+
+  return (
+    <Animated.View
+      style={[
+        {
+          width,
+          height,
+          borderRadius,
+          backgroundColor: colors.surfaceAlt,
+          opacity: pulseAnim,
+        },
+        style,
+      ]}
+    />
+  );
+}
+
+export function SegmentedTabs<T extends string>({
+  tabs,
+  value,
+  onChange,
+}: {
+  tabs: { id: T; label: string; badge?: number | string }[];
+  value: T;
+  onChange(id: T): void;
+}) {
+  const { mobile } = useBento();
+  return (
+    <View
+      accessibilityRole="tablist"
+      style={{
+        flexDirection: "row",
+        flexWrap: "wrap",
+        alignItems: "center",
+        gap: 6,
+        padding: 4,
+        borderRadius: radius.lg,
+        backgroundColor: colors.surfaceAlt,
+        borderWidth: 1,
+        borderColor: colors.border,
+        width: "100%",
+        maxWidth: "100%",
+      }}
+    >
+      {tabs.map((tab) => {
+        const active = value === tab.id;
+        return (
+          <Pressable
+            key={tab.id}
+            accessibilityRole="tab"
+            accessibilityState={{ selected: active }}
+            onPress={() => onChange(tab.id)}
+            style={({ pressed }) => ({
+              minHeight: 40,
+              paddingHorizontal: mobile ? 12 : 16,
+              paddingVertical: 8,
+              borderRadius: radius.md,
+              backgroundColor: active
+                ? colors.primary
+                : pressed
+                  ? colors.surfaceHover
+                  : "transparent",
+              borderWidth: 1,
+              borderColor: active ? colors.primaryHover : "transparent",
+              flexDirection: "row",
+              alignItems: "center",
+              justifyContent: "center",
+              gap: 8,
+            })}
+          >
+            <Text
+              style={{
+                color: active ? colors.onPrimary : colors.text,
+                fontSize: 14,
+                fontWeight: active ? "700" : "500",
+              }}
+            >
+              {tab.label}
+            </Text>
+            {tab.badge !== undefined && (
+              <View
+                style={{
+                  paddingHorizontal: 6,
+                  paddingVertical: 2,
+                  borderRadius: radius.pill,
+                  backgroundColor: active ? "rgba(0,0,0,0.2)" : colors.surface,
+                  borderWidth: 1,
+                  borderColor: active ? "transparent" : colors.border,
+                }}
+              >
+                <Text
+                  style={{
+                    color: active ? colors.onPrimary : colors.muted,
+                    fontSize: 11,
+                    fontWeight: "700",
+                  }}
+                >
+                  {tab.badge}
+                </Text>
+              </View>
+            )}
+          </Pressable>
+        );
+      })}
     </View>
   );
 }
@@ -921,17 +1110,94 @@ export function ResourceState({
   error,
   empty,
   retry,
+  skeleton,
 }: {
   loading: boolean;
   error: string;
   empty?: boolean;
   retry(): void;
+  skeleton?: "card" | "list" | "table" | boolean;
 }) {
-  return loading ? (
-    <View style={{ paddingVertical: 28, alignItems: "center" }}>
-      <ActivityIndicator accessibilityLabel="Cargando" color={colors.accent} size="large" />
-    </View>
-  ) : error ? (
+  if (loading) {
+    if (skeleton === "card" || skeleton === true) {
+      return (
+        <View
+          accessibilityRole="progressbar"
+          accessibilityLabel="Cargando"
+          aria-busy={true}
+          style={{ width: "100%", gap: 14, paddingVertical: 10 }}
+        >
+          <ActivityIndicator
+            accessibilityLabel="Cargando"
+            color={colors.accent}
+            size="small"
+            style={{ position: "absolute", opacity: 0, pointerEvents: "none" }}
+          />
+          <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 14 }}>
+            {[1, 2].map((i) => (
+              <View
+                key={i}
+                style={{
+                  flexGrow: 1,
+                  flexBasis: 280,
+                  padding: 16,
+                  borderRadius: radius.lg,
+                  borderWidth: 1,
+                  borderColor: colors.border,
+                  backgroundColor: colors.surface,
+                  gap: 12,
+                }}
+              >
+                <SkeletonBox height={140} borderRadius={radius.md} />
+                <SkeletonBox width="70%" height={20} />
+                <SkeletonBox width="45%" height={16} />
+                <SkeletonBox width="30%" height={36} borderRadius={radius.md} />
+              </View>
+            ))}
+          </View>
+        </View>
+      );
+    }
+    if (skeleton === "list") {
+      return (
+        <View
+          accessibilityRole="progressbar"
+          accessibilityLabel="Cargando"
+          aria-busy={true}
+          style={{ width: "100%", gap: 10, paddingVertical: 10 }}
+        >
+          <ActivityIndicator
+            accessibilityLabel="Cargando"
+            color={colors.accent}
+            size="small"
+            style={{ position: "absolute", opacity: 0, pointerEvents: "none" }}
+          />
+          {[1, 2, 3].map((i) => (
+            <View
+              key={i}
+              style={{
+                padding: 14,
+                borderRadius: radius.md,
+                borderWidth: 1,
+                borderColor: colors.border,
+                backgroundColor: colors.surface,
+                gap: 8,
+              }}
+            >
+              <SkeletonBox width="60%" height={18} />
+              <SkeletonBox width="40%" height={14} />
+            </View>
+          ))}
+        </View>
+      );
+    }
+    return (
+      <View style={{ paddingVertical: 28, alignItems: "center" }}>
+        <ActivityIndicator accessibilityLabel="Cargando" color={colors.accent} size="large" />
+      </View>
+    );
+  }
+  return error ? (
     <Card>
       <Notice message={error} error />
       <Button title="Reintentar" onPress={retry} />
@@ -1114,4 +1380,171 @@ const FLOW_LABELS: Record<string, string> = {
 export function flowLabel(flow: string | null | undefined): string {
   if (!flow) return "";
   return FLOW_LABELS[flow] ?? flow;
+}
+
+export function QuantityStepper({
+  label,
+  value,
+  min = 0,
+  max,
+  disabled = false,
+  onChange,
+}: {
+  label: string;
+  value: number;
+  min?: number;
+  max: number;
+  disabled?: boolean;
+  onChange(next: number): void;
+}) {
+  const canDecrease = !disabled && value > min;
+  const canIncrease = !disabled && value < max;
+  return (
+    <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 12, minWidth: 0, maxWidth: "100%" }}>
+      <Copy muted size="small">
+        {label}
+      </Copy>
+      <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel={`Disminuir ${label}`}
+          accessibilityState={{ disabled: !canDecrease }}
+          disabled={!canDecrease}
+          onPress={() => onChange(Math.max(min, value - 1))}
+          style={({ pressed }) => ({
+            width: 44,
+            height: 44,
+            borderRadius: radius.md,
+            borderWidth: 1,
+            borderColor: colors.borderStrong,
+            backgroundColor: pressed && canDecrease ? colors.secondaryHover : colors.secondary,
+            opacity: canDecrease ? 1 : 0.45,
+            alignItems: "center",
+            justifyContent: "center",
+          })}
+        >
+          <Text style={{ color: colors.onSecondary, fontSize: 18, fontWeight: "800" }}>−</Text>
+        </Pressable>
+        <View
+          accessibilityLabel={label}
+          style={{
+            minWidth: 44,
+            height: 44,
+            paddingHorizontal: 10,
+            borderRadius: radius.md,
+            borderWidth: 1,
+            borderColor: value > 0 ? colors.accentBorder : colors.border,
+            backgroundColor: value > 0 ? colors.accentSoft : colors.surfaceAlt,
+            alignItems: "center",
+            justifyContent: "center",
+          }}
+        >
+          <Text style={{ color: value > 0 ? colors.accentText : colors.text, fontSize: 15, fontWeight: "700" }}>
+            {value}
+          </Text>
+        </View>
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel={`Aumentar ${label}`}
+          accessibilityState={{ disabled: !canIncrease }}
+          disabled={!canIncrease}
+          onPress={() => onChange(Math.min(max, value + 1))}
+          style={({ pressed }) => ({
+            width: 44,
+            height: 44,
+            borderRadius: radius.md,
+            borderWidth: 1,
+            borderColor: canIncrease ? colors.primaryHover : colors.borderStrong,
+            backgroundColor: canIncrease ? (pressed ? colors.primaryPressed : colors.primary) : colors.secondary,
+            opacity: canIncrease ? 1 : 0.45,
+            alignItems: "center",
+            justifyContent: "center",
+          })}
+        >
+          <Text style={{ color: canIncrease ? colors.onPrimary : colors.onSecondary, fontSize: 18, fontWeight: "800" }}>
+            +
+          </Text>
+        </Pressable>
+      </View>
+    </View>
+  );
+}
+
+// Re-synchronizes resource state with the backend when the app returns to foreground,
+// window regains focus, or network reconnects.
+export function useHoldSync(enabled: boolean, onSync: () => void) {
+  const syncRef = useRef(onSync);
+  syncRef.current = onSync;
+
+  useEffect(() => {
+    if (!enabled) return;
+    const sub = AppState.addEventListener("change", (state) => {
+      if (state === "active") syncRef.current();
+    });
+    const onWindowFocus = () => syncRef.current();
+    if (Platform.OS === "web" && typeof window !== "undefined") {
+      window.addEventListener("focus", onWindowFocus);
+      window.addEventListener("online", onWindowFocus);
+    }
+    return () => {
+      sub.remove();
+      if (Platform.OS === "web" && typeof window !== "undefined") {
+        window.removeEventListener("focus", onWindowFocus);
+        window.removeEventListener("online", onWindowFocus);
+      }
+    };
+  }, [enabled]);
+}
+
+// Informative, approximate HOLD countdown indicator.
+// Never pauses, extends, or modifies the HOLD on the client; the backend remains the sole authority.
+export function HoldIndicator({
+  expiresAt,
+  active = true,
+  onExpire,
+}: {
+  expiresAt?: string | null;
+  active?: boolean;
+  onExpire?: () => void;
+}) {
+  const [nowMs, setNowMs] = useState(() => getServerNow());
+  const notifiedExpire = useRef(false);
+  const expireRef = useRef(onExpire);
+  expireRef.current = onExpire;
+
+  useEffect(() => {
+    notifiedExpire.current = false;
+  }, [expiresAt]);
+
+  useEffect(() => {
+    if (!active || !expiresAt) return;
+    setNowMs(getServerNow());
+    const timer = setInterval(() => {
+      const current = getServerNow();
+      setNowMs(current);
+      const target = Date.parse(expiresAt);
+      if (!Number.isNaN(target) && current >= target && !notifiedExpire.current) {
+        notifiedExpire.current = true;
+        expireRef.current?.();
+      }
+    }, 15000);
+    return () => clearInterval(timer);
+  }, [active, expiresAt]);
+
+  if (!active || !expiresAt) return null;
+  const targetMs = Date.parse(expiresAt);
+  if (Number.isNaN(targetMs)) return null;
+  const remainingMs = targetMs - nowMs;
+  const remainingMinutes = Math.max(0, Math.ceil(remainingMs / 60000));
+  const formattedTarget = dateLabel(expiresAt);
+
+  return (
+    <View style={[styles.badge, { flexDirection: "row", alignItems: "center", gap: 6 }]}>
+      <Copy size="small" color={colors.accentText} weight="700">
+        {remainingMinutes > 0
+          ? `Reserva temporal (~${remainingMinutes} min restantes · vence ${formattedTarget})`
+          : `Reserva temporal por vencer (${formattedTarget})`}
+      </Copy>
+    </View>
+  );
 }

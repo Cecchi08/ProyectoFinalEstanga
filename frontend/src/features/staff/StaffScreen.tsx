@@ -76,11 +76,12 @@ export default function StaffScreen() {
                   flexGrow: 1,
                   flexShrink: 1,
                   minWidth: 0,
-                  flexBasis: mobile ? "100%" : 340,
+                  flexBasis: mobile ? "auto" : 340,
+                  width: mobile ? "100%" : undefined,
                   maxWidth: "100%",
                 }}
               >
-                <Card style={{ height: "100%", justifyContent: "space-between" }}>
+                <Card style={{ flexGrow: 1, justifyContent: "space-between" }}>
                   <View style={{ gap: 6 }}>
                     <Copy strong>{concert.name}</Copy>
                     <Copy muted>
@@ -108,7 +109,8 @@ export default function StaffScreen() {
               flexGrow: 1,
               flexShrink: 1,
               minWidth: 0,
-              flexBasis: mobile ? "100%" : 420,
+              flexBasis: mobile ? "auto" : 420,
+              width: mobile ? "100%" : undefined,
               maxWidth: "100%",
               gap: 16,
             }}
@@ -132,7 +134,8 @@ export default function StaffScreen() {
               flexGrow: 1,
               flexShrink: 1,
               minWidth: 0,
-              flexBasis: mobile ? "100%" : 460,
+              flexBasis: mobile ? "auto" : 460,
+              width: mobile ? "100%" : undefined,
               maxWidth: "100%",
               gap: 14,
             }}

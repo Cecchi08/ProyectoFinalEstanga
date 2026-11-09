@@ -20,6 +20,7 @@ import {
   Button,
   Card,
   Copy,
+  DateTimeField,
   Field,
   FormScope,
   MusicalCover,
@@ -34,10 +35,12 @@ import {
   styles,
   useAction,
   useBento,
+  useDebouncedValue,
   useForm,
 } from "../../components/ui";
 import { Select } from "../../components/ui/Select";
 import { ConcertCard } from "../concerts/ConcertList";
+import { fromArgDateTimeToUtcIso } from "../marketplace/time";
 
 const STATUS: Record<Artist["status"], string> = {
   DRAFT: "Borrador",
@@ -112,11 +115,12 @@ export default function ArtistsScreen() {
               flexGrow: 1,
               flexShrink: 1,
               minWidth: 0,
-              flexBasis: mobile ? "100%" : 340,
+              flexBasis: mobile ? "auto" : 340,
+              width: mobile ? "100%" : undefined,
               maxWidth: "100%",
             }}
           >
-            <Card style={{ height: "100%", justifyContent: "space-between" }}>
+            <Card style={{ flexGrow: 1, justifyContent: "space-between" }}>
               <View style={{ gap: 10 }}>
                 <MusicalCover
                   uri={artist.image_url}
@@ -158,13 +162,20 @@ export function ArtistProposalsPanel({ artistId }: { artistId?: string }) {
   const proposals = useResource<ArtistProposal[]>(path);
   const action = useAction();
   const { mobile } = useBento();
+  const [rejectingId, setRejectingId] = useState<string | null>(null);
+  const [rejectReason, setRejectReason] = useState("");
 
   const respond = (proposal: ArtistProposal, operation: "accept" | "reject" | "cancel", note?: string) =>
     action.run(async () => {
+      if (operation === "reject" && (!note || note.trim().length < 3)) {
+        throw new Error("Indicá un motivo de al menos 3 caracteres para rechazar la propuesta.");
+      }
       await api.request(`/proposals/${proposal.id}/${operation}`, {
         method: "POST",
-        body: note ? { reason: note } : {},
+        body: note ? { reason: note.trim() } : {},
       });
+      setRejectingId(null);
+      setRejectReason("");
       await proposals.reload();
       action.setMessage(
         operation === "accept"
@@ -195,11 +206,12 @@ export function ArtistProposalsPanel({ artistId }: { artistId?: string }) {
               flexGrow: 1,
               flexShrink: 1,
               minWidth: 0,
-              flexBasis: mobile ? "100%" : 380,
+              flexBasis: mobile ? "auto" : 380,
+              width: mobile ? "100%" : undefined,
               maxWidth: "100%",
             }}
           >
-            <Card style={{ height: "100%", justifyContent: "space-between", gap: 10 }}>
+            <Card style={{ flexGrow: 1, justifyContent: "space-between", gap: 10 }}>
               <View style={{ gap: 6 }}>
                 <Copy strong>
                   {proposal.event_title} · {statusLabel(proposal.status)}
@@ -233,36 +245,33 @@ export function ArtistProposalsPanel({ artistId }: { artistId?: string }) {
                 )}
               </View>
 
-              {proposal.status === "PENDING" && (
+              <View style={{ gap: 8 }}>
                 <View style={styles.row}>
-                  {proposal.can_respond && (
+                  <Button
+                    title="Ver detalle completo"
+                    secondary
+                    onPress={() => router.push(`/proposals/${proposal.id}`)}
+                  />
+                  {proposal.status === "PENDING" && proposal.can_respond && (
                     <>
                       <Button
                         title="Aceptar propuesta"
                         disabled={action.busy}
-                        onPress={() =>
-                          void respond(
-                            proposal,
-                            "accept",
-                          )
-                        }
+                        onPress={() => void respond(proposal, "accept")}
                       />
                       <Button
-                        title="Rechazar"
+                        title={rejectingId === proposal.id ? "Cancelar rechazo" : "Rechazar"}
                         secondary
                         danger
                         disabled={action.busy}
-                        onPress={() =>
-                          void respond(
-                            proposal,
-                            "reject",
-                            "No contamos con disponibilidad en esa fecha.",
-                          )
-                        }
+                        onPress={() => {
+                          setRejectingId(rejectingId === proposal.id ? null : proposal.id);
+                          setRejectReason("");
+                        }}
                       />
                     </>
                   )}
-                  {proposal.can_cancel && (
+                  {proposal.status === "PENDING" && proposal.can_cancel && (
                     <Button
                       title="Cancelar solicitud"
                       secondary
@@ -272,7 +281,24 @@ export function ArtistProposalsPanel({ artistId }: { artistId?: string }) {
                     />
                   )}
                 </View>
-              )}
+                {proposal.status === "PENDING" && proposal.can_respond && rejectingId === proposal.id && (
+                  <View style={{ gap: 8, paddingTop: 4 }}>
+                    <Field
+                      label="Motivo del rechazo (mínimo 3 caracteres)"
+                      required
+                      multiline
+                      value={rejectReason}
+                      onChangeText={setRejectReason}
+                    />
+                    <Button
+                      title="Confirmar rechazo"
+                      danger
+                      disabled={action.busy}
+                      onPress={() => void respond(proposal, "reject", rejectReason)}
+                    />
+                  </View>
+                )}
+              </View>
             </Card>
           </View>
         ))}
@@ -290,7 +316,8 @@ function ArtistPitchToVenueForm({
 }) {
   const [selectedArtistId, setSelectedArtistId] = useState<string>(artists[0]?.id ?? "");
   const [venueSearch, setVenueSearch] = useState("");
-  const venues = useResource<Venue[]>(`/marketplace/venues${query({ q: venueSearch.trim(), limit: 12 })}`);
+  const debouncedVenueSearch = useDebouncedValue(venueSearch, 300);
+  const venues = useResource<Venue[]>(`/marketplace/venues${query({ q: debouncedVenueSearch.trim(), limit: 12 })}`);
   const [selectedVenue, setSelectedVenue] = useState<Venue | null>(null);
   const [form, setForm] = useState<Record<string, string>>({});
   const action = useAction();
@@ -308,7 +335,7 @@ function ArtistPitchToVenueForm({
       }
 
       const proposedDate = form.event_date?.trim()
-        ? new Date(`${form.event_date.trim()}T21:00:00Z`).toISOString()
+        ? fromArgDateTimeToUtcIso(form.event_date.trim(), "21:00")
         : new Date(Date.now() + 14 * 86400000).toISOString();
 
       await api.request("/proposals", {
@@ -371,11 +398,11 @@ function ArtistPitchToVenueForm({
           placeholder="Ej. Presentación de álbum en Mar del Plata"
         />
         <View style={styles.row}>
-          <Field
-            label="Fecha tentativa (AAAA-MM-DD, opcional)"
+          <DateTimeField
+            label="Fecha tentativa (opcional)"
+            mode="date"
             value={form.event_date ?? ""}
-            onChangeText={(v) => setForm({ ...form, event_date: v })}
-            placeholder="2026-12-05"
+            onChange={(v) => setForm({ ...form, event_date: v })}
           />
           <Field
             label="Presupuesto / Borderaux estimado (ARS, opcional)"
@@ -606,7 +633,8 @@ export function ArtistScreen() {
                 flexGrow: 2,
                 flexShrink: 1,
                 minWidth: 0,
-                flexBasis: mobile ? "100%" : 500,
+                flexBasis: mobile ? "auto" : 500,
+                width: mobile ? "100%" : undefined,
                 maxWidth: "100%",
                 gap: 16,
               }}
@@ -695,7 +723,8 @@ export function ArtistScreen() {
                 flexGrow: 1,
                 flexShrink: 1,
                 minWidth: 0,
-                flexBasis: mobile ? "100%" : 380,
+                flexBasis: mobile ? "auto" : 380,
+                width: mobile ? "100%" : undefined,
                 maxWidth: "100%",
               }}
             >

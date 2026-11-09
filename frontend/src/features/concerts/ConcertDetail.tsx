@@ -11,6 +11,7 @@ import {
   type PurchaseAttempt,
 } from "./purchaseAttempt";
 import { api } from "../../services/api";
+import { getServerNow } from "../../services/http";
 import { useResource } from "../../hooks/useResource";
 import { useNotifications } from "../../contexts/NotificationsContext";
 import type { Concert, Purchase } from "../../types/api";
@@ -23,6 +24,7 @@ import {
   Field,
   MusicalCover,
   Page,
+  QuantityStepper,
   ResourceState,
   SectionHeader,
   colors,
@@ -146,7 +148,8 @@ export default function ConcertDetail() {
               flexGrow: 2,
               flexShrink: 1,
               minWidth: 0,
-              flexBasis: mobile ? "100%" : 540,
+              flexBasis: mobile ? "auto" : 540,
+              width: mobile ? "100%" : undefined,
               maxWidth: "100%",
               gap: 16,
             }}
@@ -158,7 +161,11 @@ export default function ConcertDetail() {
                 kind="concert"
                 height={desktop ? 270 : 210}
                 badge={statusLabel(concert.status)}
-                subBadge={concert.genres.map((g) => g.name).join(" · ")}
+                subBadge={
+                  concert.genres.length > 2
+                    ? `${concert.genres.slice(0, 2).map((g) => g.name).join(" · ")} +${concert.genres.length - 2}`
+                    : concert.genres.map((g) => g.name).join(" · ")
+                }
               />
               <View style={{ gap: 8 }}>
                 <Copy strong>{dateLabel(concert.start_datetime)}</Copy>
@@ -209,7 +216,8 @@ export default function ConcertDetail() {
               flexGrow: 1,
               flexShrink: 1,
               minWidth: 0,
-              flexBasis: mobile ? "100%" : 380,
+              flexBasis: mobile ? "auto" : 380,
+              width: mobile ? "100%" : undefined,
               maxWidth: "100%",
               gap: 14,
             }}
@@ -270,96 +278,141 @@ export default function ConcertDetail() {
                     title="Elegí tus entradas"
                     subtitle="Seleccioná la cantidad y completá el pago para emitir tus códigos QR al instante."
                   />
+                  <Copy strong={totalSelectedTickets > 0} muted={totalSelectedTickets === 0}>
+                    {totalSelectedTickets > 0
+                      ? `Resumen: ${totalSelectedTickets} ${totalSelectedTickets === 1 ? "entrada seleccionada" : "entradas seleccionadas"} · Total ${money(estimatedTotal)}`
+                      : "Seleccioná al menos 1 entrada para habilitar el pago."}
+                  </Copy>
                 </Card>
-                {concert.ticket_types.map((type) => (
-                  <Card key={type.id}>
-                    <Copy strong>
-                      {type.name} · {money(type.price)}
-                    </Copy>
-                    <Copy muted>
-                      {type.max_per_purchase
-                        ? `Máximo por compra: ${type.max_per_purchase}`
-                        : "Disponibilidad inmediata."}
-                    </Copy>
-                    {type.sale_end && (
-                      <Copy muted>Venta hasta {dateLabel(type.sale_end)}</Copy>
-                    )}
-                    <Field
-                      label={`Cantidad ${type.name}`}
-                      keyboardType="number-pad"
-                      value={quantities[type.id] ?? ""}
-                      placeholder="0"
-                      onChangeText={(value) =>
-                        setQuantities({ ...quantities, [type.id]: value })
-                      }
-                    />
-                  </Card>
-                ))}
+                {concert.ticket_types.map((type) => {
+                  const nowMs = getServerNow();
+                  const availableStock =
+                    type.stock_available ??
+                    Math.max(0, Number(type.stock_total ?? 0) - Number(type.quantity_sold ?? 0));
+                  const soldOut = availableStock <= 0;
+                  const beforeStart = type.sale_start ? Date.parse(type.sale_start) > nowMs : false;
+                  const afterEnd = type.sale_end ? Date.parse(type.sale_end) < nowMs : false;
+                  const outsideWindow = beforeStart || afterEnd;
+                  const maxAllowed = Math.max(
+                    0,
+                    Math.min(
+                      availableStock,
+                      type.max_per_purchase != null && type.max_per_purchase > 0
+                        ? type.max_per_purchase
+                        : availableStock,
+                    ),
+                  );
+                  return (
+                    <Card key={type.id}>
+                      <View style={styles.between}>
+                        <Copy strong>
+                          {type.name} · {money(type.price)}
+                        </Copy>
+                        {soldOut ? (
+                          <View style={[styles.badgeMuted, { borderColor: colors.dangerBorder, backgroundColor: colors.dangerSoft }]}>
+                            <Copy size="small" color={colors.dangerText} weight="700">
+                              Agotado
+                            </Copy>
+                          </View>
+                        ) : outsideWindow ? (
+                          <View style={styles.badgeMuted}>
+                            <Copy size="small" muted weight="700">
+                              Fuera de ventana de venta
+                            </Copy>
+                          </View>
+                        ) : null}
+                      </View>
+                      <Copy muted>
+                        {soldOut
+                          ? "Sin cupo disponible."
+                          : outsideWindow
+                            ? "La venta para este tipo de entrada no está activa en este momento."
+                            : type.max_per_purchase
+                              ? `Disponibles: ${availableStock} · Máximo por compra: ${type.max_per_purchase}`
+                              : `Disponibles: ${availableStock} · Disponibilidad inmediata.`}
+                      </Copy>
+                      {type.sale_start && (
+                        <Copy muted>Venta desde {dateLabel(type.sale_start)}</Copy>
+                      )}
+                      {type.sale_end && (
+                        <Copy muted>Venta hasta {dateLabel(type.sale_end)}</Copy>
+                      )}
+                      <QuantityStepper
+                        label={`Cantidad ${type.name}`}
+                        value={Number(quantities[type.id] || 0)}
+                        min={0}
+                        max={maxAllowed}
+                        disabled={soldOut || outsideWindow || concert.status !== "PUBLISHED"}
+                        onChange={(next) =>
+                          setQuantities({ ...quantities, [type.id]: next > 0 ? String(next) : "" })
+                        }
+                      />
+                    </Card>
+                  );
+                })}
                 {!concert.ticket_types.length && (
                   <Card variant="subtle">
                     <Copy muted>No hay entradas disponibles.</Copy>
                   </Card>
                 )}
 
-                <Card variant="featured">
-                  <SectionHeader
-                    title="Pago con tarjeta"
-                    subtitle={
-                      totalSelectedTickets > 0
-                        ? `${totalSelectedTickets} ${totalSelectedTickets === 1 ? "entrada seleccionada" : "entradas seleccionadas"} · Total a pagar: ${money(estimatedTotal)}`
-                        : "Seleccioná tus entradas y completá los datos de tu tarjeta"
-                    }
-                  />
-                  <Field
-                    label="Número de tarjeta"
-                    keyboardType="number-pad"
-                    placeholder="4509 1234 5678 9010"
-                    value={cardNumber}
-                    onChangeText={(v) => setCardNumber(formatCardNumber(v))}
-                  />
-                  <View style={styles.row}>
-                    <View style={{ flex: 1, minWidth: 140 }}>
-                      <Field
-                        label="Fecha de vencimiento (MM/AA)"
-                        keyboardType="number-pad"
-                        placeholder="08/28"
-                        value={expiry}
-                        onChangeText={(v) => setExpiry(formatCardExpiry(v))}
-                      />
-                    </View>
-                    <View style={{ flex: 1, minWidth: 120 }}>
-                      <Field
-                        label="Código de seguridad (CVV)"
-                        keyboardType="number-pad"
-                        placeholder="123"
-                        secureTextEntry
-                        value={cvv}
-                        onChangeText={(v) => setCvv(formatCardCvv(v))}
-                      />
-                    </View>
-                  </View>
-                  <ActionFeedback action={action} />
-                  {action.busy && (
-                    <View style={{ flexDirection: "row", alignItems: "center", gap: 10, paddingVertical: 4 }}>
-                      <ActivityIndicator color={colors.accent} size="small" />
-                      <Copy muted>Procesando pago y generando tus entradas...</Copy>
-                    </View>
-                  )}
-                  <View style={styles.row}>
-                    <Button
-                      title={action.busy ? "Procesando pago..." : "Pagar"}
-                      disabled={
-                        action.busy ||
-                        concert.status !== "PUBLISHED" ||
-                        !concert.ticket_types.length
-                      }
-                      onPress={() => void pay()}
+                {totalSelectedTickets > 0 && (
+                  <Card variant="featured">
+                    <SectionHeader
+                      title="Pago con tarjeta"
+                      subtitle={`${totalSelectedTickets} ${totalSelectedTickets === 1 ? "entrada seleccionada" : "entradas seleccionadas"} · Total a pagar: ${money(estimatedTotal)}`}
                     />
-                  </View>
-                  <Copy muted>
-                    Simulación académica: los datos de la tarjeta se validan localmente y nunca se almacenan ni envían al servidor.
-                  </Copy>
-                </Card>
+                    <Field
+                      label="Número de tarjeta"
+                      keyboardType="number-pad"
+                      placeholder="4509 1234 5678 9010"
+                      value={cardNumber}
+                      onChangeText={(v) => setCardNumber(formatCardNumber(v))}
+                    />
+                    <View style={styles.row}>
+                      <View style={{ flex: 1, minWidth: 140 }}>
+                        <Field
+                          label="Fecha de vencimiento (MM/AA)"
+                          keyboardType="number-pad"
+                          placeholder="08/28"
+                          value={expiry}
+                          onChangeText={(v) => setExpiry(formatCardExpiry(v))}
+                        />
+                      </View>
+                      <View style={{ flex: 1, minWidth: 120 }}>
+                        <Field
+                          label="Código de seguridad (CVV)"
+                          keyboardType="number-pad"
+                          placeholder="123"
+                          secureTextEntry
+                          value={cvv}
+                          onChangeText={(v) => setCvv(formatCardCvv(v))}
+                        />
+                      </View>
+                    </View>
+                    <ActionFeedback action={action} />
+                    {action.busy && (
+                      <View style={{ flexDirection: "row", alignItems: "center", gap: 10, paddingVertical: 4 }}>
+                        <ActivityIndicator color={colors.accent} size="small" />
+                        <Copy muted>Procesando pago y generando tus entradas...</Copy>
+                      </View>
+                    )}
+                    <View style={styles.row}>
+                      <Button
+                        title={action.busy ? "Procesando pago..." : "Pagar"}
+                        disabled={
+                          action.busy ||
+                          concert.status !== "PUBLISHED" ||
+                          !concert.ticket_types.length
+                        }
+                        onPress={() => void pay()}
+                      />
+                    </View>
+                    <Copy muted>
+                      Simulación académica: los datos de la tarjeta se validan localmente y nunca se almacenan ni envían al servidor.
+                    </Copy>
+                  </Card>
+                )}
               </>
             )}
           </View>

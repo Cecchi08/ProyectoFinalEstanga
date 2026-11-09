@@ -18,6 +18,7 @@ import {
   Card,
   Copy,
   Field,
+  HoldIndicator,
   Notice,
   Page,
   Pager,
@@ -31,6 +32,7 @@ import {
   styles,
   useAction,
   useBento,
+  useHoldSync,
 } from "../../components/ui";
 
 const refundLabel = (purchase: Purchase) =>
@@ -40,6 +42,8 @@ export default function PurchasesScreen() {
   const [page, setPage] = useState(1);
   const { mobile } = useBento();
   const resource = useResource<Purchase[]>(`/purchases/me?page=${page}`);
+  const hasPending = Boolean(resource.result?.data.some((p) => p.status === "PENDING"));
+  useHoldSync(hasPending, () => void resource.reload());
   return (
     <Page
       eyebrow="VENTI · ÓRDENES Y ENTRADAS"
@@ -50,6 +54,7 @@ export default function PurchasesScreen() {
         {...resource}
         empty={!resource.result?.data.length}
         retry={() => void resource.reload()}
+        skeleton="list"
       />
       <BentoGrid>
         {resource.result?.data.map((purchase) => (
@@ -59,11 +64,12 @@ export default function PurchasesScreen() {
               flexGrow: 1,
               flexShrink: 1,
               minWidth: 0,
-              flexBasis: mobile ? "100%" : 360,
+              flexBasis: mobile ? "auto" : 360,
+              width: mobile ? "100%" : undefined,
               maxWidth: "100%",
             }}
           >
-            <Card style={{ height: "100%", justifyContent: "space-between" }}>
+            <Card style={{ flexGrow: 1, justifyContent: "space-between" }}>
               <View style={{ gap: 6 }}>
                 <Copy strong>
                   {purchase.concert_name ?? "Compra de entradas"}
@@ -81,6 +87,13 @@ export default function PurchasesScreen() {
                 <Copy muted>
                   {dateLabel(purchase.created_at)} · {money(purchase.total)}
                 </Copy>
+                {purchase.status === "PENDING" && purchase.expires_at && (
+                  <HoldIndicator
+                    expiresAt={purchase.expires_at}
+                    active={purchase.status === "PENDING"}
+                    onExpire={() => void resource.reload()}
+                  />
+                )}
               </View>
               <Button
                 title="Ver detalle de compra"
@@ -108,6 +121,7 @@ export function PurchaseDetail() {
   const [expiry, setExpiry] = useState("");
   const [cvv, setCvv] = useState("");
   const purchase = resource.result?.data;
+  useHoldSync(purchase?.status === "PENDING", () => void resource.reload());
 
   const totalTickets =
     purchase?.items?.reduce((sum, item) => sum + Number(item.quantity || 0), 0) ?? 0;
@@ -180,7 +194,8 @@ export function PurchaseDetail() {
               flexGrow: 2,
               flexShrink: 1,
               minWidth: 0,
-              flexBasis: mobile ? "100%" : 500,
+              flexBasis: mobile ? "auto" : 500,
+              width: mobile ? "100%" : undefined,
               maxWidth: "100%",
               gap: 14,
             }}
@@ -230,7 +245,11 @@ export function PurchaseDetail() {
 
               <Text style={[styles.heading, { color: colors.accent }]}>Total: {money(purchase.total)}</Text>
               {purchase.expires_at && purchase.status === "PENDING" && (
-                <Copy muted>Vence: {dateLabel(purchase.expires_at)}</Copy>
+                <HoldIndicator
+                  expiresAt={purchase.expires_at}
+                  active={purchase.status === "PENDING"}
+                  onExpire={() => void resource.reload()}
+                />
               )}
 
               {purchase.status === "PENDING" && (
@@ -324,7 +343,8 @@ export function PurchaseDetail() {
                 flexGrow: 1,
                 flexShrink: 1,
                 minWidth: 0,
-                flexBasis: mobile ? "100%" : 360,
+                flexBasis: mobile ? "auto" : 360,
+                width: mobile ? "100%" : undefined,
                 maxWidth: "100%",
               }}
             >

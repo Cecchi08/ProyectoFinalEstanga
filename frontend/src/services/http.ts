@@ -1,4 +1,21 @@
 import type { Envelope, Session } from "../types/api";
+
+// Difference between server clock and client clock (serverNowMs - clientNowMs).
+// Captured automatically from the HTTP Date response header when available; falls back to 0.
+let serverClockOffsetMs = 0;
+
+export function updateClockOffset(serverIsoOrDateHeader: string | null | undefined, clientNowMs = Date.now()): void {
+  if (!serverIsoOrDateHeader) return;
+  const parsed = Date.parse(serverIsoOrDateHeader);
+  if (!Number.isNaN(parsed)) {
+    serverClockOffsetMs = parsed - clientNowMs;
+  }
+}
+
+export function getServerNow(clientNowMs = Date.now()): number {
+  return clientNowMs + serverClockOffsetMs;
+}
+
 export class ApiError extends Error {
   constructor(
     public code: string,
@@ -140,6 +157,7 @@ export class HttpClient {
         body:
           options.body === undefined ? undefined : JSON.stringify(options.body),
       });
+      updateClockOffset(response.headers?.get?.("date"));
     } catch {
       throw new ApiError(
         "NETWORK_ERROR",

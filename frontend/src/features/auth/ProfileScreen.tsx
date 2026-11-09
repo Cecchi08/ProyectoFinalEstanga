@@ -6,7 +6,7 @@ import NotificationPreference from '../notifications/NotificationPreference';
 import { useAuth } from "../../contexts/AuthContext";
 import { useResource } from "../../hooks/useResource";
 import { api } from "../../services/api";
-import { primaryRole, ROLE_GUIDES, type Me } from "../../types/api";
+import { ROLE_GUIDES, ROLE_LABELS, type Me } from "../../types/api";
 import {
   ActionFeedback,
   BentoGrid,
@@ -22,6 +22,7 @@ import {
   useAction,
   useBento,
 } from "../../components/ui";
+
 export default function ProfileScreen() {
   const auth = useAuth();
   const preferences = usePreferences();
@@ -44,11 +45,13 @@ export default function ProfileScreen() {
     }
   }, [profile]);
 
-  const activeRole = primaryRole(profile?.roles ?? auth.roles);
+  const userRoles = profile?.roles ?? auth.roles;
+  const assignableRoles = userRoles.filter((role) => role !== "GUEST");
+  const activeRole = auth.activeRole;
   const guide = activeRole !== "GUEST" ? ROLE_GUIDES[activeRole] : null;
 
   return (
-    <Page title="Mi cuenta" subtitle="Gestioná tus datos personales, preferencias y seguridad.">
+    <Page title="Mi cuenta" subtitle="Gestioná tus datos personales, perfiles, preferencias y seguridad.">
       <ResourceState {...resource} retry={() => void resource.reload()} />
       <BentoGrid>
         <View style={[bento.cell(1, cols), { gap: 16 }]}>
@@ -58,48 +61,74 @@ export default function ProfileScreen() {
                 <View style={styles.badge}>
                   <Copy size="label" color={colors.accentText}>CUENTA</Copy>
                 </View>
+                <Copy size="small" color={colors.accentText} weight="700">
+                  Contexto: {ROLE_LABELS[activeRole]}
+                </Copy>
               </View>
               <Copy size="heading" weight="700">
                 {profile.user.first_name} {profile.user.last_name}
               </Copy>
               <Copy muted>{profile.user.email}</Copy>
               {profile.user.phone ? <Copy muted size="small">Teléfono: {profile.user.phone}</Copy> : null}
+              <Copy muted size="small">
+                Perfiles activos: {userRoles.map((role) => ROLE_LABELS[role]).join(" · ")}
+              </Copy>
               {guide && (
                 <Card variant="subtle" style={{ padding: 12, gap: 4 }}>
                   <Copy weight="700" size="small">{guide.title} — {guide.subtitle}</Copy>
                   <Copy muted size="small">{guide.allows}</Copy>
                 </Card>
               )}
+              {assignableRoles.length > 1 && (
+                <View style={{ gap: 6 }}>
+                  <Copy size="label" muted>CAMBIAR PERFIL ACTIVO</Copy>
+                  <View style={styles.row}>
+                    {assignableRoles.map((role) => (
+                      <Button
+                        key={role}
+                        title={`${role === activeRole ? "✓ " : ""}${ROLE_LABELS[role]}`}
+                        secondary={role !== activeRole}
+                        onPress={() => auth.setActiveRole(role)}
+                      />
+                    ))}
+                  </View>
+                </View>
+              )}
               <View style={styles.row}>
-                {activeRole === "ARTISTA" && (
+                <Button
+                  title="Mis perfiles"
+                  secondary
+                  onPress={() => router.push("/profiles")}
+                />
+                {userRoles.includes("ARTISTA") && (
                   <Button
                     title="Panel de Artista"
                     secondary
                     onPress={() => router.push("/artists")}
                   />
                 )}
-                {activeRole === "ORGANIZADOR" && (
+                {userRoles.includes("ORGANIZADOR") && (
                   <Button
                     title="Mis conciertos"
                     secondary
                     onPress={() => router.push("/organizer")}
                   />
                 )}
-                {activeRole === "VENUE" && (
+                {userRoles.includes("VENUE") && (
                   <Button
                     title="Mi Espacio Físico"
                     secondary
                     onPress={() => router.push("/marketplace/manage")}
                   />
                 )}
-                {activeRole === "EMPRESA_SERVICIOS" && (
+                {userRoles.includes("EMPRESA_SERVICIOS") && (
                   <Button
                     title="Mi Empresa y Servicios"
                     secondary
                     onPress={() => router.push("/services/mine")}
                   />
                 )}
-                {activeRole === "ADMIN" && (
+                {userRoles.includes("ADMIN") && (
                   <Button
                     title="Panel Admin"
                     secondary

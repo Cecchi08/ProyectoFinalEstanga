@@ -1,6 +1,8 @@
 import { Redirect, Slot, router, usePathname } from "expo-router";
 import { useEffect, useState, type PropsWithChildren, type ReactNode } from "react";
 import {
+  BackHandler,
+  Platform,
   Pressable,
   ScrollView,
   Text,
@@ -12,34 +14,48 @@ import { useAuth } from "../../contexts/AuthContext";
 import { PreferencesProvider } from "../../contexts/PreferencesContext";
 import { NotificationsProvider, NotificationBadge } from "../../contexts/NotificationsContext";
 import { useResource } from "../../hooks/useResource";
-import { primaryRole, type Concert, type Permission, type Role } from "../../types/api";
+import {
+  ROLE_LABELS,
+  linksForRole,
+  mobileBottomTabs,
+  type Concert,
+  type Permission,
+  type Role,
+} from "../../types/api";
 import { colors, Copy, fonts, Page, radius, ResourceState, shadows, ThemeToggle } from "../ui";
 
 function NavTab({
   label,
   selected,
   vertical,
+  compact = false,
+  role = "tab",
   onPress,
   children,
 }: {
   label: string;
   selected: boolean;
   vertical: boolean;
+  compact?: boolean;
+  role?: "tab" | "button";
   onPress(): void;
   children?: ReactNode;
 }) {
   const [hovered, setHovered] = useState(false);
   return (
     <Pressable
-      accessibilityRole="tab"
+      accessibilityRole={role}
       accessibilityState={{ selected }}
       onPress={onPress}
       onHoverIn={() => setHovered(true)}
       onHoverOut={() => setHovered(false)}
       style={{
-        paddingVertical: vertical ? 11 : 10,
-        paddingHorizontal: 14,
-        minHeight: 44,
+        flex: compact ? 1 : undefined,
+        minWidth: compact ? 0 : undefined,
+        paddingVertical: compact ? 8 : vertical ? 11 : 10,
+        paddingHorizontal: compact ? 4 : 14,
+        minHeight: 48,
+        alignItems: compact ? "center" : undefined,
         justifyContent: "center",
         borderRadius: radius.md,
         borderWidth: 1,
@@ -53,16 +69,19 @@ function NavTab({
           style={
             vertical
               ? { position: "absolute", left: 4, top: 10, bottom: 10, width: 3, borderRadius: radius.pill, backgroundColor: colors.primary }
-              : { position: "absolute", left: 12, right: 12, bottom: 3, height: 3, borderRadius: radius.pill, backgroundColor: colors.primary }
+              : { position: "absolute", left: compact ? 8 : 12, right: compact ? 8 : 12, bottom: 3, height: 3, borderRadius: radius.pill, backgroundColor: colors.primary }
           }
         />
       )}
       <Text
+        numberOfLines={compact ? 1 : undefined}
         style={{
           color: selected ? colors.accent : hovered ? colors.text : colors.muted,
-          fontSize: 14,
+          fontSize: compact ? 11 : 14,
+          lineHeight: compact ? 15 : 20,
           fontWeight: selected ? "700" : "600",
-          letterSpacing: -0.1,
+          letterSpacing: compact ? -0.2 : -0.1,
+          textAlign: compact ? "center" : "left",
         }}
       >
         {label}
@@ -113,81 +132,7 @@ export function Guard({ permissions }: { permissions: Permission[] }) {
   );
 }
 
-function linksForRole(role: Role, staff: boolean): { path: string; label: string }[] {
-  switch (role) {
-    case "ADMIN":
-      return [
-        { path: "/admin", label: "Panel Admin" },
-        { path: "/admin/users", label: "Usuarios y roles" },
-        { path: "/admin/organizations", label: "Organizaciones" },
-        { path: "/admin/establishments", label: "Revisión de espacios" },
-        { path: "/admin/concerts", label: "Conciertos" },
-        { path: "/admin/statistics", label: "Estadísticas" },
-        { path: "/admin/audit", label: "Auditoría" },
-        { path: "/discover", label: "Descubrir" },
-        { path: "/marketplace", label: "Espacios" },
-        { path: "/services", label: "Servicios" },
-        { path: "/notifications", label: "Notificaciones" },
-        { path: "/profile", label: "Mi cuenta" },
-      ];
-    case "ORGANIZADOR":
-      return [
-        { path: "/organizer", label: "Mis conciertos" },
-        { path: "/organizer/statistics", label: "Estadísticas" },
-        { path: "/marketplace", label: "Espacios" },
-        { path: "/marketplace/quotes", label: "Presupuestos de espacios" },
-        { path: "/marketplace/reservations", label: "Reservas de espacios" },
-        { path: "/services", label: "Servicios" },
-        { path: "/services/quotes", label: "Cotizaciones de servicios" },
-        { path: "/discover", label: "Descubrir" },
-        ...(staff ? [{ path: "/staff", label: "Staff" }] : []),
-        { path: "/notifications", label: "Notificaciones" },
-        { path: "/profile", label: "Mi cuenta" },
-      ];
-    case "VENUE":
-      return [
-        { path: "/marketplace/manage", label: "Mi Espacio Físico" },
-        { path: "/marketplace/reservations", label: "Reservas recibidas" },
-        { path: "/marketplace/quotes", label: "Presupuestos recibidos" },
-        { path: "/marketplace", label: "Catálogo de espacios" },
-        { path: "/services", label: "Servicios" },
-        { path: "/services/quotes", label: "Cotizaciones de servicios" },
-        { path: "/notifications", label: "Notificaciones" },
-        { path: "/profile", label: "Mi cuenta" },
-      ];
-    case "EMPRESA_SERVICIOS":
-      return [
-        { path: "/services/mine", label: "Mi Empresa y Servicios" },
-        { path: "/services/quotes", label: "Cotizaciones recibidas" },
-        { path: "/services", label: "Catálogo de servicios" },
-        { path: "/notifications", label: "Notificaciones" },
-        { path: "/profile", label: "Mi cuenta" },
-      ];
-    case "ARTISTA":
-      return [
-        { path: "/artists", label: "Panel de Artista" },
-        { path: "/marketplace", label: "Espacios" },
-        { path: "/marketplace/quotes", label: "Mis presupuestos" },
-        { path: "/marketplace/reservations", label: "Mis reservas" },
-        { path: "/discover", label: "Descubrir" },
-        ...(staff ? [{ path: "/staff", label: "Staff" }] : []),
-        { path: "/notifications", label: "Notificaciones" },
-        { path: "/profile", label: "Mi cuenta" },
-      ];
-    case "COMPRADOR":
-    case "GUEST":
-    default:
-      return [
-        { path: "/discover", label: "Descubrir" },
-        { path: "/recommendations", label: "Venti Discover" },
-        { path: "/tickets", label: "Mis entradas" },
-        { path: "/purchases", label: "Mis compras" },
-        ...(staff ? [{ path: "/staff", label: "Staff" }] : []),
-        { path: "/notifications", label: "Notificaciones" },
-        { path: "/profile", label: "Mi cuenta" },
-      ];
-  }
-}
+export { linksForRole, mobileBottomTabs };
 
 export default function Shell() {
   const auth = useAuth();
@@ -197,6 +142,21 @@ export default function Shell() {
   useEffect(() => {
     setDrawerOpen(false);
   }, [path]);
+  useEffect(() => {
+    if (!drawerOpen) return;
+    if (Platform.OS === "web" && typeof window !== "undefined") {
+      const onKeyDown = (event: KeyboardEvent) => {
+        if (event.key === "Escape") setDrawerOpen(false);
+      };
+      window.addEventListener("keydown", onKeyDown);
+      return () => window.removeEventListener("keydown", onKeyDown);
+    }
+    const sub = BackHandler.addEventListener("hardwareBackPress", () => {
+      setDrawerOpen(false);
+      return true;
+    });
+    return () => sub.remove();
+  }, [drawerOpen]);
   // Staff is a per-concert assignment: tickets.validate comes from concert_staff (published concerts),
   // tickets.validate_all lets ADMIN validate any ticket; an assignment to an unpublished concert also shows the tab.
   const validator = auth.can("tickets.validate", "tickets.validate_all");
@@ -212,21 +172,69 @@ export default function Shell() {
     );
   if (!auth.user) return <Redirect href="/login" />;
   const desktop = width >= 900;
-  const activeRole = primaryRole(auth.roles);
+  const activeRole = auth.activeRole;
+  const assignableRoles: Role[] = auth.roles.filter((r) => r !== "GUEST");
   const links = linksForRole(activeRole, staff);
-  const isSelected = (linkPath: string) => {
+  const bottomTabs = mobileBottomTabs(activeRole, staff);
+  const isSelected = (linkPath: string, pool: { path: string }[] = links) => {
     if (path === linkPath) return true;
     if (!path.startsWith(`${linkPath}/`)) return false;
-    return !links.some(
+    return !pool.some(
       (other) =>
         other.path !== linkPath &&
         other.path.startsWith(`${linkPath}/`) &&
         (path === other.path || path.startsWith(`${other.path}/`)),
     );
   };
-  const navigation = (
+  const roleSelector = assignableRoles.length > 1 && (
     <View
-      accessibilityRole="tablist"
+      style={{
+        marginHorizontal: 10,
+        marginTop: 10,
+        padding: 10,
+        borderRadius: radius.md,
+        backgroundColor: colors.surfaceAlt,
+        borderWidth: 1,
+        borderColor: colors.border,
+        gap: 6,
+      }}
+    >
+      <Text style={{ color: colors.muted, fontSize: 10, fontWeight: "700", letterSpacing: 0.8, textTransform: "uppercase" }}>
+        PERFIL ACTIVO
+      </Text>
+      <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 6 }}>
+        {assignableRoles.map((role) => {
+          const active = role === activeRole;
+          return (
+            <Pressable
+              key={role}
+              accessibilityRole="button"
+              accessibilityLabel={`Cambiar a perfil ${ROLE_LABELS[role]}`}
+              accessibilityState={{ selected: active }}
+              onPress={() => auth.setActiveRole(role)}
+              style={{
+                paddingHorizontal: 10,
+                paddingVertical: 6,
+                minHeight: 34,
+                borderRadius: radius.pill,
+                borderWidth: 1,
+                borderColor: active ? colors.accentBorder : colors.borderStrong,
+                backgroundColor: active ? colors.accentSoft : colors.surface,
+                justifyContent: "center",
+              }}
+            >
+              <Text style={{ color: active ? colors.accentText : colors.text, fontSize: 12, fontWeight: active ? "700" : "600" }}>
+                {ROLE_LABELS[role]}
+              </Text>
+            </Pressable>
+          );
+        })}
+      </View>
+    </View>
+  );
+  const renderMenuList = (asTablist: boolean) => (
+    <View
+      accessibilityRole={asTablist ? "tablist" : undefined}
       style={{ flexDirection: "column", gap: 4, padding: 10 }}
     >
       {links.map((link) => (
@@ -235,6 +243,7 @@ export default function Shell() {
           label={link.label}
           selected={isSelected(link.path)}
           vertical
+          role={asTablist ? "tab" : "button"}
           onPress={() => {
             setDrawerOpen(false);
             router.navigate(link.path);
@@ -261,7 +270,7 @@ export default function Shell() {
     >
       <View style={{ gap: 4 }}>
         <Text style={{ color: colors.muted, fontSize: 10, fontWeight: "700", letterSpacing: 0.8, textTransform: "uppercase" }}>
-          CUENTA ACTIVA
+          CUENTA ACTIVA · {ROLE_LABELS[activeRole]}
         </Text>
         <Text numberOfLines={1} style={{ color: colors.text, fontSize: 12, fontWeight: "600" }}>
           {auth.user.email}
@@ -284,7 +293,7 @@ export default function Shell() {
           {desktop && (
             <ScrollView
               style={{
-                width: 244,
+                width: 220,
                 flexGrow: 0,
                 flexShrink: 0,
                 backgroundColor: colors.surface,
@@ -326,7 +335,8 @@ export default function Shell() {
                   </Text>
                 </View>
               </View>
-              {navigation}
+              {roleSelector}
+              {renderMenuList(true)}
               {sessionFooter}
             </ScrollView>
           )}
@@ -336,15 +346,16 @@ export default function Shell() {
                 flexDirection: "row",
                 alignItems: "center",
                 justifyContent: "space-between",
-                paddingHorizontal: 14,
-                paddingVertical: 10,
+                paddingHorizontal: 12,
+                paddingVertical: 8,
                 borderBottomWidth: 1,
                 borderColor: colors.border,
                 backgroundColor: colors.surface,
                 minWidth: 0,
+                gap: 8,
               }}
             >
-              <View style={{ flexDirection: "row", alignItems: "center", gap: 10, minWidth: 0, flexShrink: 1 }}>
+              <View style={{ flexDirection: "row", alignItems: "center", gap: 8, minWidth: 0, flexShrink: 1 }}>
                 <Pressable
                   accessibilityRole="button"
                   accessibilityLabel={drawerOpen ? "Cerrar menú de navegación" : "Abrir menú de navegación"}
@@ -365,36 +376,91 @@ export default function Shell() {
                   </Text>
                 </Pressable>
                 <View style={{ gap: 1, minWidth: 0, flexShrink: 1 }}>
-                  <Text numberOfLines={1} style={{ color: colors.text, fontSize: 16, fontWeight: "800", letterSpacing: 1.8, fontFamily: fonts.display }}>
+                  <Text numberOfLines={1} style={{ color: colors.text, fontSize: 15, fontWeight: "800", letterSpacing: 1.6, fontFamily: fonts.display }}>
                     VENTI
                   </Text>
                 </View>
               </View>
-              <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
+              <View style={{ flexDirection: "row", alignItems: "center", gap: 6, flexShrink: 0 }}>
+                {assignableRoles.length > 1 && (
+                  <Pressable
+                    accessibilityRole="button"
+                    accessibilityLabel={`Perfil activo: ${ROLE_LABELS[activeRole]}. Tocar para cambiar`}
+                    onPress={() => {
+                      const nextIndex = (assignableRoles.indexOf(activeRole) + 1) % assignableRoles.length;
+                      auth.setActiveRole(assignableRoles[nextIndex]);
+                    }}
+                    style={{
+                      paddingHorizontal: 9,
+                      paddingVertical: 7,
+                      minHeight: 36,
+                      borderRadius: radius.pill,
+                      borderWidth: 1,
+                      borderColor: colors.accentBorder,
+                      backgroundColor: colors.accentSoft,
+                      justifyContent: "center",
+                    }}
+                  >
+                    <Text numberOfLines={1} style={{ color: colors.accentText, fontSize: 11, fontWeight: "700" }}>
+                      {ROLE_LABELS[activeRole]} ▾
+                    </Text>
+                  </Pressable>
+                )}
                 <Pressable
                   accessibilityRole="button"
-                  accessibilityLabel="Ir a notificaciones"
-                  onPress={() => router.navigate("/notifications")}
+                  accessibilityLabel="Mis compras"
+                  onPress={() => router.navigate("/purchases")}
                   style={{
                     paddingHorizontal: 10,
                     paddingVertical: 7,
+                    minHeight: 36,
                     borderRadius: radius.pill,
                     borderWidth: 1,
-                    borderColor: colors.border,
-                    backgroundColor: colors.surfaceAlt,
-                    flexDirection: "row",
-                    alignItems: "center",
+                    borderColor: path.startsWith("/purchases") ? colors.accentBorder : colors.border,
+                    backgroundColor: path.startsWith("/purchases") ? colors.accentSoft : colors.surfaceAlt,
+                    justifyContent: "center",
                   }}
                 >
-                  <Text style={{ color: colors.text, fontSize: 12, fontWeight: "700" }}>Avisos</Text>
-                  <NotificationBadge />
+                  <Text style={{ color: path.startsWith("/purchases") ? colors.accentText : colors.text, fontSize: 12, fontWeight: "700" }}>
+                    Compras
+                  </Text>
                 </Pressable>
               </View>
             </View>
           )}
-          <View style={{ flex: 1, minWidth: 0 }}>
+          <View style={{ flex: 1, minWidth: 0, minHeight: 0, overflow: "hidden" }}>
             <Slot key={auth.user.id} />
           </View>
+          {!desktop && (
+            <View
+              accessibilityRole="tablist"
+              style={{
+                flexDirection: "row",
+                alignItems: "center",
+                justifyContent: "space-between",
+                gap: 2,
+                paddingHorizontal: 4,
+                paddingVertical: 6,
+                borderTopWidth: 1,
+                borderColor: colors.border,
+                backgroundColor: colors.surface,
+                boxShadow: shadows.bar,
+              }}
+            >
+              {bottomTabs.map((tab) => (
+                <NavTab
+                  key={tab.path}
+                  label={tab.label}
+                  selected={isSelected(tab.path, bottomTabs)}
+                  vertical={false}
+                  compact
+                  onPress={() => router.navigate(tab.path)}
+                >
+                  {tab.path === "/notifications" && <NotificationBadge />}
+                </NavTab>
+              ))}
+            </View>
+          )}
           {!desktop && drawerOpen && (
             <View
               style={{
@@ -471,7 +537,8 @@ export default function Shell() {
                   </Pressable>
                 </View>
                 <ScrollView style={{ flex: 1 }} showsVerticalScrollIndicator={false}>
-                  {navigation}
+                  {roleSelector}
+                  {renderMenuList(false)}
                   {sessionFooter}
                 </ScrollView>
               </View>
