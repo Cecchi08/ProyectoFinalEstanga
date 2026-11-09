@@ -45,7 +45,7 @@ export function createApp({ env, database, mailer, oauthClient }) {
         origin(origin, callback) {
             if (!origin)
                 return callback(null, true);
-            let host = '';
+            let host;
             try {
                 host = new URL(origin).hostname;
             }

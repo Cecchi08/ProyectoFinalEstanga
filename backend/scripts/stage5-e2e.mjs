@@ -74,7 +74,9 @@ async function choose(page,label,option) {
   const done = page.getByRole('button',{name:'Listo',exact:true});
   try {
     if (await done.isVisible()) await done.click({ timeout: 500 }).catch(() => {});
-  } catch {}
+  } catch {
+    // Ignorar si el botón Listo no está disponible o la acción no pudo completarse
+  }
 }
 async function pickDate(page,label,ymd,timeStr) {
   const [targetYear,targetMonth,targetDay] = ymd.split('-').map(Number);
@@ -102,7 +104,9 @@ async function pickDate(page,label,ymd,timeStr) {
     const confirm = page.getByRole('button',{name:'Confirmar',exact:true});
     try {
       if (await confirm.isVisible()) await confirm.click({ timeout: 500 }).catch(() => {});
-    } catch {}
+    } catch {
+      // Ignorar si el botón Confirmar no está disponible o la acción no pudo completarse
+    }
   }
 }
 async function pickTime(page,label,timeStr) {
