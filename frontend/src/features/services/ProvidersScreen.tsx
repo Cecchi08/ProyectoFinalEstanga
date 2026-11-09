@@ -245,7 +245,8 @@ export function ProviderScreen() {
                 flexGrow: 2,
                 flexShrink: 1,
                 minWidth: 0,
-                flexBasis: mobile ? "100%" : 480,
+                flexBasis: mobile ? "auto" : 480,
+                width: mobile ? "100%" : undefined,
                 maxWidth: "100%",
                 gap: 16,
               }}
@@ -300,7 +301,8 @@ export function ProviderScreen() {
                   flexGrow: 1,
                   flexShrink: 1,
                   minWidth: 0,
-                  flexBasis: mobile ? "100%" : 380,
+                  flexBasis: mobile ? "auto" : 380,
+                  width: mobile ? "100%" : undefined,
                   maxWidth: "100%",
                 }}
               >
@@ -325,21 +327,34 @@ export function ProviderScreen() {
           )}
           <BentoGrid>
             {provider.offerings?.map((item) => (
-              <View key={item.id} style={{ flexGrow: 1, flexShrink: 1, minWidth: 0, flexBasis: mobile ? "100%" : 320, maxWidth: "100%", gap: 8 }}>
-                <OfferingCard offering={item} manage={member} />
-                {manage && (
-                  <View style={styles.row}>
-                    <Button title={`Editar ${item.name}`} secondary onPress={() => setOffering(item)} />
-                    {item.status !== "PUBLISHED" ? (
-                      <Button title={`Activar / Publicar`} secondary disabled={action.busy}
-                        onPress={() => void run(`/services/offerings/${item.id}/publish`, "Servicio activado y publicado.")} />
-                    ) : (
-                      <Button title={`Desactivar / Archivar`} secondary danger disabled={action.busy}
-                        onPress={() => void run(`/services/offerings/${item.id}/archive`, "Servicio desactivado.")} />
-                    )}
-                  </View>
-                )}
-              </View>
+              <OfferingCard
+                key={item.id}
+                offering={item}
+                manage={member}
+                footerActions={
+                  manage ? (
+                    <>
+                      <Button title={`Editar ${item.name}`} secondary onPress={() => setOffering(item)} />
+                      {item.status !== "PUBLISHED" ? (
+                        <Button
+                          title={`Activar / Publicar`}
+                          secondary
+                          disabled={action.busy}
+                          onPress={() => void run(`/services/offerings/${item.id}/publish`, "Servicio activado y publicado.")}
+                        />
+                      ) : (
+                        <Button
+                          title={`Desactivar / Archivar`}
+                          secondary
+                          danger
+                          disabled={action.busy}
+                          onPress={() => void run(`/services/offerings/${item.id}/archive`, "Servicio desactivado.")}
+                        />
+                      )}
+                    </>
+                  ) : undefined
+                }
+              />
             ))}
           </BentoGrid>
         </>

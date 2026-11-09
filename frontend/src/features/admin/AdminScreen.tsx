@@ -2,7 +2,8 @@ import { useEffect, useState } from "react";
 import { View } from "react-native";
 import { router } from "expo-router";
 import { useAuth } from "../../contexts/AuthContext";
-import { useResource } from "../../hooks/useResource";
+import { invalidateCatalogCache, useResource } from "../../hooks/useResource";
+import { useDebouncedValue } from "../../hooks/useDebouncedValue";
 import { api } from "../../services/api";
 import { query } from "../../services/http";
 import type { Catalog, CatalogItem } from "../../types/api";
@@ -39,6 +40,7 @@ export default function AdminScreen() {
   const [kind, setKind] = useState<Catalog>("genres");
   const [page, setPage] = useState(1);
   const [search, setSearch] = useState("");
+  const debouncedSearch = useDebouncedValue(search, 300);
   const [selected, setSelected] = useState<CatalogItem | null | undefined>(
     undefined,
   );
@@ -46,7 +48,7 @@ export default function AdminScreen() {
   const { can } = useAuth();
   const catalogs = can("catalogs.manage");
   const resource = useResource<CatalogItem[]>(
-    catalogs ? `/${kind}${query({ page, q: search.trim() })}` : null,
+    catalogs ? `/${kind}${query({ page, q: debouncedSearch.trim() })}` : null,
   );
   const bento = useBento();
   const cols = bento.cols;
@@ -127,6 +129,7 @@ export default function AdminScreen() {
               item={selected}
               done={async () => {
                 setSelected(undefined);
+                invalidateCatalogCache();
                 await resource.reload();
               }}
             />

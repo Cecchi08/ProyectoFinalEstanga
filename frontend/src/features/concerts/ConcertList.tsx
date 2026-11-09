@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { memo, useState } from "react";
 import { Text, View } from "react-native";
 import { router } from "expo-router";
 import { useAuth } from "../../contexts/AuthContext";
@@ -8,6 +8,7 @@ import {
   Card,
   colors,
   Copy,
+  DateTimeField,
   Field,
   MusicalCover,
   Notice,
@@ -24,11 +25,12 @@ import { Select } from "../../components/ui/Select";
 import { useResource } from "../../hooks/useResource";
 import { query } from "../../services/http";
 import type { Concert } from "../../types/api";
+import { fromArgDateTimeToUtcIso } from "../marketplace/time";
 import { lineup, place } from "./ConcertDetail";
 
 const PRICE = /^\d+(\.\d{1,2})?$/;
 
-export function ConcertCard({
+export const ConcertCard = memo(function ConcertCard({
   concert,
   manage = false,
   reason,
@@ -48,11 +50,12 @@ export function ConcertCard({
         flexGrow: 1,
         flexShrink: 1,
         minWidth: 0,
-        flexBasis: mobile ? "100%" : isHero ? 560 : 320,
+        flexBasis: mobile ? "auto" : isHero ? 560 : 320,
+        width: mobile ? "100%" : undefined,
         maxWidth: "100%",
       }}
     >
-      <Card variant={isHero ? "featured" : "default"} style={{ height: "100%", justifyContent: "space-between" }}>
+      <Card variant={isHero ? "featured" : "default"} style={{ flexGrow: 1, justifyContent: "space-between" }}>
         <View style={{ gap: 10, minWidth: 0 }}>
           <MusicalCover
             uri={concert.image_url}
@@ -62,10 +65,10 @@ export function ConcertCard({
             badge={statusLabel(concert.status)}
             subBadge={concert.genres?.[0]?.name}
           />
-          <Text style={[styles.label, { color: colors.accent }]}>
+          <Text style={[styles.label, { color: colors.accentText }]}>
             {dateLabel(concert.start_datetime)} · {statusLabel(concert.status)}
           </Text>
-          <Text style={[styles.heading, isHero && { fontSize: 22, lineHeight: 28 }]}>
+          <Text style={[styles.subheading, isHero && { fontSize: 22, lineHeight: 28 }]}>
             {concert.name}
           </Text>
           <View style={{ gap: 4 }}>
@@ -126,7 +129,7 @@ export function ConcertCard({
       </Card>
     </View>
   );
-}
+});
 
 export default function ConcertList({
   mode = "discover",
@@ -161,8 +164,16 @@ export default function ConcertList({
       return setInvalid("Los precios son números con hasta dos decimales, sin signo $.");
     if (min && max && Number(min) > Number(max))
       return setInvalid("El precio mínimo no puede superar al máximo.");
+    if (draft.date_from && draft.date_to && draft.date_from > draft.date_to)
+      return setInvalid("La fecha desde no puede ser posterior a la fecha hasta.");
     setInvalid("");
-    setFilters({ ...draft, min_price: min, max_price: max });
+    setFilters({
+      ...draft,
+      date_from: draft.date_from ? fromArgDateTimeToUtcIso(draft.date_from, "00:00") : "",
+      date_to: draft.date_to ? fromArgDateTimeToUtcIso(draft.date_to, "23:59") : "",
+      min_price: min,
+      max_price: max,
+    });
     setPage(1);
     if (close) setExpanded(false);
   };
@@ -269,15 +280,17 @@ export default function ConcertList({
               ))}
             </View>
             <View style={styles.row}>
-              <Field
-                label="Desde (ISO, ej. 2027-01-01T00:00:00Z)"
+              <DateTimeField
+                label="Fecha desde"
+                mode="date"
                 value={draft.date_from ?? ""}
-                onChangeText={(v) => set("date_from", v)}
+                onChange={(v) => set("date_from", v)}
               />
-              <Field
-                label="Hasta (ISO)"
+              <DateTimeField
+                label="Fecha hasta"
+                mode="date"
                 value={draft.date_to ?? ""}
-                onChangeText={(v) => set("date_to", v)}
+                onChange={(v) => set("date_to", v)}
               />
             </View>
             <View style={styles.row}>
@@ -317,6 +330,7 @@ export default function ConcertList({
         {...resource}
         empty={resource.result?.data.length === 0}
         retry={() => void resource.reload()}
+        skeleton="card"
       />
       <BentoGrid>
         {resource.result?.data.map((concert, index) => (

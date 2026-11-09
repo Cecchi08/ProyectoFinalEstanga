@@ -49,7 +49,8 @@ export default function TicketsScreen() {
               flexGrow: 1,
               flexShrink: 1,
               minWidth: 0,
-              flexBasis: mobile ? "100%" : 520,
+              flexBasis: mobile ? "auto" : 520,
+              width: mobile ? "100%" : undefined,
               maxWidth: "100%",
             }}
           >

@@ -12,6 +12,7 @@ import {
   Button,
   Card,
   Copy,
+  DateTimeField,
   Field,
   FormScope,
   Page,
@@ -102,11 +103,12 @@ export default function QuotesScreen() {
               flexGrow: 1,
               flexShrink: 1,
               minWidth: 0,
-              flexBasis: mobile ? "100%" : 360,
+              flexBasis: mobile ? "auto" : 360,
+              width: mobile ? "100%" : undefined,
               maxWidth: "100%",
             }}
           >
-            <Card style={{ height: "100%", justifyContent: "space-between" }}>
+            <Card style={{ flexGrow: 1, justifyContent: "space-between" }}>
               <View style={{ gap: 6 }}>
                 <Copy strong>{quote.event_name} · {statusLabel(quote.status)}</Copy>
                 <Copy muted>{quote.venue_name} · {range(quote.event_start_at, quote.event_end_at)}</Copy>
@@ -146,7 +148,7 @@ export function QuoteScreen() {
   });
   const respond = () => post("respond", () => {
     validation.assertValid();
-    if (!isDate(form.valid_date ?? "")) throw new Error("Indicá la fecha de validez (AAAA-MM-DD).");
+    if (!isDate(form.valid_date ?? "")) throw new Error("Elegí la fecha de validez del presupuesto.");
     const items = lines.filter((line) => line.description.trim()).map((line) => ({
       description: line.description.trim(), quantity: Number(line.quantity), unit_price: Number(line.unit_price),
     }));
@@ -177,7 +179,8 @@ export function QuoteScreen() {
                 flexGrow: 1,
                 flexShrink: 1,
                 minWidth: 0,
-                flexBasis: mobile ? "100%" : 460,
+                flexBasis: mobile ? "auto" : 460,
+                width: mobile ? "100%" : undefined,
                 maxWidth: "100%",
                 gap: 16,
               }}
@@ -220,7 +223,8 @@ export function QuoteScreen() {
                   flexGrow: 1,
                   flexShrink: 1,
                   minWidth: 0,
-                  flexBasis: mobile ? "100%" : 460,
+                  flexBasis: mobile ? "auto" : 460,
+                  width: mobile ? "100%" : undefined,
                   maxWidth: "100%",
                 }}
               >
@@ -240,8 +244,8 @@ export function QuoteScreen() {
                     <Field label="Descuento" keyboardType="decimal-pad" value={form.discount ?? ""} onChangeText={(v) => set("discount", v)} />
                   </View>
                   <View style={styles.row}>
-                    <Field label="Válido hasta (AAAA-MM-DD)" value={form.valid_date ?? ""} onChangeText={(v) => set("valid_date", v)} />
-                    <Field label="Hora límite (HH:MM)" placeholder="23:59" value={form.valid_time ?? ""} onChangeText={(v) => set("valid_time", v)} />
+                    <DateTimeField label="Válido hasta" mode="date" required value={form.valid_date ?? ""} onChange={(v) => set("valid_date", v)} />
+                    <DateTimeField label="Hora límite (opcional)" mode="time" defaultTime="23:59" value={form.valid_time ?? ""} onChange={(v) => set("valid_time", v)} />
                   </View>
                   <Field label="Notas para el cliente" multiline value={form.provider_notes ?? ""} onChangeText={(v) => set("provider_notes", v)} />
                   <View style={styles.row}>

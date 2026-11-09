@@ -145,11 +145,79 @@ async function overflow(page) {
       const parent = el.parentElement; if (!parent || ['absolute', 'fixed'].includes(getComputedStyle(el).position)) return false; // eslint-disable-line no-undef
       const p = parent.getBoundingClientRect(); return p.width > 0 && r.right > p.right + 1 && getComputedStyle(parent).overflowX === 'visible'; // eslint-disable-line no-undef
     }).map(el => `${el.tagName.toLowerCase()} "${(el.textContent || '').trim().slice(0, 30)}" right=${Math.round(el.getBoundingClientRect().right)}`);
-    return { page: document.documentElement.scrollWidth - width, cut, sticking: [...new Set(sticking)].slice(0, 5) };
+    // 2D geometric intersection check between sibling cards and interactive controls (boundingBox),
+    // compatible with multi-column responsive grids and excluding intentional overlays (MusicalCover internal badges, fixed bars, modals).
+    const intentionalOverlay = el => {
+      for (let node = el; node && node !== document.body; node = node.parentElement) {
+        const s = getComputedStyle(node); // eslint-disable-line no-undef
+        if (['fixed', 'sticky'].includes(s.position)) return true;
+        if (node.getAttribute('role') === 'dialog' || node.getAttribute('aria-modal') === 'true') return true;
+        if (node.getAttribute('aria-label') === 'Volver arriba') return true;
+        if (node.dataset && node.dataset.bentoMedia === 'true' && node !== el) return true;
+      }
+      return false;
+    };
+    const scrollParent = el => {
+      for (let node = el.parentElement; node && node !== document.body; node = node.parentElement) {
+        const s = getComputedStyle(node); // eslint-disable-line no-undef
+        if (['auto', 'scroll', 'hidden'].includes(s.overflowY) || ['auto', 'scroll', 'hidden'].includes(s.overflowX)) return node;
+      }
+      return null;
+    };
+    const clippedRect = (el, stopAt) => {
+      let r = el.getBoundingClientRect();
+      let left = r.left, top = r.top, right = r.right, bottom = r.bottom;
+      for (let node = el.parentElement; node && node !== document.body && node !== stopAt; node = node.parentElement) {
+        const s = getComputedStyle(node); // eslint-disable-line no-undef
+        if (['auto', 'scroll', 'hidden'].includes(s.overflowY) || ['auto', 'scroll', 'hidden'].includes(s.overflowX)) {
+          const pr = node.getBoundingClientRect();
+          left = Math.max(left, pr.left);
+          top = Math.max(top, pr.top);
+          right = Math.min(right, pr.right);
+          bottom = Math.min(bottom, pr.bottom);
+        }
+      }
+      return { left, top, right, bottom, width: Math.max(0, right - left), height: Math.max(0, bottom - top) };
+    };
+    const overlaps = [];
+    const checkGroup = (items, kind) => {
+      const visibleItems = items.filter(el => {
+        const s = getComputedStyle(el); // eslint-disable-line no-undef
+        if (s.visibility === 'hidden' || s.display === 'none' || Number(s.opacity) === 0) return false;
+        const r = el.getBoundingClientRect();
+        return r.width > 0 && r.height > 0 && !intentionalOverlay(el);
+      });
+      for (let i = 0; i < visibleItems.length; i++) {
+        const elA = visibleItems[i];
+        const spA = scrollParent(elA);
+        for (let j = i + 1; j < visibleItems.length; j++) {
+          const elB = visibleItems[j];
+          if (elA.contains(elB) || elB.contains(elA)) continue;
+          const spB = scrollParent(elB);
+          const sameScroller = spA === spB;
+          const rectA = sameScroller ? elA.getBoundingClientRect() : clippedRect(elA, null);
+          const rectB = sameScroller ? elB.getBoundingClientRect() : clippedRect(elB, null);
+          if (rectA.width <= 0 || rectA.height <= 0 || rectB.width <= 0 || rectB.height <= 0) continue;
+          if (
+            rectA.left < rectB.right - 1 &&
+            rectA.right > rectB.left + 1 &&
+            rectA.top < rectB.bottom - 1 &&
+            rectA.bottom > rectB.top + 1
+          ) {
+            const labelA = (elA.getAttribute('aria-label') || elA.textContent || elA.tagName).trim().slice(0, 25);
+            const labelB = (elB.getAttribute('aria-label') || elB.textContent || elB.tagName).trim().slice(0, 25);
+            overlaps.push(`${kind}: "${labelA}" intersects "${labelB}"`);
+          }
+        }
+      }
+    };
+    checkGroup([...document.querySelectorAll('[data-bento-card="true"]')], 'card');
+    checkGroup([...document.querySelectorAll('[role="button"], [role="tab"], input, textarea')], 'control');
+    return { page: document.documentElement.scrollWidth - width, cut, sticking: [...new Set(sticking)].slice(0, 5), overlaps: [...new Set(overlaps)].slice(0, 5) };
   });
 }
 for (const mode of ['light', 'dark']) {
-  test(`responsive (${mode}): sin scroll horizontal ni controles cortados de 320 px a escritorio`, async () => {
+  test(`responsive (${mode}): sin scroll horizontal, controles cortados ni superposiciones 2D de 320 px a escritorio`, async () => {
     const problems = [];
     for (const [width, height] of [[320, 640], [390, 844], [768, 1024], [1440, 1000]]) {
       const ctx = await browser.newContext({ viewport: { width, height }, colorScheme: mode });
@@ -157,14 +225,14 @@ for (const mode of ['light', 'dark']) {
       for (const path of ['/login', '/register']) {
         await page.goto(WEB + path); await page.waitForLoadState('networkidle');
         const result = await overflow(page);
-        if (result.page > 1 || result.cut.length || result.sticking.length) problems.push(`${path}@${width}: ${JSON.stringify(result)}`);
+        if (result.page > 1 || result.cut.length || result.sticking.length || result.overlaps.length) problems.push(`${path}@${width}: ${JSON.stringify(result)}`);
         if (width === 320 || width === 1440) await page.screenshot({ path: `${SHOTS}/${mode}-${width}${path.replace('/', '-')}.png` });
       }
       await login(page);
       for (const path of ['/discover', `/concerts/${concertId}`, '/marketplace', '/services', '/profile', '/tickets']) {
         await page.goto(WEB + path); await page.waitForLoadState('networkidle'); await page.waitForTimeout(200);
         const result = await overflow(page);
-        if (result.page > 1 || result.cut.length || result.sticking.length) problems.push(`${path}@${width}: ${JSON.stringify(result)}`);
+        if (result.page > 1 || result.cut.length || result.sticking.length || result.overlaps.length) problems.push(`${path}@${width}: ${JSON.stringify(result)}`);
         if (width === 320 || width === 1440) await page.screenshot({ path: `${SHOTS}/${mode}-${width}${path.replace(/\//g, '-').replace(/-\d+$/, '')}.png` });
       }
       await ctx.close();

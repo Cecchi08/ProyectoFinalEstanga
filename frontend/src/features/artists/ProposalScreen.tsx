@@ -107,7 +107,7 @@ export default function ProposalScreen() {
       <ActionFeedback action={action} />
       {proposal && (
         <BentoGrid style={{ alignItems: "flex-start" }}>
-          <View style={{ flexGrow: 2, flexShrink: 1, minWidth: 0, flexBasis: mobile ? "100%" : 480, maxWidth: "100%", gap: 16 }}>
+          <View style={{ flexGrow: 2, flexShrink: 1, minWidth: 0, flexBasis: mobile ? "auto" : 480, width: mobile ? "100%" : undefined, maxWidth: "100%", gap: 16 }}>
             <Card variant="featured">
               <MusicalCover uri={proposal.artist_image_url} alt={proposal.artist_name} kind="artist" height={180} badge={statusLabel(proposal.status)} />
               <Copy size="heading" weight="700">{proposal.artist_name}</Copy>
@@ -131,7 +131,7 @@ export default function ProposalScreen() {
             </Card>
           </View>
 
-          <View style={{ flexGrow: 1, flexShrink: 1, minWidth: 0, flexBasis: mobile ? "100%" : 340, maxWidth: "100%", gap: 16 }}>
+          <View style={{ flexGrow: 1, flexShrink: 1, minWidth: 0, flexBasis: mobile ? "auto" : 340, width: mobile ? "100%" : undefined, maxWidth: "100%", gap: 16 }}>
             <Card>
               <SectionHeader title="Estado" />
               <View style={styles.badge}>

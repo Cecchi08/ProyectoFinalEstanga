@@ -12,6 +12,7 @@ import {
   Card,
   Copy,
   Field,
+  HoldIndicator,
   Notice,
   Page,
   Pager,
@@ -23,6 +24,7 @@ import {
   styles,
   useAction,
   useBento,
+  useHoldSync,
 } from "../../components/ui";
 import { useListView } from "./QuotesScreen";
 import { range } from "./time";
@@ -42,6 +44,8 @@ export default function ReservationsScreen() {
     { requesterPermissions: ["marketplace.reservations.create", "marketplace.admin"] },
   );
   const resource = useResource<Reservation[]>(`/marketplace/reservations${view.params}`);
+  const hasHold = Boolean(resource.result?.data.some((r) => r.status === "HOLD"));
+  useHoldSync(hasHold, () => void resource.reload());
   return (
     <Page
       eyebrow="VENTI · AGENDA DE RESERVAS"
@@ -59,15 +63,23 @@ export default function ReservationsScreen() {
               flexGrow: 1,
               flexShrink: 1,
               minWidth: 0,
-              flexBasis: mobile ? "100%" : 360,
+              flexBasis: mobile ? "auto" : 360,
+              width: mobile ? "100%" : undefined,
               maxWidth: "100%",
             }}
           >
-            <Card style={{ height: "100%", justifyContent: "space-between" }}>
+            <Card style={{ flexGrow: 1, justifyContent: "space-between" }}>
               <View style={{ gap: 6 }}>
                 <Copy strong>{reservation.event_name} · {stateLabel(reservation)}</Copy>
                 <Copy muted>{reservation.venue_name} · {reservation.establishment_name}</Copy>
                 <Copy muted>{range(reservation.event_start_at, reservation.event_end_at)} · {money(reservation.total_amount)} · {reservation.public_code}</Copy>
+                {reservation.status === "HOLD" && reservation.hold_expires_at && (
+                  <HoldIndicator
+                    expiresAt={reservation.hold_expires_at}
+                    active={reservation.status === "HOLD"}
+                    onExpire={() => void resource.reload()}
+                  />
+                )}
               </View>
               <Button title={`Ver reserva ${reservation.public_code}`} secondary onPress={() => router.push(`/marketplace/reservations/${reservation.id}`)} />
             </Card>
@@ -85,6 +97,7 @@ export function ReservationScreen() {
   const { mobile } = useBento();
   const resource = useResource<Reservation>(`/marketplace/reservations/${id}`);
   const reservation = resource.result?.data;
+  useHoldSync(reservation?.status === "HOLD", () => void resource.reload());
   const action = useAction();
   const [notice, setNotice] = useState("");
   const [reason, setReason] = useState("");
@@ -94,15 +107,21 @@ export function ReservationScreen() {
   const venueSide = !mine && can("marketplace.reservations.manage", "marketplace.admin");
   const decide = (path: "accept" | "reject") => action.run(async () => {
     if (path === "reject" && reason.trim().length < 3) throw new Error("Indicá el motivo del rechazo (mínimo 3 caracteres).");
-    await api.request(`/marketplace/reservations/${id}/${path}`, { method: "POST", body: path === "reject" ? { reason: reason.trim() } : {} });
-    await resource.reload();
+    try {
+      await api.request(`/marketplace/reservations/${id}/${path}`, { method: "POST", body: path === "reject" ? { reason: reason.trim() } : {} });
+    } finally {
+      await resource.reload();
+    }
     action.setMessage(path === "accept" ? "Reserva aceptada y confirmada." : "Reserva rechazada: el pago simulado se marca como reembolsado.");
   });
   // Payments are always simulated: the request carries only the desired outcome, never card data.
   const pay = (outcome: "APPROVED" | "REJECTED") => action.run(async () => {
-    const { data } = await api.request<PaymentResult>(`/marketplace/reservations/${id}/payments`, { method: "POST", body: { outcome } });
-    setNotice(`${data.notice} Referencia ${data.payment.simulated_reference} · ${statusLabel(data.payment.status)}.`);
-    await resource.reload();
+    try {
+      const { data } = await api.request<PaymentResult>(`/marketplace/reservations/${id}/payments`, { method: "POST", body: { outcome } });
+      setNotice(`${data.notice} Referencia ${data.payment.simulated_reference} · ${statusLabel(data.payment.status)}.`);
+    } finally {
+      await resource.reload();
+    }
   });
   const cancel = () => action.run(async () => {
     await api.request(`/marketplace/reservations/${id}/cancel`, { method: "POST", body: { reason: reason.trim() || null } });
@@ -126,7 +145,8 @@ export function ReservationScreen() {
               flexGrow: 2,
               flexShrink: 1,
               minWidth: 0,
-              flexBasis: mobile ? "100%" : 480,
+              flexBasis: mobile ? "auto" : 480,
+              width: mobile ? "100%" : undefined,
               maxWidth: "100%",
               gap: 16,
             }}
@@ -136,10 +156,17 @@ export function ReservationScreen() {
               <Copy muted>{reservation.venue_name} · {reservation.establishment_name}</Copy>
               <Copy muted>{reservation.occupancy_mode === "ESTABLISHMENT" ? "Establecimiento completo" : "Solo el espacio"} · Total {money(reservation.total_amount)}</Copy>
               {reservation.status === "HOLD" && reservation.hold_expires_at && (
-                <Copy muted>
-                  Reserva temporal: vence {dateLabel(reservation.hold_expires_at)}
-                  {reservation.awaiting_venue ? " si el espacio no la acepta (el pago se reembolsa)." : " si no se paga."}
-                </Copy>
+                <View style={{ gap: 6 }}>
+                  <HoldIndicator
+                    expiresAt={reservation.hold_expires_at}
+                    active={reservation.status === "HOLD"}
+                    onExpire={() => void resource.reload()}
+                  />
+                  <Copy muted>
+                    Reserva temporal: vence {dateLabel(reservation.hold_expires_at)}
+                    {reservation.awaiting_venue ? " si el espacio no la acepta (el pago se reembolsa)." : " si no se paga."}
+                  </Copy>
+                </View>
               )}
               {reservation.notes && <Copy muted>Notas: {reservation.notes}</Copy>}
               {reservation.cancellation_reason && <Copy muted>Motivo de cancelación: {reservation.cancellation_reason}</Copy>}
@@ -186,7 +213,8 @@ export function ReservationScreen() {
               flexGrow: 1,
               flexShrink: 1,
               minWidth: 0,
-              flexBasis: mobile ? "100%" : 380,
+              flexBasis: mobile ? "auto" : 380,
+              width: mobile ? "100%" : undefined,
               maxWidth: "100%",
               gap: 16,
             }}

@@ -6,7 +6,7 @@ import {
   Button,
   Card,
   Copy,
-  Field,
+  DateTimeField,
   Page,
   ResourceState,
   SectionHeader,
@@ -48,15 +48,17 @@ export default function StatisticsScreen({ global = false }: { global?: boolean 
     >
       <Card>
         <View style={styles.row}>
-          <Field
-            label="Desde (AAAA-MM-DD)"
+          <DateTimeField
+            label="Fecha desde"
+            mode="date"
             value={draft.from}
-            onChangeText={(from) => setDraft({ ...draft, from })}
+            onChange={(from) => setDraft({ ...draft, from })}
           />
-          <Field
-            label="Hasta (AAAA-MM-DD)"
+          <DateTimeField
+            label="Fecha hasta"
+            mode="date"
             value={draft.to}
-            onChangeText={(to) => setDraft({ ...draft, to })}
+            onChange={(to) => setDraft({ ...draft, to })}
           />
           <Select
             label="Concierto (opcional)"

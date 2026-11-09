@@ -12,6 +12,7 @@ import {
   Button,
   Card,
   Copy,
+  DateTimeField,
   Field,
   FormScope,
   MusicalCover,
@@ -47,7 +48,7 @@ export default function VenueScreen() {
   const requester = can("marketplace.quotes.request", "marketplace.reservations.create", "marketplace.admin");
   // Whole day (no times) or the exact requested slot.
   const lookup = () => check.run(async () => {
-    if (!isDate(form.date ?? "")) throw new Error("Ingresá la fecha como AAAA-MM-DD.");
+    if (!isDate(form.date ?? "")) throw new Error("Elegí la fecha para consultar disponibilidad.");
     const exact = form.start && form.end ? slot(form.date, { setup: form.setup, start: form.start, end: form.end, teardown: form.teardown }) : null;
     const params = exact ? { from: exact.setup_start_at, to: exact.teardown_end_at, mode } : { date: form.date, mode };
     setAvailability((await api.request<Availability>(`/marketplace/venues/${id}/availability${query(params)}`)).data);
@@ -91,7 +92,8 @@ export default function VenueScreen() {
                 flexGrow: 2,
                 flexShrink: 1,
                 minWidth: 0,
-                flexBasis: mobile ? "100%" : 500,
+                flexBasis: mobile ? "auto" : 500,
+                width: mobile ? "100%" : undefined,
                 maxWidth: "100%",
                 gap: 16,
               }}
@@ -138,7 +140,8 @@ export default function VenueScreen() {
                 flexGrow: 1,
                 flexShrink: 1,
                 minWidth: 0,
-                flexBasis: mobile ? "100%" : 400,
+                flexBasis: mobile ? "auto" : 400,
+                width: mobile ? "100%" : undefined,
                 maxWidth: "100%",
                 gap: 16,
               }}
@@ -146,13 +149,13 @@ export default function VenueScreen() {
               <Card>
                 <SectionHeader title="Disponibilidad y franja (hora de Argentina)" />
                 <View style={styles.row}>
-                  <Field label="Fecha (AAAA-MM-DD)" required value={form.date ?? ""} onChangeText={(v) => set("date", v)} />
-                  <Field label="Armado desde (HH:MM, opcional)" value={form.setup ?? ""} onChangeText={(v) => set("setup", v)} />
+                  <DateTimeField label="Fecha del evento" mode="date" required value={form.date ?? ""} onChange={(v) => set("date", v)} />
+                  <DateTimeField label="Armado desde (opcional)" mode="time" defaultTime="16:00" value={form.setup ?? ""} onChange={(v) => set("setup", v)} />
                 </View>
                 <View style={styles.row}>
-                  <Field label="Inicio del evento (HH:MM)" required value={form.start ?? ""} onChangeText={(v) => set("start", v)} />
-                  <Field label="Fin del evento (HH:MM)" required value={form.end ?? ""} onChangeText={(v) => set("end", v)} />
-                  <Field label="Desarme hasta (HH:MM, opcional)" value={form.teardown ?? ""} onChangeText={(v) => set("teardown", v)} />
+                  <DateTimeField label="Inicio del evento" mode="time" required defaultTime="18:00" value={form.start ?? ""} onChange={(v) => set("start", v)} />
+                  <DateTimeField label="Fin del evento" mode="time" required defaultTime="20:00" value={form.end ?? ""} onChange={(v) => set("end", v)} />
+                  <DateTimeField label="Desarme hasta (opcional)" mode="time" defaultTime="22:00" value={form.teardown ?? ""} onChange={(v) => set("teardown", v)} />
                 </View>
                 <View style={styles.row}>
                   {modes.map(([code, label]) => (

@@ -56,10 +56,19 @@ export class AdminService {
                 if (adminRole && target.user.status === 'ACTIVE' && await repo.activeHolders(adminRole.id) <= 1)
                     fail(409, 'LAST_ADMIN', 'La plataforma necesita al menos un ADMIN activo.');
             }
-            const changed = replace ? await repo.setSingleRole(userId, target.role.id) : (await repo.grant(userId, target.role.id) === 1);
-            if (changed) await repo.audit({ actor: actor.id, action: 'ROLE_GRANTED', target: userId, roleId: target.role.id,
-                details: { role, reason: reason ?? null, target_email: target.user.email } });
-            return { changed, user: await repo.user(userId) };
+            const details = { role, reason: reason ?? null, target_email: target.user.email };
+            if (!replace) {
+                // Additive: the account keeps every profile it already had.
+                const changed = await repo.grant(userId, target.role.id) === 1;
+                if (changed) await repo.audit({ actor: actor.id, action: 'ROLE_GRANTED', target: userId, roleId: target.role.id, details });
+                return { changed, user: await repo.user(userId) };
+            }
+            const result = await repo.setSingleRole(userId, target.role.id);
+            // Every profile removed by the legacy replace mode is recorded like an individual revocation.
+            for (const removed of result.removed) await repo.audit({ actor: actor.id, action: 'ROLE_REVOKED', target: userId, roleId: removed.id,
+                details: { role: removed.code, reason: reason ?? null, target_email: target.user.email, replaced_by: role } });
+            if (result.changed) await repo.audit({ actor: actor.id, action: 'ROLE_GRANTED', target: userId, roleId: target.role.id, details });
+            return { changed: result.changed, user: await repo.user(userId) };
         });
     }
     revoke(userId: string, role: string, reason: string | null | undefined, actor: Principal) {
@@ -67,9 +76,11 @@ export class AdminService {
             const target = await this.lock(repo, role, userId);
             if (!await repo.hasRole(userId, target.role.id)) fail(404, 'ROLE_NOT_GRANTED', 'La cuenta no tiene ese perfil.');
             if (role === 'ADMIN' && target.user.status === 'ACTIVE' && await repo.activeHolders(target.role.id) <= 1)
-                fail(409, 'LAST_ADMIN', 'La plataforma necesita al menos un ADMIN activo.');
-            // Login refuses accounts without roles (NO_ROLES); removing the last one would lock the user out.
-            if (await repo.roleCount(userId) <= 1) fail(409, 'LAST_ROLE', 'La cuenta debe conservar al menos un perfil.');
+                fail(409, 'LAST_ADMIN', userId === actor.id
+                    ? 'No podés quitarte el perfil ADMIN: sos el último administrador activo de la plataforma.'
+                    : 'La plataforma necesita al menos un ADMIN activo.');
+            // Login refuses accounts without roles (NO_ROLES): the account must keep at least one enabling profile (GUEST does not count).
+            if (await repo.enablingRoleCount(userId) <= 1) fail(409, 'LAST_ROLE', 'La cuenta debe conservar al menos un perfil.');
             await repo.revoke(userId, target.role.id);
             await repo.audit({ actor: actor.id, action: 'ROLE_REVOKED', target: userId, roleId: target.role.id,
                 details: { role, reason: reason ?? null, target_email: target.user.email } });

@@ -44,12 +44,15 @@ export class AdminRepository {
             'SELECT id, email, status, is_guest FROM users WHERE id = ? FOR UPDATE', [id]))[0];
     }
     grant(userId: string, roleId: string) { return this.execute('INSERT IGNORE INTO user_roles (user_id, role_id) VALUES (?, ?)', [userId, roleId]); }
-    async setSingleRole(userId: string, roleId: string): Promise<boolean> {
-        const alreadyOnly = (await this.rows('SELECT role_id FROM user_roles WHERE user_id = ?', [userId]));
-        if (alreadyOnly.length === 1 && String(alreadyOnly[0].role_id) === String(roleId)) return false;
+    // Legacy `replace` mode. Returns the profiles it removed so each removal is audited like an individual revocation.
+    async setSingleRole(userId: string, roleId: string): Promise<{ changed: boolean; removed: { id: string; code: string }[] }> {
+        const current = await this.rows<{ role_id: string; code: string }>(
+            'SELECT ur.role_id, r.code FROM user_roles ur JOIN roles r ON r.id = ur.role_id WHERE ur.user_id = ? FOR UPDATE', [userId]);
+        if (current.length === 1 && String(current[0].role_id) === String(roleId)) return { changed: false, removed: [] };
+        const removed = current.filter(row => String(row.role_id) !== String(roleId)).map(row => ({ id: String(row.role_id), code: String(row.code) }));
         await this.execute('DELETE FROM user_roles WHERE user_id = ? AND role_id <> ?', [userId, roleId]);
-        await this.execute('INSERT IGNORE INTO user_roles (user_id, role_id) VALUES (?, ?)', [userId, roleId]);
-        return true;
+        const granted = await this.execute('INSERT IGNORE INTO user_roles (user_id, role_id) VALUES (?, ?)', [userId, roleId]);
+        return { changed: granted === 1 || removed.length > 0, removed };
     }
     revoke(userId: string, roleId: string) { return this.execute('DELETE FROM user_roles WHERE user_id = ? AND role_id = ?', [userId, roleId]); }
     roleCatalog(codes: string[]) {
@@ -58,8 +61,10 @@ export class AdminRepository {
     async hasRole(userId: string, roleId: string): Promise<boolean> {
         return (await this.rows('SELECT role_id FROM user_roles WHERE user_id = ? AND role_id = ?', [userId, roleId])).length > 0;
     }
-    async roleCount(userId: string): Promise<number> {
-        return Number((await this.rows('SELECT COUNT(*) AS total FROM user_roles WHERE user_id = ?', [userId]))[0].total);
+    // Enabling profiles only: GUEST belongs to the guest flow and does not let a registered account work.
+    async enablingRoleCount(userId: string): Promise<number> {
+        return Number((await this.rows(`SELECT COUNT(*) AS total FROM user_roles ur JOIN roles r ON r.id = ur.role_id
+            WHERE ur.user_id = ? AND r.code <> 'GUEST'`, [userId]))[0].total);
     }
     async activeHolders(roleId: string): Promise<number> {
         return Number((await this.rows(`SELECT COUNT(*) AS total FROM user_roles ur JOIN users u ON u.id = ur.user_id

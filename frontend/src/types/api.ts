@@ -83,6 +83,124 @@ export function primaryRole(roles: readonly Role[] | undefined | null): Role {
   }
   return roles[0];
 }
+export function resolveActiveRole(
+  roles: readonly Role[] | undefined | null,
+  preferredRole?: Role | null,
+): Role {
+  if (preferredRole && roles?.includes(preferredRole)) return preferredRole;
+  return primaryRole(roles);
+}
+export function linksForRole(role: Role, staff: boolean): { path: string; label: string }[] {
+  const sharedStart = [
+    { path: "/discover", label: "Descubrir" },
+    { path: "/search", label: "Cartelera" },
+    { path: "/tickets", label: "Mis entradas" },
+    { path: "/purchases", label: "Mis compras" },
+  ];
+  const sharedEnd = [
+    ...(staff ? [{ path: "/staff", label: "Staff" }] : []),
+    { path: "/notifications", label: "Notificaciones" },
+    { path: "/profile", label: "Mi cuenta" },
+  ];
+
+  switch (role) {
+    case "ADMIN":
+      return [
+        ...sharedStart,
+        { path: "/admin", label: "Admin" },
+        { path: "/admin/users", label: "Usuarios y roles" },
+        { path: "/admin/organizations", label: "Organizaciones" },
+        { path: "/admin/establishments", label: "Revisión de espacios" },
+        { path: "/admin/concerts", label: "Conciertos" },
+        { path: "/admin/statistics", label: "Estadísticas" },
+        { path: "/admin/audit", label: "Auditoría" },
+        { path: "/marketplace", label: "Espacios" },
+        { path: "/services", label: "Servicios" },
+        ...sharedEnd,
+      ];
+    case "ORGANIZADOR":
+      return [
+        ...sharedStart,
+        { path: "/organizer", label: "Organizador" },
+        { path: "/organizer/statistics", label: "Estadísticas" },
+        { path: "/marketplace", label: "Espacios" },
+        { path: "/marketplace/quotes", label: "Presupuestos de espacios" },
+        { path: "/marketplace/reservations", label: "Reservas de espacios" },
+        { path: "/services", label: "Servicios" },
+        { path: "/services/quotes", label: "Cotizaciones de servicios" },
+        ...sharedEnd,
+      ];
+    case "VENUE":
+      return [
+        ...sharedStart,
+        { path: "/marketplace/manage", label: "Mi Espacio Físico" },
+        { path: "/marketplace/reservations", label: "Reservas recibidas" },
+        { path: "/marketplace/quotes", label: "Presupuestos recibidos" },
+        { path: "/marketplace", label: "Espacios" },
+        { path: "/services", label: "Servicios" },
+        { path: "/services/quotes", label: "Cotizaciones de servicios" },
+        ...sharedEnd,
+      ];
+    case "EMPRESA_SERVICIOS":
+      return [
+        ...sharedStart,
+        { path: "/services/mine", label: "Mi Empresa y Servicios" },
+        { path: "/services/quotes", label: "Cotizaciones recibidas" },
+        { path: "/services", label: "Servicios" },
+        { path: "/marketplace", label: "Espacios" },
+        ...sharedEnd,
+      ];
+    case "ARTISTA":
+      return [
+        ...sharedStart,
+        { path: "/artists", label: "Panel de Artista" },
+        { path: "/marketplace", label: "Espacios" },
+        { path: "/marketplace/quotes", label: "Mis presupuestos" },
+        { path: "/marketplace/reservations", label: "Mis reservas" },
+        { path: "/services", label: "Servicios" },
+        ...sharedEnd,
+      ];
+    case "COMPRADOR":
+    case "GUEST":
+    default:
+      return [
+        ...sharedStart,
+        { path: "/marketplace", label: "Espacios" },
+        { path: "/services", label: "Servicios" },
+        ...sharedEnd,
+      ];
+  }
+}
+export function mobileBottomTabs(role: Role, staff: boolean): { path: string; label: string }[] {
+  const contextual = (() => {
+    switch (role) {
+      case "ADMIN":
+        return { path: "/admin", label: "Admin" };
+      case "ORGANIZADOR":
+        return { path: "/organizer", label: "Organizador" };
+      case "VENUE":
+        return { path: "/marketplace/manage", label: "Mi espacio" };
+      case "EMPRESA_SERVICIOS":
+        return { path: "/services/mine", label: "Servicios" };
+      case "ARTISTA":
+        return { path: "/artists", label: "Artista" };
+      case "COMPRADOR":
+      case "GUEST":
+      default:
+        return staff
+          ? { path: "/staff", label: "Staff" }
+          : { path: "/search", label: "Cartelera" };
+    }
+  })();
+
+  return [
+    { path: "/discover", label: "Descubrir" },
+    contextual,
+    { path: "/tickets", label: "Entradas" },
+    { path: "/notifications", label: "Notificaciones" },
+    { path: "/profile", label: "Mi cuenta" },
+  ];
+}
 export interface User {
   id: string;
   first_name: string;
@@ -149,6 +267,8 @@ export interface CatalogItem extends Named {
 export interface TicketType extends Named {
   price: string;
   stock_total: number;
+  quantity_sold?: number;
+  stock_available?: number;
   sale_start: string | null;
   sale_end: string | null;
   max_per_purchase: number | null;

@@ -127,7 +127,8 @@ export default function AuthScreen({ mode }: { mode: Mode }) {
         flexGrow: 1,
         flexShrink: 1,
         minWidth: 0,
-        flexBasis: desktop ? 520 : "100%",
+        flexBasis: desktop ? 520 : "auto",
+        width: desktop ? undefined : "100%",
         gap: 16,
       }}
     >
@@ -173,7 +174,7 @@ export default function AuthScreen({ mode }: { mode: Mode }) {
                 flexGrow: 1,
                 flexShrink: 1,
                 minWidth: 0,
-                flexBasis: desktop ? 420 : "100%",
+                flexBasis: desktop ? 420 : "auto",
                 maxWidth: desktop ? 500 : 520,
                 alignSelf: "center",
                 width: "100%",
@@ -276,7 +277,7 @@ export default function AuthScreen({ mode }: { mode: Mode }) {
                 flexGrow: 1,
                 flexShrink: 1,
                 minWidth: 0,
-                flexBasis: desktop ? 420 : "100%",
+                flexBasis: desktop ? 420 : "auto",
                 maxWidth: desktop ? 500 : 520,
                 alignSelf: "center",
                 width: "100%",
@@ -375,28 +376,21 @@ export default function AuthScreen({ mode }: { mode: Mode }) {
                       onChangeText={setToken}
                     />
                   )}
-                  {["login", "register", "reset-password"].includes(mode) && (
+                  {["register", "reset-password"].includes(mode) && (
                     <Field
-                      label={
-                        mode === "login"
-                          ? "Contraseña"
-                          : "Contraseña (mínimo 12 caracteres)"
-                      }
+                      label="Contraseña (mínimo 12 caracteres)"
                       required
                       value={password}
                       onChangeText={setPassword}
                       secureTextEntry
-                      autoComplete={
-                        mode === "login" ? "current-password" : "new-password"
-                      }
+                      autoComplete="new-password"
                     />
                   )}
                   <ActionFeedback action={action} />
-                  {mode === "login" && <Notice message={auth.error} error />}
                 </FormScope>
                 {mode !== "oauth-callback" && (
                   <Button
-                    title={mode === "login" ? "Ingresar" : "Continuar"}
+                    title="Continuar"
                     disabled={action.busy}
                     onPress={() => void submit()}
                   />
@@ -425,22 +419,6 @@ export default function AuthScreen({ mode }: { mode: Mode }) {
                       }
                     />
                   </>
-                )}
-                {mode === "login" && (
-                  <View style={{ gap: 10, paddingTop: 6, borderTopWidth: 1, borderColor: colors.border }}>
-                    <Copy muted>O continuá con</Copy>
-                    <View style={styles.row}>
-                      {(["google", "github", "facebook"] as const).map((provider) => (
-                        <Button
-                          key={provider}
-                          title={provider}
-                          secondary
-                          disabled={action.busy}
-                          onPress={() => void action.run(() => startOAuth(provider))}
-                        />
-                      ))}
-                    </View>
-                  </View>
                 )}
               </Card>
               <Card variant="subtle" style={{ paddingVertical: 14 }}>

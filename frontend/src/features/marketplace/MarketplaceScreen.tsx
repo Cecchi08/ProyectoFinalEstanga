@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { memo, useState, type ReactNode } from "react";
 import { View } from "react-native";
 import { router } from "expo-router";
 import { useAuth } from "../../contexts/AuthContext";
@@ -10,6 +10,7 @@ import {
   Button,
   Card,
   Copy,
+  DateTimeField,
   Field,
   MusicalCover,
   Notice,
@@ -28,7 +29,17 @@ export const capacityLabel = (venue: Pick<Venue, "capacity_standing" | "capacity
   [venue.capacity_standing ? `${venue.capacity_standing} de pie` : "", venue.capacity_seated ? `${venue.capacity_seated} sentados` : ""]
     .filter(Boolean).join(" · ") || "Capacidad a consultar";
 
-export function VenueCard({ venue, manage = false, featured = false }: { venue: Venue; manage?: boolean; featured?: boolean }) {
+export const VenueCard = memo(function VenueCard({
+  venue,
+  manage = false,
+  featured = false,
+  footerActions,
+}: {
+  venue: Venue;
+  manage?: boolean;
+  featured?: boolean;
+  footerActions?: ReactNode;
+}) {
   const { desktop, mobile } = useBento();
   const isHero = featured && desktop;
   return (
@@ -37,11 +48,12 @@ export function VenueCard({ venue, manage = false, featured = false }: { venue: 
         flexGrow: 1,
         flexShrink: 1,
         minWidth: 0,
-        flexBasis: mobile ? "100%" : isHero ? 560 : 320,
+        flexBasis: mobile ? "auto" : isHero ? 560 : 320,
+        width: mobile ? "100%" : undefined,
         maxWidth: "100%",
       }}
     >
-      <Card variant={isHero ? "featured" : "default"} style={{ height: "100%", justifyContent: "space-between" }}>
+      <Card variant={isHero ? "featured" : "default"} style={{ flexGrow: 1, justifyContent: "space-between" }}>
         <View style={{ gap: 10 }}>
           <MusicalCover
             uri={venue.cover_url}
@@ -56,13 +68,14 @@ export function VenueCard({ venue, manage = false, featured = false }: { venue: 
           <Copy muted>{venue.establishment_name} · {venue.address_line} · {venue.city_name}</Copy>
           <Copy muted>{capacityLabel(venue)} · {money(venue.price_per_hour)} por hora</Copy>
         </View>
-        <View style={{ paddingTop: 8, borderTopWidth: 1, borderColor: colors.border }}>
+        <View style={[styles.row, { paddingTop: 8, borderTopWidth: 1, borderColor: colors.border }]}>
           <Button title={`Ver ${venue.name}`} secondary onPress={() => router.push(`/marketplace/venues/${venue.id}`)} />
+          {footerActions}
         </View>
       </Card>
     </View>
   );
-}
+});
 
 // Toggle buttons for a catalog; multiple keeps every selected code.
 export function Codes({ items, values, onChange, multiple = false, label }: {
@@ -145,9 +158,9 @@ export default function MarketplaceScreen() {
         <View style={{ gap: 8, paddingTop: 8, borderTopWidth: 1, borderColor: colors.border }}>
           <Copy muted>Libre en una franja (hora de Argentina, opcional)</Copy>
           <View style={styles.row}>
-            <Field label="Fecha (AAAA-MM-DD)" value={draft.date ?? ""} onChangeText={(v) => set("date", v)} />
-            <Field label="Desde (HH:MM)" value={draft.from ?? ""} onChangeText={(v) => set("from", v)} />
-            <Field label="Hasta (HH:MM)" value={draft.to ?? ""} onChangeText={(v) => set("to", v)} />
+            <DateTimeField label="Fecha" mode="date" value={draft.date ?? ""} onChange={(v) => set("date", v)} />
+            <DateTimeField label="Desde" mode="time" defaultTime="18:00" value={draft.from ?? ""} onChange={(v) => set("from", v)} />
+            <DateTimeField label="Hasta" mode="time" defaultTime="20:00" value={draft.to ?? ""} onChange={(v) => set("to", v)} />
           </View>
           <Codes label="Modalidad" items={catalogs.result?.data.occupancy_modes.map((m) => ({ id: m.code, code: m.code, name: m.name }))}
             values={draft.mode ? [draft.mode] : []} onChange={(v) => set("mode", v[0] ?? "")} />
@@ -158,7 +171,7 @@ export default function MarketplaceScreen() {
           <Button title="Limpiar filtros" secondary onPress={() => { setDraft({}); setTypes([]); setAmenities([]); setFilters({}); setInvalid(""); setPage(1); }} />
         </View>
       </Card>
-      <ResourceState {...resource} empty={resource.result?.data.length === 0} retry={() => void resource.reload()} />
+      <ResourceState {...resource} empty={resource.result?.data.length === 0} retry={() => void resource.reload()} skeleton="card" />
       <BentoGrid>
         {resource.result?.data.map((venue, index) => (
           <VenueCard

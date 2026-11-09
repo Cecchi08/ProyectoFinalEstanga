@@ -11,11 +11,13 @@ import {
   Button,
   Card,
   Copy,
+  DateTimeField,
   Field,
   FormScope,
   Page,
   ResourceState,
   SectionHeader,
+  SegmentedTabs,
   colors,
   dateLabel,
   money,
@@ -23,6 +25,7 @@ import {
   styles,
   useAction,
   useBento,
+  useDebouncedValue,
   useForm,
 } from "../../components/ui";
 import { Select } from "../../components/ui/Select";
@@ -32,7 +35,7 @@ const iso = (value: string) => {
   const date = new Date(value);
   if (!Number.isFinite(date.getTime()))
     throw new Error(
-      "Usá fechas ISO con zona horaria, por ejemplo 2027-06-10T23:00:00Z.",
+      "Elegí una fecha y un horario válidos desde el calendario.",
     );
   return date.toISOString();
 };
@@ -49,7 +52,8 @@ type Billed = { id: string; name: string };
 function ArtistPicker({ values, onChange }: { values: Billed[]; onChange(values: Billed[]): void }) {
   const [open, setOpen] = useState(false);
   const [search, setSearch] = useState("");
-  const results = useResource<Artist[]>(open ? `/artists${query({ q: search.trim(), limit: 10 })}` : null);
+  const debouncedSearch = useDebouncedValue(search, 300);
+  const results = useResource<Artist[]>(open ? `/artists${query({ q: debouncedSearch.trim(), limit: 10 })}` : null);
   const up = (index: number) => {
     const next = [...values];
     [next[index - 1], next[index]] = [next[index], next[index - 1]];
@@ -94,6 +98,7 @@ export default function ConcertEditor() {
   const resource = useResource<Concert>(editing ? `/concerts/${id}` : null);
   const action = useAction();
   const validation = useForm();
+  const [tab, setTab] = useState<"all" | "details" | "tickets" | "staff" | "artists">("all");
   const [form, setForm] = useState<Record<string, string>>({});
   const [genres, setGenres] = useState<string[]>([]);
   const [artists, setArtists] = useState<Billed[]>([]);
@@ -125,12 +130,17 @@ export default function ConcertEditor() {
   const save = () =>
     action.run(async () => {
       validation.assertValid();
+      const startIso = iso(form.start_datetime ?? "");
+      const endIso = iso(form.end_datetime ?? "");
+      if (startIso && endIso && Date.parse(endIso) <= Date.parse(startIso)) {
+        throw new Error("La fecha y hora de finalización debe ser posterior al inicio del concierto.");
+      }
       const body = {
         name: form.name ?? "",
         description: form.description || null,
         image_url: form.image_url || null,
-        start_datetime: iso(form.start_datetime ?? ""),
-        end_datetime: iso(form.end_datetime ?? ""),
+        start_datetime: startIso,
+        end_datetime: endIso,
         artist_name: form.artist_name ?? "",
         venue_id: form.reservation_id ? undefined : form.venue_id || null,
         reservation_id: form.reservation_id || null,
@@ -165,6 +175,185 @@ export default function ConcertEditor() {
       }
     });
   const mutable = !concert || ["DRAFT", "PUBLISHED"].includes(concert.status);
+
+  const statusCard = concert ? (
+    <Card variant="subtle">
+      <View style={{ flexDirection: "row", flexWrap: "wrap", justifyContent: "space-between", alignItems: "center", gap: 10 }}>
+        <Copy strong>
+          {concert.name} · Estado: {statusLabel(concert.status)}
+        </Copy>
+        <View style={styles.row}>
+          {concert.status === "DRAFT" && (
+            <Button
+              title="Publicar concierto"
+              disabled={action.busy}
+              onPress={() => void transition("publish")}
+            />
+          )}
+          {mutable && (
+            <Button
+              title={
+                confirm === "cancel"
+                  ? "Confirmar cancelación"
+                  : "Cancelar concierto"
+              }
+              secondary
+              danger
+              disabled={action.busy}
+              onPress={() =>
+                confirm === "cancel"
+                  ? void transition("cancel")
+                  : setConfirm("cancel")
+              }
+            />
+          )}
+          {concert.status === "DRAFT" && (
+            <Button
+              title={
+                confirm === "delete"
+                  ? "Confirmar eliminación"
+                  : "Eliminar borrador"
+              }
+              secondary
+              danger
+              disabled={action.busy}
+              onPress={() =>
+                confirm === "delete"
+                  ? void transition("delete")
+                  : setConfirm("delete")
+              }
+            />
+          )}
+        </View>
+      </View>
+    </Card>
+  ) : null;
+
+  const detailsCard = mutable ? (
+    <Card variant="featured">
+      <FormScope form={validation}>
+        <SectionHeader title="Datos principales del show" />
+        <Field
+          label="Nombre del concierto"
+          required
+          value={form.name ?? ""}
+          onChangeText={(v) => set("name", v)}
+        />
+        <Field
+          label="Descripción"
+          multiline
+          value={form.description ?? ""}
+          onChangeText={(v) => set("description", v)}
+        />
+        <Field
+          label="URL de imagen"
+          value={form.image_url ?? ""}
+          onChangeText={(v) => set("image_url", v)}
+        />
+        <View style={styles.row}>
+          <DateTimeField
+            label="Fecha y hora de inicio"
+            mode="datetime"
+            required
+            value={form.start_datetime ?? ""}
+            onChange={(v) => set("start_datetime", v)}
+          />
+          <DateTimeField
+            label="Fecha y hora de fin (opcional)"
+            mode="datetime"
+            value={form.end_datetime ?? ""}
+            onChange={(v) => set("end_datetime", v)}
+          />
+        </View>
+        <Field
+          label="Artista (texto del cartel)"
+          required
+          value={form.artist_name ?? ""}
+          onChangeText={(v) => set("artist_name", v)}
+        />
+        <ArtistPicker values={artists} onChange={(next) => { setArtists(next); setArtistsChanged(true); }} />
+        <Select
+          label="Reserva confirmada (opcional)"
+          path="/marketplace/reservations?status=CONFIRMED"
+          searchable={false}
+          itemLabel={(item) => `${String(item.event_name)} · ${String(item.venue_name)} · ${String(item.public_code)}`}
+          values={form.reservation_id ? [form.reservation_id] : []}
+          onChange={(v) => setForm((current) => ({ ...current, reservation_id: v[0] ?? "", venue_id: "", venue_name: "", address_line: "", city_id: "" }))}
+        />
+        {!form.reservation_id && (
+          <Select
+            label="Espacio del marketplace (opcional)"
+            path="/venues"
+            values={form.venue_id ? [form.venue_id] : []}
+            onChange={(v) => setForm((current) => ({ ...current, venue_id: v[0] ?? "", venue_name: "", address_line: "", city_id: "" }))}
+          />
+        )}
+        {form.venue_id && !form.reservation_id && (
+          <Copy muted>Para publicar en un espacio del marketplace hace falta una reserva confirmada que cubra la fecha: elegila arriba.</Copy>
+        )}
+        <View style={styles.row}>
+          <Field
+            label="Lugar"
+            placeholder={form.venue_id || form.reservation_id ? "Se toma del espacio si lo dejás vacío" : "Nombre de la sala o predio"}
+            value={form.venue_name ?? ""}
+            onChangeText={(v) => set("venue_name", v)}
+          />
+          <Field
+            label="Dirección (opcional)"
+            value={form.address_line ?? ""}
+            onChangeText={(v) => set("address_line", v)}
+          />
+        </View>
+        <View style={styles.row}>
+          <Select
+            label="Ciudad"
+            path="/cities"
+            values={form.city_id ? [form.city_id] : []}
+            onChange={(v) => set("city_id", v[0] ?? "")}
+          />
+          <Select
+            label="Géneros"
+            path="/genres"
+            multiple
+            values={genres}
+            onChange={setGenres}
+          />
+        </View>
+        <Button
+          title="Guardar concierto"
+          disabled={action.busy}
+          onPress={() => void save()}
+        />
+      </FormScope>
+    </Card>
+  ) : null;
+
+  const ticketsSection = concert ? (
+    <View style={{ gap: 14 }}>
+      <SectionHeader title="Tipos de entrada" subtitle="Cupos, precios y ventanas de venta" />
+      {concert.ticket_types.map((type) => (
+        <TicketEditor
+          key={type.id}
+          concertId={concert.id}
+          ticket={type}
+          mutable={mutable}
+          reload={resource.reload}
+        />
+      ))}
+      {mutable && (
+        <TicketEditor concertId={concert.id} reload={resource.reload} />
+      )}
+    </View>
+  ) : null;
+
+  const staffSection = concert ? (
+    <StaffPanel concertId={concert.id} mutable={mutable} />
+  ) : null;
+
+  const hiringSection = concert ? (
+    <OrganizerArtistHiringPanel concert={concert} />
+  ) : null;
+
   return (
     <Page
       eyebrow="VENTI · PRODUCCIÓN DE CONCIERTO"
@@ -180,199 +369,64 @@ export default function ConcertEditor() {
     >
       <ResourceState {...resource} retry={() => void resource.reload()} />
       <ActionFeedback action={action} />
+      {concert && (
+        <SegmentedTabs
+          value={tab}
+          onChange={(v) => setTab(v)}
+          tabs={[
+            { id: "all", label: "Todas las secciones" },
+            { id: "details", label: "Detalles del show" },
+            { id: "tickets", label: "Entradas y precios", badge: concert.ticket_types.length },
+            { id: "staff", label: "Equipo de puerta" },
+            { id: "artists", label: "Contratación de artistas" },
+          ]}
+        />
+      )}
       {(!editing || concert) && (
-        <BentoGrid style={{ alignItems: "flex-start" }}>
-          <View
-            style={{
-              flexGrow: 2,
-              flexShrink: 1,
-              minWidth: 0,
-              flexBasis: mobile ? "100%" : 520,
-              maxWidth: "100%",
-              gap: 16,
-            }}
-          >
-            {concert && (
-              <Card variant="subtle">
-                <View style={{ flexDirection: "row", flexWrap: "wrap", justifyContent: "space-between", alignItems: "center", gap: 10 }}>
-                  <Copy strong>
-                    {concert.name} · Estado: {statusLabel(concert.status)}
-                  </Copy>
-                  <View style={styles.row}>
-                    {concert.status === "DRAFT" && (
-                      <Button
-                        title="Publicar concierto"
-                        disabled={action.busy}
-                        onPress={() => void transition("publish")}
-                      />
-                    )}
-                    {mutable && (
-                      <Button
-                        title={
-                          confirm === "cancel"
-                            ? "Confirmar cancelación"
-                            : "Cancelar concierto"
-                        }
-                        secondary
-                        danger
-                        disabled={action.busy}
-                        onPress={() =>
-                          confirm === "cancel"
-                            ? void transition("cancel")
-                            : setConfirm("cancel")
-                        }
-                      />
-                    )}
-                    {concert.status === "DRAFT" && (
-                      <Button
-                        title={
-                          confirm === "delete"
-                            ? "Confirmar eliminación"
-                            : "Eliminar borrador"
-                        }
-                        secondary
-                        danger
-                        disabled={action.busy}
-                        onPress={() =>
-                          confirm === "delete"
-                            ? void transition("delete")
-                            : setConfirm("delete")
-                        }
-                      />
-                    )}
-                  </View>
-                </View>
-              </Card>
-            )}
-            {mutable && (
-              <Card variant="featured">
-                <FormScope form={validation}>
-                  <SectionHeader title="Datos principales del show" />
-                  <Field
-                    label="Nombre del concierto"
-                    required
-                    value={form.name ?? ""}
-                    onChangeText={(v) => set("name", v)}
-                  />
-                  <Field
-                    label="Descripción"
-                    multiline
-                    value={form.description ?? ""}
-                    onChangeText={(v) => set("description", v)}
-                  />
-                  <Field
-                    label="URL de imagen"
-                    value={form.image_url ?? ""}
-                    onChangeText={(v) => set("image_url", v)}
-                  />
-                  <View style={styles.row}>
-                    <Field
-                      label="Inicio (ISO con zona horaria)"
-                      required
-                      placeholder="2027-06-10T23:00:00Z"
-                      value={form.start_datetime ?? ""}
-                      onChangeText={(v) => set("start_datetime", v)}
-                    />
-                    <Field
-                      label="Fin (ISO, opcional)"
-                      value={form.end_datetime ?? ""}
-                      onChangeText={(v) => set("end_datetime", v)}
-                    />
-                  </View>
-                  <Field
-                    label="Artista (texto del cartel)"
-                    required
-                    value={form.artist_name ?? ""}
-                    onChangeText={(v) => set("artist_name", v)}
-                  />
-                  <ArtistPicker values={artists} onChange={(next) => { setArtists(next); setArtistsChanged(true); }} />
-                  <Select
-                    label="Reserva confirmada (opcional)"
-                    path="/marketplace/reservations?status=CONFIRMED"
-                    searchable={false}
-                    itemLabel={(item) => `${String(item.event_name)} · ${String(item.venue_name)} · ${String(item.public_code)}`}
-                    values={form.reservation_id ? [form.reservation_id] : []}
-                    onChange={(v) => setForm((current) => ({ ...current, reservation_id: v[0] ?? "", venue_id: "", venue_name: "", address_line: "", city_id: "" }))}
-                  />
-                  {!form.reservation_id && (
-                    <Select
-                      label="Espacio del marketplace (opcional)"
-                      path="/venues"
-                      values={form.venue_id ? [form.venue_id] : []}
-                      onChange={(v) => setForm((current) => ({ ...current, venue_id: v[0] ?? "", venue_name: "", address_line: "", city_id: "" }))}
-                    />
-                  )}
-                  {form.venue_id && !form.reservation_id && (
-                    <Copy muted>Para publicar en un espacio del marketplace hace falta una reserva confirmada que cubra la fecha: elegila arriba.</Copy>
-                  )}
-                  <View style={styles.row}>
-                    <Field
-                      label="Lugar"
-                      placeholder={form.venue_id || form.reservation_id ? "Se toma del espacio si lo dejás vacío" : "Nombre de la sala o predio"}
-                      value={form.venue_name ?? ""}
-                      onChangeText={(v) => set("venue_name", v)}
-                    />
-                    <Field
-                      label="Dirección (opcional)"
-                      value={form.address_line ?? ""}
-                      onChangeText={(v) => set("address_line", v)}
-                    />
-                  </View>
-                  <View style={styles.row}>
-                    <Select
-                      label="Ciudad"
-                      path="/cities"
-                      values={form.city_id ? [form.city_id] : []}
-                      onChange={(v) => set("city_id", v[0] ?? "")}
-                    />
-                    <Select
-                      label="Géneros"
-                      path="/genres"
-                      multiple
-                      values={genres}
-                      onChange={setGenres}
-                    />
-                  </View>
-                  <Button
-                    title="Guardar concierto"
-                    disabled={action.busy}
-                    onPress={() => void save()}
-                  />
-                </FormScope>
-              </Card>
-            )}
-
-            {concert && <OrganizerArtistHiringPanel concert={concert} />}
-          </View>
-
-          {concert && (
+        tab === "all" ? (
+          <BentoGrid style={{ alignItems: "flex-start" }}>
             <View
               style={{
-                flexGrow: 1,
+                flexGrow: 2,
                 flexShrink: 1,
                 minWidth: 0,
-                flexBasis: mobile ? "100%" : 380,
+                flexBasis: mobile ? "auto" : 520,
+                width: mobile ? "100%" : undefined,
                 maxWidth: "100%",
-                gap: 14,
+                gap: 16,
               }}
             >
-              <SectionHeader title="Tipos de entrada" subtitle="Cupos, precios y ventanas de venta" />
-              {concert.ticket_types.map((type) => (
-                <TicketEditor
-                  key={`${type.id}-${JSON.stringify(type)}`}
-                  concertId={concert.id}
-                  ticket={type}
-                  mutable={mutable}
-                  reload={resource.reload}
-                />
-              ))}
-              {mutable && (
-                <TicketEditor concertId={concert.id} reload={resource.reload} />
-              )}
-              <StaffPanel concertId={concert.id} mutable={mutable} />
+              {statusCard}
+              {detailsCard}
+              {hiringSection}
             </View>
-          )}
-        </BentoGrid>
+
+            {concert && (
+              <View
+                style={{
+                  flexGrow: 1,
+                  flexShrink: 1,
+                  minWidth: 0,
+                  flexBasis: mobile ? "auto" : 380,
+                  width: mobile ? "100%" : undefined,
+                  maxWidth: "100%",
+                  gap: 14,
+                }}
+              >
+                {ticketsSection}
+                {staffSection}
+              </View>
+            )}
+          </BentoGrid>
+        ) : (
+          <View style={{ gap: 16, width: "100%", maxWidth: 880 }}>
+            {statusCard}
+            {tab === "details" && detailsCard}
+            {tab === "tickets" && ticketsSection}
+            {tab === "staff" && staffSection}
+            {tab === "artists" && hiringSection}
+          </View>
+        )
       )}
     </Page>
   );
@@ -382,7 +436,8 @@ function OrganizerArtistHiringPanel({ concert }: { concert: Concert }) {
   const proposals = useResource<ArtistProposal[]>(`/proposals${query({ flow_type: "ORGANIZER_TO_ARTIST" })}`);
   const [open, setOpen] = useState(false);
   const [search, setSearch] = useState("");
-  const artists = useResource<Artist[]>(open ? `/artists${query({ q: search.trim(), limit: 10 })}` : null);
+  const debouncedSearch = useDebouncedValue(search, 300);
+  const artists = useResource<Artist[]>(open ? `/artists${query({ q: debouncedSearch.trim(), limit: 10 })}` : null);
   const [selectedArtist, setSelectedArtist] = useState<Artist | null>(null);
   const [budget, setBudget] = useState("");
   const [message, setMessage] = useState("");
@@ -532,6 +587,17 @@ function TicketEditor({
     sale_end: ticket?.sale_end ?? "",
     max_per_purchase: String(ticket?.max_per_purchase ?? ""),
   });
+  useEffect(() => {
+    if (!ticket) return;
+    setForm({
+      name: ticket.name ?? "",
+      price: ticket.price ?? "",
+      stock_total: String(ticket.stock_total ?? ""),
+      sale_start: ticket.sale_start ?? "",
+      sale_end: ticket.sale_end ?? "",
+      max_per_purchase: String(ticket.max_per_purchase ?? ""),
+    });
+  }, [ticket]);
   const action = useAction();
   const validation = useForm();
   const set = (key: string, value: string) =>
@@ -564,18 +630,32 @@ function TicketEditor({
               ["name", "Nombre de entrada"],
               ["price", "Precio"],
               ["stock_total", "Cupo total"],
-              ["sale_start", "Venta desde (ISO, opcional)"],
-              ["sale_end", "Venta hasta (ISO, opcional)"],
-              ["max_per_purchase", "Máximo por compra (opcional)"],
             ].map(([key, label]) => (
               <Field
                 key={key}
                 label={label}
-                required={["name", "price", "stock_total"].includes(key)}
+                required
                 value={form[key]}
                 onChangeText={(v) => set(key, v)}
               />
             ))}
+            <DateTimeField
+              label="Venta desde (opcional)"
+              mode="datetime"
+              value={form.sale_start}
+              onChange={(v) => set("sale_start", v)}
+            />
+            <DateTimeField
+              label="Venta hasta (opcional)"
+              mode="datetime"
+              value={form.sale_end}
+              onChange={(v) => set("sale_end", v)}
+            />
+            <Field
+              label="Máximo por compra (opcional)"
+              value={form.max_per_purchase}
+              onChangeText={(v) => set("max_per_purchase", v)}
+            />
             <View style={styles.row}>
               <Button
                 title="Guardar tipo de entrada"
@@ -585,6 +665,11 @@ function TicketEditor({
                     validation.assertValid();
                     if (form.price.trim() === "" || form.stock_total.trim() === "")
                       throw new Error("Completá precio y cupo.");
+                    const saleStartIso = iso(form.sale_start);
+                    const saleEndIso = iso(form.sale_end);
+                    if (saleStartIso && saleEndIso && Date.parse(saleEndIso) <= Date.parse(saleStartIso)) {
+                      throw new Error("El cierre de venta debe ser posterior al inicio de venta.");
+                    }
                     await api.request(
                       ticket
                         ? `/ticket-types/${ticket.id}`
@@ -595,8 +680,8 @@ function TicketEditor({
                           name: form.name,
                           price: Number(form.price),
                           stock_total: Number(form.stock_total),
-                          sale_start: iso(form.sale_start),
-                          sale_end: iso(form.sale_end),
+                          sale_start: saleStartIso,
+                          sale_end: saleEndIso,
                           max_per_purchase: form.max_per_purchase
                             ? Number(form.max_per_purchase)
                             : null,
