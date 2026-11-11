@@ -91,8 +91,8 @@ function ProviderForm({ provider, done }: { provider?: ServiceProvider; done(sav
       // The CUIT is only sent when typed: the API does not return it, so an edit must not erase it.
       ...(form.tax_id?.trim() ? { tax_id: form.tax_id.trim() } : {}),
     };
-    const { data } = await api.request<ServiceProvider>(provider ? `/services/providers/${provider.id}` : "/services/providers",
-      { method: provider ? "PATCH" : "POST", body });
+    const { data } = await api.request<ServiceProvider>(provider ? `/services/providers/${provider.id}/update` : "/services/providers/create",
+      { method: "POST", body });
     await done(data);
   });
   return (
@@ -163,8 +163,8 @@ function OfferingForm({ providerId, offering, done }: { providerId: string; offe
       base_price: price ? Number(price) : null,
       image_url: text(form.image_url),
     };
-    await api.request(offering ? `/services/offerings/${offering.id}` : `/services/providers/${providerId}/offerings`,
-      { method: offering ? "PATCH" : "POST", body });
+    await api.request(offering ? `/services/offerings/${offering.id}/update` : `/services/providers/${providerId}/offerings/create`,
+      { method: "POST", body });
     await done();
   });
   return (

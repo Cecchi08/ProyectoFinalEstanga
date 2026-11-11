@@ -1,4 +1,4 @@
-// Recreates the configured database (backend/.env) from database/venti_shema2.sql. DESTRUCTIVE.
+// Recreates the configured database (backend/.env) from backups/schema.sql. DESTRUCTIVE.
 // Usage: node scripts/db-recreate.mjs --backup <file.sql> --confirm <database-name>
 // Guards: the backup file must exist and not be empty, --confirm must match the database name,
 // and users/concerts must still be empty (catalog tables such as marketplace_cities may hold rows).

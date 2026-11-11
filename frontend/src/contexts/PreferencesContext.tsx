@@ -31,13 +31,13 @@ export function PreferencesProvider({ children }: PropsWithChildren) {
         error: resource.error || action.error,
         reload: resource.reload,
         setNotificationsEnabled: (enabled) => action.run(async () => {
-          await api.request<Preferences>("/preferences", { method: "PATCH", body: { notifications_enabled: enabled } });
+          await api.request<Preferences>("/preferences/update", { method: "POST", body: { notifications_enabled: enabled } });
           await resource.reload();
         }),
         setEnabled: (enabled) =>
           action.run(async () => {
-            await api.request<Preferences>("/preferences", {
-              method: "PATCH",
+            await api.request<Preferences>("/preferences/update", {
+              method: "POST",
               body: { recommendations_enabled: enabled },
             });
             await resource.reload();

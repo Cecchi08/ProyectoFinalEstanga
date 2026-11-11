@@ -1,6 +1,6 @@
 // Shared by the tests and scripts/db-recreate.mjs: the schema file and a splitter that understands
 // the client-side DELIMITER directive (mysql2 does not), the same way the mysql CLI does.
-export const SCHEMA_FILE = new URL('../../database/venti_shema2.sql', import.meta.url);
+export const SCHEMA_FILE = new URL('../../backups/schema.sql', import.meta.url);
 export function schemaStatements(script) {
     const statements = [];
     let delimiter = ';', buffer = '';

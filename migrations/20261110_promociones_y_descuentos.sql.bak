@@ -1,0 +1,724 @@
+-- =====================================================================
+-- Venti · Migración: Sistema de Promociones y Descuentos  (VERSIÓN CORREGIDA v2)
+-- Archivo : 20261110_promociones_y_descuentos_CORREGIDO.sql
+-- Fecha   : 2026-11-10
+--
+-- ESTADO: PARA REVISIÓN MANUAL INDEPENDIENTE.
+--   * Este archivo NO fue ejecutado contra ninguna base de datos, ni real ni
+--     de prueba, ni validado por un motor MySQL. Puede contener errores de
+--     sintaxis o de comportamiento que solo aparecerán al ejecutarlo en un
+--     entorno de pruebas (copia de producción).
+--   * No debe considerarse listo para producción hasta cerrar los puntos
+--     "A REVISAR" del informe adjunto.
+--
+-- QUÉ HACE
+--   1. Crea `promotions` (cupones PERCENTAGE / FIXED) con restricciones fuertes.
+--   2. Agrega a `orders`: promocion, promotion_id, subtotal_amount,
+--      discount_amount y promotion_consumed_at (todas AL FINAL, sin `AFTER`).
+--   3. Completa subtotal_amount de pedidos históricos SOLO con evidencia
+--      (SUM(order_items.line_total) == total_amount). Nunca inventa importes.
+--   4. Crea índices, FKs (RESTRICT) y CHECKs con verificación de definición.
+--   5. Siembra VENTI10 / PROMO20 / FIESTA1000 sin pisar datos existentes.
+--   6. Crea sp_promotion_consume / sp_promotion_release (consumo atómico,
+--      idempotente por pedido, con bloqueo de filas y transacción).
+--   7. Limpia los procedimientos auxiliares temporales al terminar con éxito.
+--   8. Verificaciones posteriores.
+--
+-- IDEMPOTENCIA
+--   * Los helpers comprueban EXISTENCIA + DEFINICIÓN. Si la definición no es
+--     compatible, la recrean (DROP + ADD), no se limitan a mirar el nombre.
+--   * Las semillas usan INSERT ... WHERE NOT EXISTS.
+--   * Re-ejecutar tras un fallo reanuda: los DDL ya aplicados quedan, los
+--     faltantes se agregan. Los datos históricos no se re-tocan (backfill
+--     es un no-op si no hay nada que completar con evidencia).
+--   * Los SPs de consumo/liberación se recrean con DROP IF EXISTS + CREATE.
+--
+-- ATOMICIDAD (DDL)
+--   MySQL hace COMMIT implícito en cada DDL. La migración NO es transaccional.
+--   Mitigación: prechecks que abortan ANTES de modificar + pasos idempotentes
+--   + orden tal que cualquier estado intermedio es seguro.
+--   Solo el backfill (paso 4) va dentro de una transacción explícita.
+--
+-- FASES
+--   Fase A (siempre): compatible con backend que aún no conoce las columnas.
+--   Fase B (opcional, `SET @venti_aplicar_fase_b = 1;` antes de ejecutar):
+--     convierte subtotal_amount en NOT NULL. Solo tras desplegar el backend
+--     que siempre escribe subtotal_amount.
+--
+-- REQUISITOS
+--   * MySQL >= 8.0.16 (CHECK aplicados, information_schema.CHECK_CONSTRAINTS).
+--   * USE <base>; antes de ejecutar.
+--   * Cliente `mysql` CLI (o equivalente con DELIMITER). NO usar --force.
+--   * Backup / snapshot previo. Ensayar primero en copia.
+--   * Zona horaria: promotions.valid_from / valid_until en UTC.
+--
+-- NO TOCA: schema.sql, importes existentes, estados, totales históricos.
+-- =====================================================================
+
+SET NAMES utf8mb4;
+SET @venti_aplicar_fase_b = COALESCE(@venti_aplicar_fase_b, 0);
+SET @venti_mig_paso = 'INICIO';
+
+DELIMITER $$
+
+-- ---------------------------------------------------------------------
+-- HELPERS TEMPORALES (prefijo _venti_mig_; se eliminan al final).
+-- Nombres de tabla/columna/índice son constantes de este archivo,
+-- por lo que no hay superficie de inyección SQL.
+-- ---------------------------------------------------------------------
+
+-- ADD COLUMN: idempotente por nombre. Si existiera con otro tipo, el
+-- precheck del procedimiento principal ya abortó antes de llegar aquí.
+DROP PROCEDURE IF EXISTS _venti_mig_add_column$$
+CREATE PROCEDURE _venti_mig_add_column(
+  IN p_table VARCHAR(64),
+  IN p_column VARCHAR(64),
+  IN p_definition VARCHAR(500)
+)
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM information_schema.COLUMNS
+    WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = p_table AND COLUMN_NAME = p_column
+  ) THEN
+    SET @venti_ddl = CONCAT('ALTER TABLE `', p_table, '` ADD COLUMN `', p_column, '` ', p_definition);
+    PREPARE venti_stmt FROM @venti_ddl;
+    EXECUTE venti_stmt;
+    DEALLOCATE PREPARE venti_stmt;
+  END IF;
+END$$
+
+-- ADD INDEX: verifica que la lista ordenada de columnas coincida.
+-- Si el índice existe con otra definición (mismo nombre, otras columnas),
+-- lo recrea. Es seguro: un índice no afecta datos.
+DROP PROCEDURE IF EXISTS _venti_mig_add_index$$
+CREATE PROCEDURE _venti_mig_add_index(
+  IN p_table VARCHAR(64),
+  IN p_index VARCHAR(64),
+  IN p_columns VARCHAR(255)   -- lista con backticks, p.ej. '`status`,`valid_from`'
+)
+BEGIN
+  DECLARE v_existing_cols VARCHAR(255) DEFAULT NULL;
+  DECLARE v_expected_cols VARCHAR(255);
+
+  SET v_expected_cols = REPLACE(p_columns, '`', '');
+
+  SELECT GROUP_CONCAT(COLUMN_NAME ORDER BY SEQ_IN_INDEX SEPARATOR ',')
+    INTO v_existing_cols
+  FROM information_schema.STATISTICS
+  WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = p_table AND INDEX_NAME = p_index;
+
+  IF v_existing_cols IS NULL THEN
+    SET @venti_ddl = CONCAT('ALTER TABLE `', p_table, '` ADD KEY `', p_index, '` (', p_columns, ')');
+    PREPARE venti_stmt FROM @venti_ddl;
+    EXECUTE venti_stmt;
+    DEALLOCATE PREPARE venti_stmt;
+  ELSEIF v_existing_cols <> v_expected_cols THEN
+    SET @venti_ddl = CONCAT('ALTER TABLE `', p_table, '` DROP INDEX `', p_index, '`');
+    PREPARE venti_stmt FROM @venti_ddl;
+    EXECUTE venti_stmt;
+    DEALLOCATE PREPARE venti_stmt;
+
+    SET @venti_ddl = CONCAT('ALTER TABLE `', p_table, '` ADD KEY `', p_index, '` (', p_columns, ')');
+    PREPARE venti_stmt FROM @venti_ddl;
+    EXECUTE venti_stmt;
+    DEALLOCATE PREPARE venti_stmt;
+  END IF;
+END$$
+
+-- ADD CHECK: verifica la definición contra information_schema.CHECK_CONSTRAINTS.
+-- La comparación es best-effort (normaliza backticks, paréntesis, espacios y
+-- mayúsculas). Si no coincide, recrea. Si el ADD falla por datos preexistentes
+-- que violan la regla, el error es explícito y la migración aborta: hay que
+-- corregir esos datos a mano. LIMITACIÓN CONOCIDA: la normalización puede dar
+-- falsos positivos (dos expresiones lógicamente distintas que normalizan
+-- igual); se mitiga con nombres de CHECK únicos para esta migración.
+DROP PROCEDURE IF EXISTS _venti_mig_add_check$$
+CREATE PROCEDURE _venti_mig_add_check(
+  IN p_table VARCHAR(64),
+  IN p_name VARCHAR(64),
+  IN p_expr VARCHAR(1000)
+)
+BEGIN
+  DECLARE v_actual_clause VARCHAR(1000) DEFAULT NULL;
+  DECLARE v_expected_norm VARCHAR(1000);
+  DECLARE v_actual_norm VARCHAR(1000);
+
+  SELECT cc.CHECK_CLAUSE INTO v_actual_clause
+  FROM information_schema.CHECK_CONSTRAINTS cc
+  JOIN information_schema.TABLE_CONSTRAINTS tc
+    ON tc.CONSTRAINT_SCHEMA = cc.CONSTRAINT_SCHEMA
+   AND tc.CONSTRAINT_NAME   = cc.CONSTRAINT_NAME
+  WHERE cc.CONSTRAINT_SCHEMA = DATABASE()
+    AND cc.CONSTRAINT_NAME   = p_name
+    AND tc.TABLE_NAME        = p_table
+    AND tc.CONSTRAINT_TYPE   = 'CHECK';
+
+  SET v_expected_norm = LOWER(
+    REPLACE(REPLACE(REPLACE(REPLACE(p_expr, '`', ''), '(', ''), ')', ''), ' ', '')
+  );
+
+  IF v_actual_clause IS NULL THEN
+    SET @venti_ddl = CONCAT('ALTER TABLE `', p_table, '` ADD CONSTRAINT `', p_name, '` CHECK (', p_expr, ')');
+    PREPARE venti_stmt FROM @venti_ddl;
+    EXECUTE venti_stmt;
+    DEALLOCATE PREPARE venti_stmt;
+  ELSE
+    SET v_actual_norm = LOWER(
+      REPLACE(REPLACE(REPLACE(REPLACE(v_actual_clause, '`', ''), '(', ''), ')', ''), ' ', '')
+    );
+    IF v_actual_norm <> v_expected_norm THEN
+      SET @venti_ddl = CONCAT('ALTER TABLE `', p_table, '` DROP CHECK `', p_name, '`');
+      PREPARE venti_stmt FROM @venti_ddl;
+      EXECUTE venti_stmt;
+      DEALLOCATE PREPARE venti_stmt;
+
+      SET @venti_ddl = CONCAT('ALTER TABLE `', p_table, '` ADD CONSTRAINT `', p_name, '` CHECK (', p_expr, ')');
+      PREPARE venti_stmt FROM @venti_ddl;
+      EXECUTE venti_stmt;
+      DEALLOCATE PREPARE venti_stmt;
+    END IF;
+  END IF;
+END$$
+
+-- ADD FK: verifica tabla referenciada, columna referenciada, columna local,
+-- DELETE_RULE y UPDATE_RULE. Si no es compatible, recrea (DROP + ADD).
+-- Si el ADD falla porque hay huérfanos, el error es explícito.
+-- Nota sobre 3823: la FK RESTRICT debe existir ANTES de intentar agregar un
+-- CHECK sobre la misma columna. El orden de llamadas en el procedimiento
+-- principal lo garantiza.
+DROP PROCEDURE IF EXISTS _venti_mig_add_fk$$
+CREATE PROCEDURE _venti_mig_add_fk(
+  IN p_table VARCHAR(64),
+  IN p_name VARCHAR(64),
+  IN p_column VARCHAR(64),
+  IN p_ref_table VARCHAR(64),
+  IN p_ref_column VARCHAR(64),
+  IN p_on_delete VARCHAR(20)
+)
+BEGIN
+  DECLARE v_delete_rule VARCHAR(20) DEFAULT NULL;
+  DECLARE v_update_rule VARCHAR(20) DEFAULT NULL;
+  DECLARE v_ref_table VARCHAR(64) DEFAULT NULL;
+  DECLARE v_ref_column VARCHAR(64) DEFAULT NULL;
+  DECLARE v_local_col VARCHAR(64) DEFAULT NULL;
+  DECLARE v_compatible BOOL DEFAULT FALSE;
+
+  SELECT rc.DELETE_RULE, rc.UPDATE_RULE, rc.REFERENCED_TABLE_NAME,
+         kcu.REFERENCED_COLUMN_NAME, kcu.COLUMN_NAME
+    INTO v_delete_rule, v_update_rule, v_ref_table, v_ref_column, v_local_col
+  FROM information_schema.REFERENTIAL_CONSTRAINTS rc
+  JOIN information_schema.KEY_COLUMN_USAGE kcu
+    ON kcu.CONSTRAINT_SCHEMA = rc.CONSTRAINT_SCHEMA
+   AND kcu.CONSTRAINT_NAME   = rc.CONSTRAINT_NAME
+   AND kcu.TABLE_NAME        = rc.TABLE_NAME
+  WHERE rc.CONSTRAINT_SCHEMA = DATABASE()
+    AND rc.TABLE_NAME        = p_table
+    AND rc.CONSTRAINT_NAME   = p_name;
+
+  IF v_local_col IS NOT NULL THEN
+    IF v_ref_table  = p_ref_table
+       AND v_ref_column = p_ref_column
+       AND v_local_col  = p_column
+       AND (v_delete_rule = p_on_delete
+            OR (p_on_delete = 'RESTRICT' AND v_delete_rule = 'NO ACTION'))
+       AND v_update_rule = 'RESTRICT' THEN
+      SET v_compatible = TRUE;
+    END IF;
+
+    IF NOT v_compatible THEN
+      SET @venti_ddl = CONCAT('ALTER TABLE `', p_table, '` DROP FOREIGN KEY `', p_name, '`');
+      PREPARE venti_stmt FROM @venti_ddl;
+      EXECUTE venti_stmt;
+      DEALLOCATE PREPARE venti_stmt;
+    END IF;
+  END IF;
+
+  IF v_local_col IS NULL OR NOT v_compatible THEN
+    SET @venti_ddl = CONCAT(
+      'ALTER TABLE `', p_table, '` ADD CONSTRAINT `', p_name,
+      '` FOREIGN KEY (`', p_column, '`) REFERENCES `', p_ref_table,
+      '` (`', p_ref_column, '`) ON DELETE ', p_on_delete, ' ON UPDATE RESTRICT'
+    );
+    PREPARE venti_stmt FROM @venti_ddl;
+    EXECUTE venti_stmt;
+    DEALLOCATE PREPARE venti_stmt;
+  END IF;
+END$$
+
+-- ---------------------------------------------------------------------
+-- PROCEDIMIENTO PRINCIPAL DE LA MIGRACIÓN
+-- Un único procedimiento permite que cualquier SIGNAL detenga el flujo
+-- completo. DDL dentro de él sigue haciendo COMMIT implícito; la
+-- idempotencia de los helpers y los prechecks lo mitigan.
+-- ---------------------------------------------------------------------
+DROP PROCEDURE IF EXISTS _venti_mig_promociones$$
+CREATE PROCEDURE _venti_mig_promociones(IN p_fase_b TINYINT)
+BEGIN
+  DECLARE v_lock INT DEFAULT NULL;
+  DECLARE v_n BIGINT DEFAULT 0;
+  DECLARE v_pend BIGINT DEFAULT 0;
+  DECLARE v_ver VARCHAR(60);
+  DECLARE v_num INT DEFAULT 0;
+  DECLARE v_nullable VARCHAR(3) DEFAULT NULL;
+
+  DECLARE EXIT HANDLER FOR SQLEXCEPTION
+  BEGIN
+    DO RELEASE_LOCK('venti_migracion_promociones');
+    SELECT CONCAT('MIGRACION ABORTADA en el paso: ', @venti_mig_paso,
+                  '. Los DDL ya aplicados NO se revierten (COMMIT implícito). ',
+                  'Corregir la causa y re-ejecutar (es idempotente).') AS error_migracion;
+    RESIGNAL;
+  END;
+
+  -- ===== Paso 0: evitar ejecuciones simultáneas ========================
+  SET @venti_mig_paso = '0. Bloqueo de ejecucion unica';
+  IF p_fase_b IS NULL OR p_fase_b NOT IN (0, 1) THEN
+    SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'PARAMETRO: p_fase_b debe ser 0 o 1';
+  END IF;
+  SELECT GET_LOCK('venti_migracion_promociones', 5) INTO v_lock;
+  IF v_lock IS NULL OR v_lock <> 1 THEN
+    SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'LOCK: hay otra ejecucion de esta migracion en curso';
+  END IF;
+
+  -- ===== Paso 1: comprobaciones previas (no modifican nada) ============
+  SET @venti_mig_paso = '1. Comprobaciones previas';
+
+  IF DATABASE() IS NULL THEN
+    SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'PRECHECK: no hay base seleccionada (USE <base>; antes)';
+  END IF;
+
+  SET v_ver = SUBSTRING_INDEX(VERSION(), '-', 1);
+  SET v_num = CAST(SUBSTRING_INDEX(v_ver, '.', 1) AS UNSIGNED) * 10000
+            + CAST(SUBSTRING_INDEX(SUBSTRING_INDEX(v_ver, '.', 2), '.', -1) AS UNSIGNED) * 100
+            + CAST(SUBSTRING_INDEX(v_ver, '.', -1) AS UNSIGNED);
+  IF VERSION() LIKE '%MariaDB%' OR v_num < 80016 THEN
+    SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'PRECHECK: se requiere MySQL >= 8.0.16 (CHECK aplicados, collation 0900)';
+  END IF;
+
+  SELECT COUNT(*) INTO v_n
+  FROM information_schema.TABLES
+  WHERE TABLE_SCHEMA = DATABASE() AND TABLE_TYPE = 'BASE TABLE' AND ENGINE = 'InnoDB'
+    AND TABLE_NAME IN ('orders', 'order_items', 'concerts');
+  IF v_n <> 3 THEN
+    SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'PRECHECK: faltan orders/order_items/concerts o no son InnoDB';
+  END IF;
+
+  SELECT COUNT(*) INTO v_n
+  FROM information_schema.COLUMNS
+  WHERE TABLE_SCHEMA = DATABASE() AND COLUMN_NAME = 'id'
+    AND COLUMN_TYPE LIKE 'bigint%unsigned' AND TABLE_NAME IN ('orders', 'concerts');
+  IF v_n <> 2 THEN
+    SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'PRECHECK: orders.id y concerts.id deben ser BIGINT UNSIGNED';
+  END IF;
+
+  SELECT COUNT(*) INTO v_n
+  FROM information_schema.COLUMNS
+  WHERE TABLE_SCHEMA = DATABASE()
+    AND ( (TABLE_NAME = 'orders' AND COLUMN_NAME IN ('id', 'total_amount', 'status', 'updated_at'))
+       OR (TABLE_NAME = 'order_items' AND COLUMN_NAME IN ('order_id', 'concert_id', 'quantity', 'unit_price', 'line_total')) );
+  IF v_n <> 9 THEN
+    SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'PRECHECK: orders/order_items no tienen las columnas esperadas por schema.sql';
+  END IF;
+
+  IF EXISTS (SELECT 1 FROM information_schema.TABLES
+             WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'promotions') THEN
+    SELECT COUNT(*) INTO v_n
+    FROM information_schema.COLUMNS
+    WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'promotions'
+      AND ( (COLUMN_NAME = 'id' AND COLUMN_TYPE LIKE 'bigint%unsigned')
+         OR (COLUMN_NAME = 'code' AND COLUMN_TYPE = 'varchar(50)')
+         OR (COLUMN_NAME = 'description' AND COLUMN_TYPE = 'varchar(255)')
+         OR (COLUMN_NAME = 'discount_type' AND COLUMN_TYPE = 'enum(''PERCENTAGE'',''FIXED'')')
+         OR (COLUMN_NAME = 'discount_value' AND COLUMN_TYPE = 'decimal(10,2)')
+         OR (COLUMN_NAME = 'min_order_amount' AND COLUMN_TYPE = 'decimal(10,2)')
+         OR (COLUMN_NAME = 'concert_id' AND COLUMN_TYPE LIKE 'bigint%unsigned')
+         OR (COLUMN_NAME = 'max_uses' AND COLUMN_TYPE LIKE 'int%unsigned')
+         OR (COLUMN_NAME = 'current_uses' AND COLUMN_TYPE LIKE 'int%unsigned')
+         OR (COLUMN_NAME = 'status' AND COLUMN_TYPE = 'enum(''ACTIVE'',''INACTIVE'',''EXPIRED'')')
+         OR (COLUMN_NAME IN ('valid_from', 'valid_until', 'created_at', 'updated_at') AND COLUMN_TYPE = 'datetime') );
+    IF v_n <> 14 THEN
+      SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'PRECHECK: promotions existe con estructura distinta a la esperada; revisar a mano';
+    END IF;
+
+    SELECT COUNT(*) INTO v_n
+    FROM promotions
+    WHERE (discount_type = 'PERCENTAGE' AND discount_value > 100)
+       OR valid_until <= valid_from
+       OR (max_uses IS NOT NULL AND (max_uses = 0 OR current_uses > max_uses))
+       OR CHAR_LENGTH(code) = 0
+       OR code <> TRIM(code);
+    IF v_n > 0 THEN
+      SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'PRECHECK: promotions tiene filas que violan las reglas nuevas; corregir a mano';
+    END IF;
+  END IF;
+
+  SELECT COUNT(*) INTO v_n
+  FROM information_schema.COLUMNS
+  WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'orders'
+    AND ( (COLUMN_NAME = 'promotion_id' AND COLUMN_TYPE NOT LIKE 'bigint%unsigned')
+       OR (COLUMN_NAME IN ('subtotal_amount', 'discount_amount') AND COLUMN_TYPE <> 'decimal(12,2)')
+       OR (COLUMN_NAME = 'promocion' AND COLUMN_TYPE <> 'varchar(100)')
+       OR (COLUMN_NAME = 'promotion_consumed_at' AND COLUMN_TYPE <> 'datetime') );
+  IF v_n > 0 THEN
+    SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'PRECHECK: columnas de promociones en orders con tipo inesperado; revisar a mano';
+  END IF;
+
+  -- ===== Paso 2: tabla promotions ======================================
+  SET @venti_mig_paso = '2. Tabla promotions';
+
+  CREATE TABLE IF NOT EXISTS `promotions` (
+    `id` bigint unsigned NOT NULL AUTO_INCREMENT,
+    `code` varchar(50) NOT NULL,
+    `description` varchar(255) NOT NULL,
+    `discount_type` enum('PERCENTAGE','FIXED') NOT NULL DEFAULT 'PERCENTAGE',
+    `discount_value` decimal(10,2) NOT NULL,
+    `min_order_amount` decimal(10,2) NOT NULL DEFAULT '0.00',
+    `concert_id` bigint unsigned DEFAULT NULL,
+    `max_uses` int unsigned DEFAULT NULL,
+    `current_uses` int unsigned NOT NULL DEFAULT '0',
+    `status` enum('ACTIVE','INACTIVE','EXPIRED') NOT NULL DEFAULT 'ACTIVE',
+    `valid_from` datetime NOT NULL,
+    `valid_until` datetime NOT NULL,
+    `created_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    `updated_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    PRIMARY KEY (`id`),
+    UNIQUE KEY `uq_promotions_code` (`code`),
+    KEY `idx_promotions_status` (`status`,`valid_from`,`valid_until`),
+    KEY `idx_promotions_concert` (`concert_id`),
+    CONSTRAINT `fk_promotions_concert` FOREIGN KEY (`concert_id`) REFERENCES `concerts` (`id`) ON DELETE RESTRICT ON UPDATE RESTRICT,
+    CONSTRAINT `chk_promotions_discount` CHECK (`discount_value` > 0),
+    CONSTRAINT `chk_promotions_min_order` CHECK (`min_order_amount` >= 0),
+    CONSTRAINT `chk_promotions_type_value` CHECK (`discount_type` <> 'PERCENTAGE' OR `discount_value` <= 100),
+    CONSTRAINT `chk_promotions_type_enum` CHECK (`discount_type` IN ('PERCENTAGE','FIXED')),
+    CONSTRAINT `chk_promotions_status_enum` CHECK (`status` IN ('ACTIVE','INACTIVE','EXPIRED')),
+    CONSTRAINT `chk_promotions_dates` CHECK (`valid_until` > `valid_from`),
+    CONSTRAINT `chk_promotions_max_uses` CHECK (`max_uses` IS NULL OR `max_uses` > 0),
+    CONSTRAINT `chk_promotions_uses` CHECK (`current_uses` >= 0 AND (`max_uses` IS NULL OR `current_uses` <= `max_uses`)),
+    CONSTRAINT `chk_promotions_code` CHECK (CHAR_LENGTH(`code`) > 0 AND `code` = TRIM(`code`))
+  ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+
+  -- Reconciliación: solo actúa si `promotions` ya existía con una definición
+  -- distinta (p. ej. la migración original). Los helpers verifican definición.
+  SET @venti_mig_paso = '2b. Reconciliar promotions preexistente';
+  CALL _venti_mig_add_index('promotions', 'idx_promotions_status', '`status`,`valid_from`,`valid_until`');
+  CALL _venti_mig_add_index('promotions', 'idx_promotions_concert', '`concert_id`');
+  CALL _venti_mig_add_fk('promotions', 'fk_promotions_concert', 'concert_id', 'concerts', 'id', 'RESTRICT');
+  CALL _venti_mig_add_check('promotions', 'chk_promotions_type_value', '`discount_type` <> ''PERCENTAGE'' OR `discount_value` <= 100');
+  CALL _venti_mig_add_check('promotions', 'chk_promotions_type_enum', '`discount_type` IN (''PERCENTAGE'',''FIXED'')');
+  CALL _venti_mig_add_check('promotions', 'chk_promotions_status_enum', '`status` IN (''ACTIVE'',''INACTIVE'',''EXPIRED'')');
+  CALL _venti_mig_add_check('promotions', 'chk_promotions_dates', '`valid_until` > `valid_from`');
+  CALL _venti_mig_add_check('promotions', 'chk_promotions_max_uses', '`max_uses` IS NULL OR `max_uses` > 0');
+  CALL _venti_mig_add_check('promotions', 'chk_promotions_uses', '`current_uses` >= 0 AND (`max_uses` IS NULL OR `current_uses` <= `max_uses`)');
+  CALL _venti_mig_add_check('promotions', 'chk_promotions_code', 'CHAR_LENGTH(`code`) > 0 AND `code` = TRIM(`code`)');
+
+  -- ===== Paso 3: columnas nuevas en orders ==============================
+  SET @venti_mig_paso = '3. Columnas nuevas en orders';
+  CALL _venti_mig_add_column('orders', 'promocion', 'varchar(100) DEFAULT NULL COMMENT ''Snapshot del codigo promocional aplicado''');
+  CALL _venti_mig_add_column('orders', 'promotion_id', 'bigint unsigned DEFAULT NULL COMMENT ''Promocion aplicada (FK RESTRICT)''');
+  CALL _venti_mig_add_column('orders', 'subtotal_amount', 'decimal(12,2) DEFAULT NULL COMMENT ''Importe antes de descuento; total_amount = subtotal_amount - discount_amount''');
+  CALL _venti_mig_add_column('orders', 'discount_amount', 'decimal(12,2) NOT NULL DEFAULT 0.00 COMMENT ''Descuento aplicado''');
+  CALL _venti_mig_add_column('orders', 'promotion_consumed_at', 'datetime DEFAULT NULL COMMENT ''Cuando se consumio el uso de la promocion (UTC); NULL = no consumido''');
+
+  -- ===== Paso 4: backfill de pedidos históricos (transaccional) ========
+  -- Solo completa con EVIDENCIA: SUM(order_items.line_total) == total_amount.
+  -- No toca total_amount, status ni otros importes. `updated_at = updated_at`
+  -- evita que ON UPDATE CURRENT_TIMESTAMP reescriba la fecha.
+  SET @venti_mig_paso = '4. Backfill de pedidos historicos';
+  START TRANSACTION;
+
+  UPDATE orders o
+  JOIN (
+    SELECT order_id, SUM(line_total) AS items_total
+    FROM order_items
+    GROUP BY order_id
+  ) i ON i.order_id = o.id
+  SET o.subtotal_amount = i.items_total,
+      o.updated_at = o.updated_at
+  WHERE o.promotion_id IS NULL
+    AND o.discount_amount = 0
+    AND (o.subtotal_amount IS NULL OR (o.subtotal_amount = 0 AND o.total_amount > 0))
+    AND i.items_total = o.total_amount;
+
+  UPDATE orders o
+  SET o.subtotal_amount = o.total_amount,
+      o.updated_at = o.updated_at
+  WHERE o.promotion_id IS NULL
+    AND o.discount_amount = 0
+    AND o.subtotal_amount IS NULL
+    AND o.total_amount = 0
+    AND NOT EXISTS (SELECT 1 FROM order_items x WHERE x.order_id = o.id);
+
+  COMMIT;
+
+  -- ===== Paso 5: verificación de consistencia de pedidos ===============
+  SET @venti_mig_paso = '5. Verificacion de pedidos';
+
+  SELECT COUNT(*) INTO v_n
+  FROM orders
+  WHERE subtotal_amount IS NOT NULL
+    AND (subtotal_amount - discount_amount) <> total_amount;
+  IF v_n > 0 THEN
+    SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'VERIFICACION: hay pedidos con subtotal - descuento <> total; revisar a mano';
+  END IF;
+
+  SELECT COUNT(*) INTO v_pend FROM orders WHERE subtotal_amount IS NULL;
+
+  -- ===== Paso 6: índices, FK y CHECK en orders =========================
+  -- La FK RESTRICT debe existir ANTES de los CHECK sobre la misma columna
+  -- (MySQL 3823 prohíbe CHECK sobre columnas con FK CASCADE/SET NULL).
+  SET @venti_mig_paso = '6. Indices, FK y CHECK en orders';
+  CALL _venti_mig_add_index('orders', 'idx_orders_promotion', '`promotion_id`');
+  CALL _venti_mig_add_fk('orders', 'fk_orders_promotion', 'promotion_id', 'promotions', 'id', 'RESTRICT');
+  CALL _venti_mig_add_check('orders', 'chk_orders_discount', '`discount_amount` >= 0');
+  CALL _venti_mig_add_check('orders', 'chk_orders_subtotal', '`subtotal_amount` >= 0');
+  CALL _venti_mig_add_check('orders', 'chk_orders_amounts_consistent',
+    '`subtotal_amount` IS NULL OR (`subtotal_amount` - `discount_amount`) = `total_amount`');
+  CALL _venti_mig_add_check('orders', 'chk_orders_promo_coherence',
+    '`promotion_id` IS NOT NULL OR (`promocion` IS NULL AND `discount_amount` = 0 AND `promotion_consumed_at` IS NULL)');
+
+  -- ===== Paso 7: Fase B (opcional) =====================================
+  SET @venti_mig_paso = '7. Fase B: subtotal_amount NOT NULL';
+  IF p_fase_b = 1 THEN
+    IF v_pend > 0 THEN
+      SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'FASE_B: hay pedidos con subtotal_amount NULL; resolverlos antes de exigir NOT NULL';
+    END IF;
+
+    SELECT IS_NULLABLE INTO v_nullable
+    FROM information_schema.COLUMNS
+    WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'orders' AND COLUMN_NAME = 'subtotal_amount';
+
+    IF v_nullable = 'YES' THEN
+      ALTER TABLE `orders`
+        MODIFY COLUMN `subtotal_amount` decimal(12,2) NOT NULL
+        COMMENT 'Importe antes de descuento; total_amount = subtotal_amount - discount_amount';
+    END IF;
+  END IF;
+
+  -- ===== Paso 8: semillas idempotentes =================================
+  -- Solo inserta códigos que NO existen. Nunca actualiza una promoción
+  -- existente (no pisa current_uses, status, fechas ni descripción).
+  SET @venti_mig_paso = '8. Semillas';
+  INSERT INTO `promotions`
+    (`code`, `description`, `discount_type`, `discount_value`, `min_order_amount`,
+     `concert_id`, `max_uses`, `current_uses`, `status`, `valid_from`, `valid_until`)
+  SELECT s.code, s.description, s.discount_type, s.discount_value, s.min_order_amount,
+         s.concert_id, s.max_uses, s.current_uses, s.status, s.valid_from, s.valid_until
+  FROM (
+    SELECT 'VENTI10' AS code,
+           '10% de descuento en tu compra de entradas' AS description,
+           'PERCENTAGE' AS discount_type, 10.00 AS discount_value, 0.00 AS min_order_amount,
+           NULL AS concert_id, NULL AS max_uses, 0 AS current_uses, 'ACTIVE' AS status,
+           '2026-01-01 00:00:00' AS valid_from, '2027-12-31 23:59:59' AS valid_until
+    UNION ALL
+    SELECT 'PROMO20', '20% de descuento en compras a partir de $5.000',
+           'PERCENTAGE', 20.00, 5000.00, NULL, 500, 0, 'ACTIVE',
+           '2026-01-01 00:00:00', '2027-12-31 23:59:59'
+    UNION ALL
+    SELECT 'FIESTA1000', '$1.000 de descuento fijo en compras a partir de $8.000',
+           'FIXED', 1000.00, 8000.00, NULL, 1000, 0, 'ACTIVE',
+           '2026-01-01 00:00:00', '2027-12-31 23:59:59'
+  ) AS s
+  WHERE NOT EXISTS (SELECT 1 FROM `promotions` p WHERE p.code = s.code);
+
+  -- ===== Paso 9: verificaciones posteriores (abortan si algo falta) ====
+  SET @venti_mig_paso = '9. Verificaciones posteriores';
+
+  SELECT COUNT(*) INTO v_n
+  FROM information_schema.COLUMNS
+  WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'orders'
+    AND COLUMN_NAME IN ('promocion', 'promotion_id', 'subtotal_amount', 'discount_amount', 'promotion_consumed_at');
+  IF v_n <> 5 THEN
+    SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'VERIFICACION: faltan columnas nuevas en orders';
+  END IF;
+
+  SELECT COUNT(*) INTO v_n
+  FROM information_schema.TABLE_CONSTRAINTS
+  WHERE CONSTRAINT_SCHEMA = DATABASE() AND CONSTRAINT_TYPE = 'CHECK'
+    AND CONSTRAINT_NAME IN (
+      'chk_promotions_discount', 'chk_promotions_min_order', 'chk_promotions_type_value',
+      'chk_promotions_type_enum', 'chk_promotions_status_enum', 'chk_promotions_dates',
+      'chk_promotions_max_uses', 'chk_promotions_uses', 'chk_promotions_code',
+      'chk_orders_discount', 'chk_orders_subtotal', 'chk_orders_amounts_consistent',
+      'chk_orders_promo_coherence');
+  IF v_n <> 13 THEN
+    SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'VERIFICACION: faltan CHECK esperados (se esperaban 13)';
+  END IF;
+
+  SELECT COUNT(*) INTO v_n
+  FROM information_schema.REFERENTIAL_CONSTRAINTS
+  WHERE CONSTRAINT_SCHEMA = DATABASE()
+    AND CONSTRAINT_NAME IN ('fk_promotions_concert', 'fk_orders_promotion')
+    AND DELETE_RULE IN ('RESTRICT', 'NO ACTION');
+  IF v_n <> 2 THEN
+    SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'VERIFICACION: FK de promociones ausentes o con politica de borrado distinta de RESTRICT';
+  END IF;
+
+  SELECT COUNT(DISTINCT INDEX_NAME) INTO v_n
+  FROM information_schema.STATISTICS
+  WHERE TABLE_SCHEMA = DATABASE()
+    AND ( (TABLE_NAME = 'promotions' AND INDEX_NAME IN ('uq_promotions_code', 'idx_promotions_status', 'idx_promotions_concert'))
+       OR (TABLE_NAME = 'orders' AND INDEX_NAME = 'idx_orders_promotion') );
+  IF v_n <> 4 THEN
+    SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'VERIFICACION: faltan indices esperados';
+  END IF;
+
+  SELECT COUNT(*) INTO v_n FROM promotions WHERE code IN ('VENTI10', 'PROMO20', 'FIESTA1000');
+  IF v_n <> 3 THEN
+    SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'VERIFICACION: faltan semillas de promociones';
+  END IF;
+
+  DO RELEASE_LOCK('venti_migracion_promociones');
+
+  SELECT 'MIGRACION (parte estructural) COMPLETADA' AS estado,
+         p_fase_b AS fase_b_solicitada,
+         (SELECT COUNT(*) FROM orders) AS pedidos_total,
+         v_pend AS pedidos_con_subtotal_sin_determinar,
+         (SELECT COUNT(*) FROM promotions) AS promociones_total;
+END$$
+
+-- ---------------------------------------------------------------------
+-- Ejecutar la migración (con el parámetro de fase B resuelto arriba).
+-- ---------------------------------------------------------------------
+CALL _venti_mig_promociones(@venti_aplicar_fase_b)$$
+
+-- ---------------------------------------------------------------------
+-- PROCEDIMIENTOS DE CONSUMO / LIBERACIÓN DE PROMOCIONES
+--
+-- INTERFAZ ASUMIDA (a contrastar con el backend de Venti, ver informe):
+--   * Al crear el pedido, el backend fija orders.promotion_id y calcula
+--     orders.discount_amount / orders.subtotal_amount.
+--   * `sp_promotion_consume(p_order_id, OUT result, OUT message)` incrementa
+--     promotions.current_uses y fija orders.promotion_consumed_at = UTC.
+--     Es idempotente por pedido: si promotion_consumed_at ya no es NULL,
+--     no hace nada y devuelve ALREADY_CONSUMED.
+--   * `sp_promotion_release(p_order_id, OUT result, OUT message)` decrementa
+--     promotions.current_uses y deja orders.promotion_consumed_at = NULL.
+--     Si no estaba consumido, no hace nada y devuelve NOT_CONSUMED.
+--
+-- CONCURRENCIA:
+--   * Ambas SPs abren transacción y bloquean la fila de orders FOR UPDATE,
+--     luego la fila de promotions FOR UPDATE. Serializa por pedido y por
+--     promoción. No hay deadlock entre pedidos distintos.
+--   * max_uses se verifica bajo el bloqueo de la fila de promotions.
+-- ---------------------------------------------------------------------
+
+DROP PROCEDURE IF EXISTS sp_promotion_consume$$
+CREATE PROCEDURE sp_promotion_consume(
+  IN  p_order_id BIGINT UNSIGNED,
+  OUT p_result   VARCHAR(30),
+  OUT p_message  VARCHAR(255)
+)
+BEGIN
+  DECLARE v_order_promo_id BIGINT UNSIGNED;
+  DECLARE v_order_consumed_at DATETIME;
+  DECLARE v_order_total DECIMAL(12,2);
+  DECLARE v_current_uses INT UNSIGNED;
+  DECLARE v_max_uses INT UNSIGNED;
+  DECLARE v_status VARCHAR(20);
+  DECLARE v_valid_from DATETIME;
+  DECLARE v_valid_until DATETIME;
+  DECLARE v_now DATETIME;
+
+  DECLARE EXIT HANDLER FOR SQLEXCEPTION
+  BEGIN
+    ROLLBACK;
+    RESIGNAL;
+  END;
+
+  SET p_result = 'ERROR';
+  SET p_message = 'No ejecutado';
+
+  IF p_order_id IS NULL THEN
+    SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'PARAMETRO: p_order_id no puede ser NULL';
+  END IF;
+
+  SET v_now = UTC_TIMESTAMP();
+
+  START TRANSACTION;
+
+  -- Bloquea la fila del pedido. total_amount es NOT NULL en schema.sql;
+  -- si viene NULL es porque el pedido no existe (o schema cambió).
+  SELECT promotion_id, promotion_consumed_at, total_amount
+    INTO v_order_promo_id, v_order_consumed_at, v_order_total
+  FROM orders
+  WHERE id = p_order_id
+  FOR UPDATE;
+
+  IF v_order_total IS NULL THEN
+    SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'PEDIDO_NO_EXISTE';
+  END IF;
+
+  -- Idempotencia: ya consumido para este pedido => no-op con éxito.
+  IF v_order_consumed_at IS NOT NULL THEN
+    SET p_result = 'ALREADY_CONSUMED';
+    SET p_message = 'El pedido ya tenia la promocion consumida; no se modifica nada';
+    COMMIT;
+  ELSE
+    IF v_order_promo_id IS NULL THEN
+      SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'PEDIDO_SIN_PROMOCION';
+    END IF;
+
+    -- Bloquea la fila de la promoción para verificar max_uses bajo lock.
+    SELECT current_uses, max_uses, status, valid_from, valid_until
+      INTO v_current_uses, v_max_uses, v_status, v_valid_from, v_valid_until
+    FROM promotions
+    WHERE id = v_order_promo_id
+    FOR UPDATE;
+
+    IF v_status IS NULL THEN
+      SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'PROMOCION_NO_EXISTE';
+    END IF;
+    IF v_status <> 'ACTIVE' THEN
+      SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'PROMOCION_NO_ACTIVA';
+    END IF;
+    IF v_now < v_valid_from OR v_now > v_valid_until THEN
+      SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'PROMOCION_FUERA_DE_VIGENCIA';
+    END IF;
+    IF v_max_uses IS NOT NULL AND v_current_uses >= v_max_uses THEN
+      SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'PROMOCION_AGOTADA';
+    END IF;
+
+    UPDATE promotions SET current_uses = current_uses + 1 WHERE id = v_order_promo_id;
+    UPDATE orders     SET promotion_consumed_at = v_now       WHERE id = p_order_id;
+
+    SET p_result = 'CONSUMED';
+    SET p_message = 'Consumo registrado';
+
+    COMMIT;
+  END IF;
+END$$
+
+DROP PROCEDURE IF EXISTS sp_promotion_release$$
+CREATE PROCEDURE sp_promotion_release(
+  IN  p_order_id BIGINT UNSIGNED,
+  OUT p_result   VARCHAR(30),
+  OUT p_message  VARCHAR(255)
+)
+BEGIN
+  DECLARE v_order_promo_id BIGINT UNSIGNED;
+  DECLARE v_order_consumed_at DATETIME;
+  DECLARE v_order_total DECIMAL(12,2);
+  DECLARE v_current_uses INT UNSIGNED;
+
+  DECLARE EXIT HANDLER FOR SQLEXCEPTION
+  BEGIN
+    ROLLBACK;
+    RESIGNAL;
+  END;
+
+  SET p_result = 'ERROR';
+  SET p_message = 'No ejecutado';
+
+  IF p_order_id IS NULL THEN
+    SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'PARAMETRO: p_order_id no puede ser NULL';
+  END IF;
+
+  START TRANSACTION;
+
+  SELECT promotion_id, promotion_consumed_at, total_amount
+    INTO v_order_promo_id, v_order_consumed_at, v_order_total
+  FROM orders
+  WHERE id = p_order_id
+  FOR UPDATE;
+
+  IF v_order_total IS NULL

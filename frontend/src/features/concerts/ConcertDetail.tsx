@@ -1,4 +1,4 @@
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { ActivityIndicator, Text, View } from "react-native";
 import { router, useLocalSearchParams } from "expo-router";
 import * as Crypto from "expo-crypto";
@@ -14,7 +14,7 @@ import { api } from "../../services/api";
 import { getServerNow } from "../../services/http";
 import { useResource } from "../../hooks/useResource";
 import { useNotifications } from "../../contexts/NotificationsContext";
-import type { Concert, Purchase } from "../../types/api";
+import type { Concert, PromotionValidationResult, Purchase } from "../../types/api";
 import {
   ActionFeedback,
   BentoGrid,
@@ -61,13 +61,30 @@ export default function ConcertDetail() {
     totalAmount: number | string;
     purchasedAt: string;
     publicCode?: string;
+    promocion?: string | null;
   } | null>(null);
+  const [promoCodeInput, setPromoCodeInput] = useState("");
+  const [appliedPromotion, setAppliedPromotion] = useState<PromotionValidationResult | null>(null);
+  const [promoError, setPromoError] = useState("");
+  const [promoLoading, setPromoLoading] = useState(false);
   const attempt = useRef<PurchaseAttempt | null>(null);
   const concert = resource.result?.data;
 
   const selectedItems = Object.entries(quantities)
     .filter(([, q]) => q !== "" && Number(q) !== 0)
     .map(([ticketTypeId, q]) => ({ ticketTypeId, quantity: Number(q) }));
+
+  const itemsSignature = JSON.stringify(selectedItems);
+  const prevItemsSig = useRef(itemsSignature);
+  useEffect(() => {
+    if (prevItemsSig.current !== itemsSignature) {
+      prevItemsSig.current = itemsSignature;
+      if (appliedPromotion) {
+        setAppliedPromotion(null);
+        setPromoError("El carrito cambió. Volvé a aplicar tu código promocional.");
+      }
+    }
+  }, [itemsSignature, appliedPromotion]);
 
   const estimatedTotal = concert
     ? selectedItems.reduce((acc, item) => {
@@ -76,6 +93,47 @@ export default function ConcertDetail() {
       return acc + (Number.isFinite(unitPrice) && item.quantity > 0 ? unitPrice * item.quantity : 0);
     }, 0)
     : 0;
+
+  const discountAmount = appliedPromotion ? Number(appliedPromotion.discount) : 0;
+  const finalPayTotal = appliedPromotion ? Number(appliedPromotion.total) : estimatedTotal;
+
+  const applyPromo = async () => {
+    const trimmed = promoCodeInput.trim().toUpperCase();
+    if (!trimmed) {
+      setPromoError("Ingresá un código promocional.");
+      return;
+    }
+    if (!selectedItems.length) {
+      setPromoError("Seleccioná tus entradas antes de aplicar una promoción.");
+      return;
+    }
+    setPromoLoading(true);
+    setPromoError("");
+    try {
+      const res = await api.request<PromotionValidationResult>("/promotions/validate", {
+        method: "POST",
+        body: {
+          code: trimmed,
+          concertId: id,
+          items: selectedItems,
+        },
+      });
+      setAppliedPromotion(res.data);
+      setPromoCodeInput(res.data.code);
+      setPromoError("");
+    } catch (err: unknown) {
+      setAppliedPromotion(null);
+      setPromoError(err instanceof Error ? err.message : "Código de promoción inválido.");
+    } finally {
+      setPromoLoading(false);
+    }
+  };
+
+  const removePromo = () => {
+    setAppliedPromotion(null);
+    setPromoCodeInput("");
+    setPromoError("");
+  };
 
   const totalSelectedTickets = selectedItems.reduce(
     (acc, item) => acc + (Number.isInteger(item.quantity) && item.quantity > 0 ? item.quantity : 0),
@@ -102,23 +160,38 @@ export default function ConcertDetail() {
       // Simulación académica de procesamiento bancario (~1 segundo). Nunca se envían datos de tarjeta al backend.
       await new Promise((resolve) => setTimeout(resolve, 950));
 
-      // Mismo carrito = misma clave: un reintento tras un timeout devuelve la compra original, no una nueva.
-      attempt.current = purchaseAttempt(attempt.current, selectedItems, () => Crypto.randomUUID());
+      // Mismo carrito y misma promo = misma clave: un reintento tras un timeout devuelve la compra original, no una nueva.
+      const currentPromoCode = appliedPromotion ? appliedPromotion.code : undefined;
+      attempt.current = purchaseAttempt(attempt.current, selectedItems, () => Crypto.randomUUID(), currentPromoCode);
       const { data: created } = await api.request<Purchase>("/purchases", {
         method: "POST",
         headers: { "Idempotency-Key": attempt.current.key },
-        body: { concertId: id, items: selectedItems },
+        body: { concertId: id, items: selectedItems, ...(currentPromoCode ? { promotionCode: currentPromoCode } : {}) },
       });
 
-      const { data: confirmed } = await api.request<Purchase>(`/purchases/${created.id}/confirm`, {
-        method: "POST",
-        body: { outcome: "APPROVED" },
-      });
+      let confirmed: Purchase;
+      try {
+        const confirmRes = await api.request<Purchase>(`/purchases/${created.id}/confirm`, {
+          method: "POST",
+          body: { outcome: "APPROVED" },
+        });
+        confirmed = confirmRes.data;
+      } catch (err: unknown) {
+        const msg = err instanceof Error ? err.message : "";
+        if (msg.includes("PROMOTION_EXHAUSTED") || msg.includes("límite de usos") || msg.includes("no está disponible")) {
+          setAppliedPromotion(null);
+          setPromoError("La promoción se agotó antes de confirmar el pago. La reserva previa fue cancelada para liberar tus entradas; podés reintentar la compra a precio regular.");
+        }
+        throw err;
+      }
 
       // Limpiamos los datos sensibles del formulario inmediatamente después de aprobar.
       setCardNumber("");
       setExpiry("");
       setCvv("");
+      setPromoCodeInput("");
+      setAppliedPromotion(null);
+      setPromoError("");
       await notifications.reload();
 
       const ticketCount =
@@ -128,9 +201,10 @@ export default function ConcertDetail() {
       setConfirmedPurchase({
         concertName: concert.name,
         totalTickets: ticketCount,
-        totalAmount: confirmed.total ?? estimatedTotal,
+        totalAmount: confirmed.total ?? finalPayTotal,
         purchasedAt: confirmed.created_at ?? new Date().toISOString(),
         publicCode: confirmed.public_code,
+        promocion: confirmed.promotion_code ?? (appliedPromotion ? appliedPromotion.code : null),
       });
     });
 
@@ -254,6 +328,9 @@ export default function ConcertDetail() {
                   <Copy strong>Concierto: {confirmedPurchase.concertName}</Copy>
                   <Copy>Cantidad de entradas: {confirmedPurchase.totalTickets}</Copy>
                   <Copy strong>Monto total: {money(confirmedPurchase.totalAmount)}</Copy>
+                  {confirmedPurchase.promocion ? (
+                    <Copy muted>Promoción aplicada: {confirmedPurchase.promocion}</Copy>
+                  ) : null}
                   <Copy muted>Fecha de compra: {dateLabel(confirmedPurchase.purchasedAt)}</Copy>
                   {confirmedPurchase.publicCode ? (
                     <Copy muted>Código de referencia: {confirmedPurchase.publicCode}</Copy>
@@ -357,11 +434,61 @@ export default function ConcertDetail() {
                 )}
 
                 {totalSelectedTickets > 0 && (
-                  <Card variant="featured">
-                    <SectionHeader
-                      title="Pago con tarjeta"
-                      subtitle={`${totalSelectedTickets} ${totalSelectedTickets === 1 ? "entrada seleccionada" : "entradas seleccionadas"} · Total a pagar: ${money(estimatedTotal)}`}
-                    />
+                  <>
+                    <Card variant="subtle" style={{ gap: 10 }}>
+                      <SectionHeader
+                        title="Código de promoción / descuento"
+                        subtitle="Ingresá un cupón o código para obtener un descuento en tu compra."
+                      />
+                      {appliedPromotion ? (
+                        <View
+                          style={{
+                            padding: 12,
+                            borderRadius: radius.sm,
+                            backgroundColor: colors.surfaceAlt,
+                            borderColor: colors.accent,
+                            borderWidth: 1,
+                            gap: 6,
+                          }}
+                        >
+                          <Copy strong color={colors.accent}>
+                            ¡Código {appliedPromotion.code} aplicado!
+                          </Copy>
+                          <Copy muted>{appliedPromotion.description}</Copy>
+                          <Copy strong>Descuento: -{money(discountAmount)}</Copy>
+                          <Button title="Quitar cupón" secondary onPress={removePromo} />
+                        </View>
+                      ) : (
+                        <View style={{ gap: 8 }}>
+                          <View style={styles.row}>
+                            <View style={{ flex: 1, minWidth: 180 }}>
+                              <Field
+                                label="Código de descuento"
+                                placeholder="Ej: VENTI10, PROMO20"
+                                value={promoCodeInput}
+                                onChangeText={setPromoCodeInput}
+                                autoCapitalize="characters"
+                              />
+                            </View>
+                            <Button
+                              title={promoLoading ? "Aplicando..." : "Aplicar"}
+                              secondary
+                              disabled={promoLoading || !promoCodeInput.trim()}
+                              onPress={() => void applyPromo()}
+                            />
+                          </View>
+                          {promoError ? (
+                            <Copy size="small" color={colors.dangerText}>{promoError}</Copy>
+                          ) : null}
+                        </View>
+                      )}
+                    </Card>
+
+                    <Card variant="featured">
+                      <SectionHeader
+                        title="Pago con tarjeta"
+                        subtitle={`${totalSelectedTickets} ${totalSelectedTickets === 1 ? "entrada seleccionada" : "entradas seleccionadas"} · ${discountAmount > 0 ? `Subtotal: ${money(estimatedTotal)} · Descuento: -${money(discountAmount)} · Total final: ${money(finalPayTotal)}` : `Total a pagar: ${money(estimatedTotal)}`}`}
+                      />
                     <Field
                       label="Número de tarjeta"
                       keyboardType="number-pad"
@@ -412,7 +539,8 @@ export default function ConcertDetail() {
                       Simulación académica: los datos de la tarjeta se validan localmente y nunca se almacenan ni envían al servidor.
                     </Copy>
                   </Card>
-                )}
+                </>
+              )}
               </>
             )}
           </View>

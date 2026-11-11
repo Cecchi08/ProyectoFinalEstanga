@@ -6,12 +6,15 @@ export function purchaseAttempt(
   previous: PurchaseAttempt | null,
   items: { ticketTypeId: string; quantity: number }[],
   newKey: () => string,
+  promotionCode?: string,
 ): PurchaseAttempt {
-  const signature = JSON.stringify(
-    [...items]
+  const normalizedPromo = promotionCode?.trim().toUpperCase() || "";
+  const signature = JSON.stringify({
+    items: [...items]
       .sort((a, b) => a.ticketTypeId.localeCompare(b.ticketTypeId))
       .map((item) => [item.ticketTypeId, item.quantity]),
-  );
+    promo: normalizedPromo,
+  });
   if (previous && previous.signature === signature) return previous;
   return { key: newKey(), signature };
 }
@@ -68,4 +71,3 @@ export function validateSimulatedCard(input: SimulatedCardInput, now = new Date(
 
   return null;
 }
-

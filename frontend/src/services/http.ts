@@ -145,7 +145,7 @@ export class HttpClient {
     let response: Response;
     try {
       response = await this.transport(this.base + path, {
-        method: options.method ?? "GET",
+        method: options.method ?? "POST",
         headers: {
           Accept: "application/json",
           ...options.headers,

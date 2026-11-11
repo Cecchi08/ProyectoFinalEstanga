@@ -9,7 +9,7 @@ Además del permiso, varios endpoints validan **propiedad o membresía**:
 - miembro de la organización (`organization_members`; el rol de miembro OWNER/ADMIN/STAFF es interno de la organización, no un perfil);
 - miembro del perfil de artista (`artist_members`: OWNER/MEMBER).
 
-El catálogo de permisos del código está en `backend/src/utils/access.util.js`. Los datos iniciales están en `database/venti_shema2.sql`, en un bloque repetible de `INSERT IGNORE`.
+El catálogo de permisos del código está en `backend/src/utils/access.util.js`. Los datos iniciales están en `backups/schema.sql`, en un bloque repetible de `INSERT IGNORE`.
 
 ## Perfiles
 

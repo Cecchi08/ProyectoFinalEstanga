@@ -244,10 +244,8 @@ export function UserScreen() {
       const { data } = await api.request<RoleChange>(
         grant
           ? `/admin/users/${id}/roles`
-          : `/admin/users/${id}/roles/${role}`,
-        grant
-          ? { method: "POST", body: { role, reason: reason.trim() || null } }
-          : { method: "DELETE", body: { reason: reason.trim() || null } },
+          : `/admin/users/${id}/roles/${role}/delete`,
+        { method: "POST", body: grant ? { role, reason: reason.trim() || null } : { reason: reason.trim() || null } },
       );
       setConfirm(null);
       setReason("");

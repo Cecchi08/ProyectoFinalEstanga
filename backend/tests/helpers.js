@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { existsSync } from 'node:fs';
 import { readFile } from 'node:fs/promises';
 import { randomBytes } from 'node:crypto';
 import mysql from 'mysql2/promise';
@@ -8,6 +9,7 @@ import { createPool, MysqlDatabase } from '../src/config/db.config.js';
 import { AuthService } from '../src/services/auth.service.js';
 import { AccessTokens } from '../src/utils/jwt.util.js';
 import { SCHEMA_FILE, schemaStatements } from '../scripts/schema-statements.js';
+import { CommerceRepository } from '../src/repositories/commerce.repository.ts';
 export const password = 'Strong-password-123';
 export const registration = { first_name: 'Ana', last_name: 'Pérez', email: 'ana@example.com', password };
 export function testEnv() {
@@ -40,8 +42,12 @@ export class FakeProvider {
     async identity(provider) { return { ...this.profile, provider }; }
 }
 export { SCHEMA_FILE, schemaStatements };
+// The backend writes the promotion columns of orders, so the test database is the base schema plus this migration (as in production).
+export const PROMOTIONS_MIGRATION_FILE = existsSync(new URL('../../database/migrations/20261110_promociones_y_descuentos_FINAL.sql', import.meta.url))
+    ? new URL('../../database/migrations/20261110_promociones_y_descuentos_FINAL.sql', import.meta.url)
+    : new URL('../../migrations/20261110_promociones_y_descuentos_FINAL.sql', import.meta.url);
 // Business tables in child-to-parent order; catalogs from the schema seed (roles, geography, genres...) stay.
-const BUSINESS_TABLES = ['profile_requests', 'service_quote_items', 'service_quotes', 'ticket_validations', 'tickets', 'order_items', 'order_payments', 'notifications', 'recommendations', 'orders', 'concert_staff',
+const BUSINESS_TABLES = ['profile_requests', 'service_quote_items', 'service_quotes', 'ticket_validations', 'tickets', 'order_items', 'order_payments', 'notifications', 'recommendations', 'promotion_redemptions', 'orders', 'promotions', 'concert_staff',
     'ticket_types', 'concert_genres', 'concerts', 'payments', 'reservations', 'quote_items', 'quotes', 'venue_blocks', 'venues',
     'establishments', 'organization_members', 'organizations', 'artist_profiles', 'admin_audit_log', 'users'];
 export async function resetData(database) {
@@ -60,6 +66,9 @@ export class TestDatabase {
             const schema = original.replace('CREATE DATABASE IF NOT EXISTS venti ', `CREATE DATABASE \`${this.name}\` `).replace('USE venti;', `USE \`${this.name}\`;`);
             if (schema === original) throw new Error('El esquema no tiene CREATE DATABASE/USE venti.');
             for (const statement of schemaStatements(schema)) await connection.query(statement);
+            const migration = await readFile(PROMOTIONS_MIGRATION_FILE, 'utf8');
+            await connection.query(`USE \`${this.name}\``);
+            for (const statement of schemaStatements(migration)) await connection.query(statement);
         }
         finally {
             await connection.end();
@@ -67,6 +76,7 @@ export class TestDatabase {
         this.env.DB_NAME = this.name;
         this.pool = createPool(this.env);
         this.db = new MysqlDatabase(this.pool);
+        await resetData(this);
     }
     async clear() { await this.pool.execute('DELETE FROM users'); }
     async close() {
@@ -85,6 +95,22 @@ export class TestDatabase {
         return { mailer, provider, tokens, auth, app };
     }
     async rows(sql, params = []) { return (await this.pool.execute(sql, params))[0]; }
+    async transaction(action) {
+        const connection = await this.pool.getConnection();
+        try {
+            await connection.query("SET time_zone = '+00:00'");
+            await connection.beginTransaction();
+            const repo = new CommerceRepository(connection);
+            const result = await action(repo);
+            await connection.commit();
+            return result;
+        } catch (error) {
+            await connection.rollback();
+            throw error;
+        } finally {
+            connection.release();
+        }
+    }
 }
 export async function verifiedUser(auth, mailer) {
     const result = await auth.register(registration);

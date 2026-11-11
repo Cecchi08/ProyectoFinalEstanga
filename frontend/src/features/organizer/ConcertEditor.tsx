@@ -149,8 +149,8 @@ export default function ConcertEditor() {
         ...(artistsChanged ? { artist_profile_ids: artists.map((a) => a.id) } : {}),
       };
       const { data } = await api.request<Concert>(
-        editing ? `/concerts/${id}` : "/concerts",
-        { method: editing ? "PATCH" : "POST", body },
+        editing ? `/concerts/${id}/update` : "/concerts/create",
+        { method: "POST", body },
       );
       if (!editing) router.replace(`/organizer/${data.id}`);
       else {
@@ -161,10 +161,10 @@ export default function ConcertEditor() {
   const transition = (operation: string) =>
     action.run(async () => {
       await api.request(
-        `/concerts/${id}${operation === "delete" ? "" : `/${operation}`}`,
+        operation === "delete" ? `/concerts/${id}/delete` : `/concerts/${id}/${operation}`,
         {
-          method: operation === "delete" ? "DELETE" : "POST",
-          ...(operation === "delete" ? {} : { body: {} }),
+          method: "POST",
+          body: {},
         },
       );
       setConfirm("");
@@ -182,6 +182,15 @@ export default function ConcertEditor() {
         <Copy strong>
           {concert.name} · Estado: {statusLabel(concert.status)}
         </Copy>
+        {concert.status === "DRAFT" && (
+          <View style={{ width: "100%", paddingVertical: 4 }}>
+            <Copy muted size="small">
+              {concert.reservation_id
+                ? "✓ Reserva vinculada. Podés publicar el concierto cuando la reserva esté confirmada y cuentes con al menos un tipo de entrada configurado."
+                : "💡 Podés guardar y gestionar este concierto como borrador sin reserva. Para publicarlo se requiere una reserva confirmada."}
+            </Copy>
+          </View>
+        )}
         <View style={styles.row}>
           {concert.status === "DRAFT" && (
             <Button
@@ -250,20 +259,24 @@ export default function ConcertEditor() {
           value={form.image_url ?? ""}
           onChangeText={(v) => set("image_url", v)}
         />
-        <View style={styles.row}>
-          <DateTimeField
-            label="Fecha y hora de inicio"
-            mode="datetime"
-            required
-            value={form.start_datetime ?? ""}
-            onChange={(v) => set("start_datetime", v)}
-          />
-          <DateTimeField
-            label="Fecha y hora de fin (opcional)"
-            mode="datetime"
-            value={form.end_datetime ?? ""}
-            onChange={(v) => set("end_datetime", v)}
-          />
+        <View style={[styles.row, { flexWrap: "wrap", alignItems: "stretch" }]}>
+          <View style={{ flexGrow: 1, flexShrink: 1, minWidth: mobile ? "100%" : 260 }}>
+            <DateTimeField
+              label="Fecha y hora de inicio"
+              mode="datetime"
+              required
+              value={form.start_datetime ?? ""}
+              onChange={(v) => set("start_datetime", v)}
+            />
+          </View>
+          <View style={{ flexGrow: 1, flexShrink: 1, minWidth: mobile ? "100%" : 260 }}>
+            <DateTimeField
+              label="Fecha y hora de fin (opcional)"
+              mode="datetime"
+              value={form.end_datetime ?? ""}
+              onChange={(v) => set("end_datetime", v)}
+            />
+          </View>
         </View>
         <Field
           label="Artista (texto del cartel)"
@@ -456,7 +469,7 @@ function OrganizerArtistHiringPanel({ concert }: { concert: Concert }) {
       if (numBudget !== null && (!Number.isFinite(numBudget) || numBudget < 0)) {
         throw new Error("El cachet ofrecido debe ser un monto válido.");
       }
-      await api.request("/proposals", {
+      await api.request("/proposals/create", {
         method: "POST",
         body: {
           flow_type: "ORGANIZER_TO_ARTIST",
@@ -672,10 +685,10 @@ function TicketEditor({
                     }
                     await api.request(
                       ticket
-                        ? `/ticket-types/${ticket.id}`
-                        : `/concerts/${concertId}/ticket-types`,
+                        ? `/ticket-types/${ticket.id}/update`
+                        : `/concerts/${concertId}/ticket-types/create`,
                       {
-                        method: ticket ? "PATCH" : "POST",
+                        method: "POST",
                         body: {
                           name: form.name,
                           price: Number(form.price),
@@ -705,8 +718,8 @@ function TicketEditor({
                   onPress={() =>
                     confirm
                       ? void action.run(async () => {
-                          await api.request(`/ticket-types/${ticket.id}`, {
-                            method: "DELETE",
+                          await api.request(`/ticket-types/${ticket.id}/delete`, {
+                            method: "POST",
                           });
                           await reload();
                         })
@@ -744,7 +757,7 @@ function StaffPanel({ concertId, mutable }: { concertId: string; mutable: boolea
             disabled={action.busy}
             onPress={() =>
               void action.run(async () => {
-                await api.request(`/concerts/${concertId}/staff/${member.user_id}`, { method: "DELETE" });
+                await api.request(`/concerts/${concertId}/staff/${member.user_id}/delete`, { method: "POST" });
                 await staff.reload();
               })
             }
@@ -761,7 +774,7 @@ function StaffPanel({ concertId, mutable }: { concertId: string; mutable: boolea
             onPress={() =>
               void action.run(async () => {
                 validation.assertValid();
-                await api.request(`/concerts/${concertId}/staff`, { method: "POST", body: { email } });
+                await api.request(`/concerts/${concertId}/staff/add`, { method: "POST", body: { email } });
                 setEmail("");
                 await staff.reload();
                 action.setMessage("Staff asignado.");

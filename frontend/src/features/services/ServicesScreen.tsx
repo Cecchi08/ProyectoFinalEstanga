@@ -290,11 +290,13 @@ function QuoteRequest({ offering }: { offering: ServiceOffering }) {
     if (!form.event_name?.trim()) throw new Error("Poné el nombre del evento.");
     if (!isDate(form.date ?? "")) throw new Error("Elegí la fecha del evento.");
     const times = slot(form.date ?? "", { start: form.start ?? "", end: form.end ?? "" });
-    const { data } = await api.request<ServiceQuote>("/services/quotes", {
+    const attendeesCount = form.expected_attendance?.trim() ? Number(form.expected_attendance.trim()) : null;
+    const { data } = await api.request<ServiceQuote>("/services/quotes/create", {
       method: "POST",
       body: {
         offering_id: offering.id, event_name: form.event_name.trim(), event_start_at: times.event_start_at, event_end_at: times.event_end_at,
         location_text: form.location_text?.trim() || null, requester_notes: form.requester_notes?.trim() || null,
+        attendees: attendeesCount, expected_attendance: attendeesCount,
         concert_id: concert[0] ?? null, reservation_id: reservation[0] ?? null,
       },
     });
@@ -311,6 +313,7 @@ function QuoteRequest({ offering }: { offering: ServiceOffering }) {
           <DateTimeField label="Horario de fin" mode="time" required defaultTime="23:00" value={form.end ?? ""} onChange={(v) => set("end", v)} />
         </View>
         <Field label="Lugar (opcional)" value={form.location_text ?? ""} onChangeText={(v) => set("location_text", v)} />
+        <Field label="Cantidad de asistentes (opcional)" keyboardType="number-pad" value={form.expected_attendance ?? ""} onChangeText={(v) => set("expected_attendance", v)} />
         <Field label="Detalles para la empresa (opcional)" multiline value={form.requester_notes ?? ""} onChangeText={(v) => set("requester_notes", v)} />
         {can("concerts.manage", "concerts.manage_all") && (
           <Select label="Concierto propio (opcional)" path="/concerts?mine=true" values={concert} onChange={setConcert} />

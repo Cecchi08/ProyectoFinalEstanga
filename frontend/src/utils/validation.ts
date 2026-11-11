@@ -7,8 +7,14 @@ export const CITY_PATTERN = /^[\p{L}\p{M}]+(?: +[\p{L}\p{M}]+)*$/u;
 export const PERSON_NAME_PATTERN = /^[\p{L}\p{M}][\p{L}\p{M} '’.-]*$/u;
 export const PHONE_PATTERN = /^\+?[\d\s()-]{6,30}$/;
 
+const minLength = (min: number): Rule => (value) => (value.trim().length >= min ? null : `Mínimo ${min} caracteres.`);
 const maxLength = (max: number): Rule => (value) => (value.trim().length <= max ? null : `Máximo ${max} caracteres.`);
 const pattern = (regex: RegExp, message: string): Rule => (value) => (regex.test(value.trim()) ? null : message);
+export const EXECUTABLE_OR_TAG_PATTERN = /<\s*\/?[a-zA-Z!]|javascript:|vbscript:|data:\s*text\/html|\bon[a-zA-Z]+\s*=/i;
+const noExecutable: Rule = (value) =>
+  EXECUTABLE_OR_TAG_PATTERN.test(value)
+    ? "Contenido no permitido (no se admiten etiquetas ni código ejecutable)."
+    : null;
 const isUrl = (value: string) => {
   try {
     const url = new URL(value.trim());
@@ -27,7 +33,11 @@ const validDate = (value: string) => {
 export const rules = {
   required: (value: string) => (value.trim() ? null : "Este campo es obligatorio."),
   city: [pattern(CITY_PATTERN, "La ciudad solo admite letras y espacios."), maxLength(120)],
-  personName: [pattern(PERSON_NAME_PATTERN, "Usá solo letras, espacios, apóstrofos, puntos o guiones."), maxLength(80)],
+  personName: [
+    pattern(PERSON_NAME_PATTERN, "Usá solo letras, espacios, apóstrofos, puntos o guiones."),
+    minLength(2),
+    maxLength(30),
+  ],
   email: [pattern(/^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/, "Ingresá un email válido (nombre@dominio.com)."), maxLength(190)],
   phone: [pattern(PHONE_PATTERN, "Teléfono inválido: solo números, espacios, +, guiones y paréntesis (6 a 30).")],
   url: [(value: string) => (isUrl(value) ? null : "Ingresá una URL que empiece con http:// o https://."), maxLength(500)],
@@ -43,6 +53,7 @@ export const rules = {
       ? null
       : 'Cada línea: día (1 a 7) y franja HH:MM-HH:MM, ej. "1 10:00-23:00".'],
   integer: [(value: string) => (/^\d{1,10}$/.test(value.trim()) && Number(value) <= 4294967295 ? null : "Ingresá un número entero sin decimales.")],
+  positiveInteger: [(value: string) => (/^[1-9]\d*$/.test(value.trim()) && Number(value) <= 1000000 ? null : "Ingresá un número entero positivo.")],
   date: [(value: string) => (validDate(value) ? null : "Usá el formato AAAA-MM-DD con una fecha existente.")],
   time: [pattern(/^([01]\d|2[0-3]):[0-5]\d$/, "Usá el formato HH:MM (00:00 a 23:59).")],
   isoDateTime: [(value: string) =>
@@ -53,7 +64,8 @@ export const rules = {
   postalCode: [pattern(/^[A-Za-z0-9 -]{3,10}$/, "Código postal inválido (ej. 7600 o B7600ABC).")],
   newPassword: [(value: string) => (value.length >= 12 ? null : "La contraseña debe tener al menos 12 caracteres."),
     (value: string) => (new TextEncoder().encode(value).length <= 72 ? null : "La contraseña no puede superar 72 bytes.")],
-  text: (max: number) => [maxLength(max)],
+  text: (max: number) => [maxLength(max), noExecutable],
+  eventName: [noExecutable, maxLength(200)],
 } satisfies Record<string, Rule | Rule[] | ((max: number) => Rule[])>;
 
 // Type rules from the field label: the app's labels already state the format ("Fecha (AAAA-MM-DD)", "Precio", ...).
@@ -74,7 +86,9 @@ export function inferRules(label: string): Rule[] {
   if (text.includes("cuit")) return rules.cuit;
   if (text.includes("código postal")) return rules.postalCode;
   if (text.includes("mínimo 12")) return rules.newPassword;
-  if (/(cupo|capacidad|cantidad|máximo por compra|asistentes|minutos|^id |\bid de )/.test(text)) return rules.integer;
+  if (text.includes("asistentes")) return rules.positiveInteger;
+  if (/(cupo|capacidad|cantidad|máximo por compra|minutos|^id |\bid de )/.test(text)) return rules.integer;
+  if (text.includes("evento") || text.includes("concierto") || text.includes("show")) return rules.eventName;
   if (text.includes("descripción") || text.includes("biografía") || text.includes("notas") || text.includes("condiciones") || text.includes("equipamiento") || text.includes("detalle"))
     return rules.text(16000);
   return rules.text(255);

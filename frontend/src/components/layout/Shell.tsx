@@ -9,7 +9,7 @@ import {
   View,
   useWindowDimensions,
 } from "react-native";
-import { SafeAreaView } from "react-native-safe-area-context";
+import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 import { useAuth } from "../../contexts/AuthContext";
 import { PreferencesProvider } from "../../contexts/PreferencesContext";
 import { NotificationsProvider, NotificationBadge } from "../../contexts/NotificationsContext";
@@ -24,7 +24,23 @@ import {
 } from "../../types/api";
 import { colors, Copy, fonts, Page, radius, ResourceState, shadows, ThemeToggle } from "../ui";
 
+function tabIcon(path: string): string {
+  if (path === "/discover" || path === "/search") return "🧭";
+  if (path === "/tickets") return "🎟️";
+  if (path === "/notifications") return "🔔";
+  if (path === "/profile") return "👤";
+  if (path === "/admin") return "🛡️";
+  if (path === "/organizer") return "📋";
+  if (path === "/marketplace/manage") return "🏛️";
+  if (path === "/services/mine") return "🛠️";
+  if (path === "/artists") return "🎤";
+  if (path === "/staff") return "🎫";
+  if (path === "/purchases") return "🛍️";
+  return "🎵";
+}
+
 function NavTab({
+  path = "",
   label,
   selected,
   vertical,
@@ -33,6 +49,7 @@ function NavTab({
   onPress,
   children,
 }: {
+  path?: string;
   label: string;
   selected: boolean;
   vertical: boolean;
@@ -45,6 +62,7 @@ function NavTab({
   return (
     <Pressable
       accessibilityRole={role}
+      accessibilityLabel={label}
       accessibilityState={{ selected }}
       onPress={onPress}
       onHoverIn={() => setHovered(true)}
@@ -52,8 +70,8 @@ function NavTab({
       style={{
         flex: compact ? 1 : undefined,
         minWidth: compact ? 0 : undefined,
-        paddingVertical: compact ? 8 : vertical ? 11 : 10,
-        paddingHorizontal: compact ? 4 : 14,
+        paddingVertical: compact ? 6 : vertical ? 11 : 10,
+        paddingHorizontal: compact ? 2 : 14,
         minHeight: 48,
         alignItems: compact ? "center" : undefined,
         justifyContent: "center",
@@ -69,24 +87,50 @@ function NavTab({
           style={
             vertical
               ? { position: "absolute", left: 4, top: 10, bottom: 10, width: 3, borderRadius: radius.pill, backgroundColor: colors.primary }
-              : { position: "absolute", left: compact ? 8 : 12, right: compact ? 8 : 12, bottom: 3, height: 3, borderRadius: radius.pill, backgroundColor: colors.primary }
+              : { position: "absolute", left: compact ? 8 : 12, right: compact ? 8 : 12, bottom: 2, height: 3, borderRadius: radius.pill, backgroundColor: colors.primary }
           }
         />
       )}
-      <Text
-        numberOfLines={compact ? 1 : undefined}
-        style={{
-          color: selected ? colors.accent : hovered ? colors.text : colors.muted,
-          fontSize: compact ? 11 : 14,
-          lineHeight: compact ? 15 : 20,
-          fontWeight: selected ? "700" : "600",
-          letterSpacing: compact ? -0.2 : -0.1,
-          textAlign: compact ? "center" : "left",
-        }}
-      >
-        {label}
-        {children}
-      </Text>
+      {compact ? (
+        <View style={{ alignItems: "center", justifyContent: "center", gap: 2 }}>
+          <View style={{ position: "relative" }}>
+            <Text aria-hidden style={{ fontSize: 18 }}>
+              {tabIcon(path)}
+            </Text>
+            {children}
+          </View>
+          <Text
+            numberOfLines={1}
+            style={{
+              color: selected ? colors.accent : hovered ? colors.text : colors.muted,
+              fontSize: 10,
+              lineHeight: 13,
+              fontWeight: selected ? "700" : "500",
+              letterSpacing: -0.2,
+              textAlign: "center",
+            }}
+          >
+            {label}
+          </Text>
+        </View>
+      ) : (
+        <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between" }}>
+          <Text
+            numberOfLines={1}
+            style={{
+              color: selected ? colors.accent : hovered ? colors.text : colors.muted,
+              fontSize: 14,
+              lineHeight: 20,
+              fontWeight: selected ? "700" : "600",
+              letterSpacing: -0.1,
+              textAlign: "left",
+            }}
+          >
+            {label}
+          </Text>
+          {children}
+        </View>
+      )}
     </Pressable>
   );
 }
@@ -176,6 +220,23 @@ export default function Shell() {
   const assignableRoles: Role[] = auth.roles.filter((r) => r !== "GUEST");
   const links = linksForRole(activeRole, staff);
   const bottomTabs = mobileBottomTabs(activeRole, staff);
+  const insets = useSafeAreaInsets();
+  const rootPaths = [
+    "/discover",
+    "/search",
+    "/tickets",
+    "/notifications",
+    "/profile",
+    "/admin",
+    "/organizer",
+    "/marketplace/manage",
+    "/services/mine",
+    "/artists",
+    "/staff",
+  ];
+  const isRoot = rootPaths.includes(path);
+  const showFloatingBack = !isRoot && router.canGoBack();
+
   const isSelected = (linkPath: string, pool: { path: string }[] = links) => {
     if (path === linkPath) return true;
     if (!path.startsWith(`${linkPath}/`)) return false;
@@ -232,14 +293,15 @@ export default function Shell() {
       </View>
     </View>
   );
-  const renderMenuList = (asTablist: boolean) => (
+  const renderMenuList = (items: { path: string; label: string }[], asTablist: boolean) => (
     <View
       accessibilityRole={asTablist ? "tablist" : undefined}
       style={{ flexDirection: "column", gap: 4, padding: 10 }}
     >
-      {links.map((link) => (
+      {items.map((link) => (
         <NavTab
           key={link.path}
+          path={link.path}
           label={link.label}
           selected={isSelected(link.path)}
           vertical
@@ -254,6 +316,7 @@ export default function Shell() {
       ))}
     </View>
   );
+  const secondaryLinks = links.filter((link) => !bottomTabs.some((tab) => tab.path === link.path));
   const sessionFooter = (
     <View
       style={{
@@ -336,7 +399,7 @@ export default function Shell() {
                 </View>
               </View>
               {roleSelector}
-              {renderMenuList(true)}
+              {renderMenuList(links, true)}
               {sessionFooter}
             </ScrollView>
           )}
@@ -382,6 +445,27 @@ export default function Shell() {
                 </View>
               </View>
               <View style={{ flexDirection: "row", alignItems: "center", gap: 6, flexShrink: 0 }}>
+                <ThemeToggle compact />
+                <Pressable
+                  accessibilityRole="button"
+                  accessibilityLabel="Ver notificaciones"
+                  onPress={() => router.navigate("/notifications")}
+                  style={({ pressed }) => ({
+                    width: 36,
+                    height: 36,
+                    borderRadius: radius.pill,
+                    borderWidth: 1,
+                    borderColor: path.startsWith("/notifications") ? colors.accentBorder : colors.border,
+                    backgroundColor: path.startsWith("/notifications") ? colors.accentSoft : pressed ? colors.surfaceHover : colors.surfaceAlt,
+                    alignItems: "center",
+                    justifyContent: "center",
+                  })}
+                >
+                  <View style={{ position: "relative" }}>
+                    <Text aria-hidden style={{ fontSize: 16 }}>🔔</Text>
+                    <NotificationBadge />
+                  </View>
+                </Pressable>
                 {assignableRoles.length > 1 && (
                   <Pressable
                     accessibilityRole="button"
@@ -450,6 +534,7 @@ export default function Shell() {
               {bottomTabs.map((tab) => (
                 <NavTab
                   key={tab.path}
+                  path={tab.path}
                   label={tab.label}
                   selected={isSelected(tab.path, bottomTabs)}
                   vertical={false}
@@ -538,7 +623,7 @@ export default function Shell() {
                 </View>
                 <ScrollView style={{ flex: 1 }} showsVerticalScrollIndicator={false}>
                   {roleSelector}
-                  {renderMenuList(false)}
+                  {renderMenuList(secondaryLinks, false)}
                   {sessionFooter}
                 </ScrollView>
               </View>
@@ -552,6 +637,36 @@ export default function Shell() {
                 }}
               />
             </View>
+          )}
+          {showFloatingBack && (
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel="Volver a la pantalla anterior"
+              onPress={() => router.back()}
+              style={({ pressed }) => ({
+                position: "absolute",
+                bottom: desktop ? 24 : 64 + Math.max(insets.bottom, 4),
+                left: desktop ? 236 : 14,
+                zIndex: 90,
+                flexDirection: "row",
+                alignItems: "center",
+                gap: 6,
+                paddingVertical: 8,
+                paddingHorizontal: 13,
+                borderRadius: radius.pill,
+                backgroundColor: pressed ? colors.surfaceHover : colors.surface,
+                borderWidth: 1,
+                borderColor: colors.borderStrong,
+                boxShadow: shadows.card,
+              })}
+            >
+              <Text aria-hidden style={{ color: colors.accent, fontSize: 15, fontWeight: "800" }}>
+                ←
+              </Text>
+              <Text style={{ color: colors.text, fontSize: 12, fontWeight: "700" }}>
+                Volver
+              </Text>
+            </Pressable>
           )}
         </SafeAreaView>
       </NotificationsProvider>

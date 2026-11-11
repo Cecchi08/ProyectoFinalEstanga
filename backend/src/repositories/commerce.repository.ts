@@ -5,17 +5,33 @@ import type { PageQuery } from '../validators/commerce.schemas.ts';
 import { NotificationsRepository } from './notifications.repository.ts';
 import { ticketTypeSelect } from './management.repository.ts';
 import { audit, type AuditEntry } from './audit.repository.ts';
+import { PromotionsRepository } from './promotions.repository.ts';
+import type { PromotionRow } from '../utils/promotion.util.ts';
 
 export interface OrderKeyRow extends Row { id: string; request_hash: string | null }
-export interface PurchaseRow extends Row { id: string; user_id: string; status: string; expires_at: Date | null; total: string; currency: string }
+export interface PurchaseRow extends Row {
+    id: string;
+    user_id: string;
+    status: string;
+    expires_at: Date | null;
+    total: string;
+    currency: string;
+    promotion_id: string | null;
+    promotion_code: string | null;
+    subtotal: string | null;
+    discount: string | null;
+}
+export type { PromotionRow };
 export interface ItemRow extends Row { id: string; ticket_type_id: string; concert_id: string; quantity: number; unit_price: string }
 export interface ScanRow extends Row { id: string; purchase_id: string; concert_id: string; status: string; used_at: Date | null }
 export type ScanResult = 'ACCEPTED' | 'ALREADY_USED' | 'CANCELLED' | 'WRONG_CONCERT' | 'NOT_FOUND';
+
 // The API keeps the "purchase" vocabulary; the schema stores orders.
 const effectiveStatus = `CASE WHEN o.status = 'PENDING' AND (o.expires_at IS NULL OR o.expires_at <= NOW())
     THEN 'EXPIRED' ELSE o.status END`;
 const purchaseSelect = `SELECT o.id, o.public_code, o.user_id, ${effectiveStatus} AS status, o.expires_at, o.confirmed_at, o.cancelled_at,
     o.refund_status, o.refunded_at, o.created_at, o.total_amount AS total, o.currency,
+    COALESCE(o.subtotal_amount, o.total_amount) AS subtotal, o.discount_amount AS discount, o.promotion_code,
     (SELECT c.title FROM order_items oi JOIN concerts c ON c.id = oi.concert_id WHERE oi.order_id = o.id LIMIT 1) AS concert_name,
     (SELECT c.artist_name FROM order_items oi JOIN concerts c ON c.id = oi.concert_id WHERE oi.order_id = o.id LIMIT 1) AS artist_name,
     (SELECT c.venue_name FROM order_items oi JOIN concerts c ON c.id = oi.concert_id WHERE oi.order_id = o.id LIMIT 1) AS venue_name,
@@ -31,7 +47,11 @@ const ticketSelect = `SELECT t.id, t.order_item_id AS purchase_item_id, t.qr_tok
 
 export class CommerceRepository {
     readonly notifications: NotificationsRepository;
-    constructor(private readonly connection: PoolConnection) { this.notifications = new NotificationsRepository(connection); }
+    readonly promotions: PromotionsRepository;
+    constructor(private readonly connection: PoolConnection) {
+        this.notifications = new NotificationsRepository(connection);
+        this.promotions = new PromotionsRepository(connection);
+    }
     async rows<T extends Row = Row>(sql: string, params: Value[] = []): Promise<T[]> {
         const [rows] = await this.connection.execute<RowDataPacket[]>(sql, params);
         return (rows as T[]).map(row => Object.fromEntries(Object.entries(row).map(([key, value]) =>
@@ -66,19 +86,26 @@ export class CommerceRepository {
     async byIdempotencyKey(userId: string, idempotencyKey: string, lock = false): Promise<OrderKeyRow | undefined> {
         return (await this.rows<OrderKeyRow>(`SELECT id, request_hash FROM orders WHERE user_id = ? AND idempotency_key = ?${lock ? ' FOR UPDATE' : ''}`, [userId, idempotencyKey]))[0];
     }
+    async findPromotion(code: string, lock = false): Promise<PromotionRow | undefined> {
+        return lock ? this.promotions.lock(code) : this.promotions.byCode(code);
+    }
     async addItem(purchaseId: string, type: TicketRow, quantity: number): Promise<void> {
         await this.execute(`INSERT INTO order_items (order_id, ticket_type_id, concert_id, quantity, unit_price, line_total)
             VALUES (?, ?, ?, ?, ?, ? * ?)`, [purchaseId, type.id, type.concert_id, quantity, type.price, quantity, type.price]);
     }
-    async total(purchaseId: string): Promise<void> {
-        await this.execute(`UPDATE orders o SET o.total_amount = (SELECT COALESCE(SUM(oi.line_total), 0) FROM order_items oi WHERE oi.order_id = o.id)
-            WHERE o.id = ?`, [purchaseId]);
+    // One statement sets subtotal, discount and final total together, so chk_orders_amounts (subtotal - discount = total) holds.
+    // discount is the amount computed by the service from the locked ticket prices; without a promotion it is 0.00 and no promotion is stored.
+    async total(purchaseId: string, promotion?: { id: string; code: string; discount: string } | null): Promise<void> {
+        await this.execute(`UPDATE orders o SET o.subtotal_amount = (SELECT COALESCE(SUM(oi.line_total), 0) FROM order_items oi WHERE oi.order_id = o.id),
+            o.discount_amount = ?, o.promotion_id = ?, o.promotion_code = ?,
+            o.total_amount = (SELECT COALESCE(SUM(oi.line_total), 0) FROM order_items oi WHERE oi.order_id = o.id) - ?
+            WHERE o.id = ?`, [promotion?.discount ?? '0.00', promotion?.id ?? null, promotion?.code ?? null, promotion?.discount ?? '0.00', purchaseId]);
     }
     async purchase(id: string, ownerId?: string): Promise<PurchaseRow | undefined> {
         return (await this.rows<PurchaseRow>(`${purchaseSelect} WHERE o.id = ?${ownerId ? ' AND o.user_id = ?' : ''}`, ownerId ? [id, ownerId] : [id]))[0];
     }
     async lockPurchase(id: string): Promise<PurchaseRow | undefined> {
-        return (await this.rows<PurchaseRow>(`SELECT id, user_id, status, expires_at, total_amount AS total, currency
+        return (await this.rows<PurchaseRow>(`SELECT id, user_id, status, expires_at, total_amount AS total, currency, promotion_id, promotion_code
             FROM orders WHERE id = ? FOR UPDATE`, [id]))[0];
     }
     // Simulated payments only: an outcome and a reference, never card or bank data.

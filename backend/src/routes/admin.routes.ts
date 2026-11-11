@@ -15,23 +15,23 @@ export function adminRoutes(database: Database, authenticate: RequestHandler): R
     });
     // Any signed-in registered account; the service allows only SELF_SERVICE_ROLES (COMPRADOR, ARTISTA).
     router.use('/me/profiles', authenticate, (_req, res, next) => { res.setHeader('Cache-Control', 'no-store'); next(); });
-    router.get('/me/profiles', controller.profiles);
-    router.post('/me/profiles', validateRequest(selfProfileSchema), controller.activate);
-    router.get('/admin/users', controller.users);
-    router.get('/admin/users/:id', controller.user);
+    router.post('/me/profiles', controller.profiles);
+    router.post('/me/profiles/activate', validateRequest(selfProfileSchema), controller.activate);
+    router.post('/admin/users', controller.users);
+    router.post('/admin/users/:id', controller.user);
     router.post('/admin/users/:id/roles', validateRequest(grantSchema), controller.grant);
-    router.delete('/admin/users/:id/roles/:role', controller.revoke);
+    router.post('/admin/users/:id/roles/:role/delete', controller.revoke);
     router.post('/admin/users/:id/suspend', validateRequest(suspendSchema), controller.suspend);
     router.post('/admin/users/:id/reactivate', controller.reactivate);
-    router.get('/admin/audit', controller.audit);
+    router.post('/admin/audit', controller.audit);
     // Profile requests: anyone signed in asks for a business profile; only users.manage (ADMIN) lists and decides them.
     router.post('/me/profile-requests', authenticate, controller.requestProfile);
-    router.get('/me/profile-requests', authenticate, controller.myProfileRequests);
-    router.get('/admin/profile-requests', authenticate, requirePermission(P.usersManage), controller.profileRequests);
+    router.post('/me/profile-requests/mine', authenticate, controller.myProfileRequests);
+    router.post('/admin/profile-requests', authenticate, requirePermission(P.usersManage), controller.profileRequests);
     router.post('/admin/profile-requests/:id/approve', authenticate, requirePermission(P.usersManage), controller.approveProfileRequest);
     router.post('/admin/profile-requests/:id/reject', authenticate, requirePermission(P.usersManage), controller.rejectProfileRequest);
     // Read-only list of every organization (venues and service companies); marketplace.admin also reaches it.
-    router.get('/admin/organizations', authenticate, requirePermission(P.usersManage, P.marketplaceAdmin), (_req, res, next) => {
+    router.post('/admin/organizations', authenticate, requirePermission(P.usersManage, P.marketplaceAdmin), (_req, res, next) => {
         res.setHeader('Cache-Control', 'no-store'); next();
     }, controller.organizations);
     return router;

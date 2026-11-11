@@ -2,11 +2,11 @@ import { memo, useState } from "react";
 import { Text, View } from "react-native";
 import { router } from "expo-router";
 import { useAuth } from "../../contexts/AuthContext";
+import { usePreferences } from "../../contexts/PreferencesContext";
 import {
   BentoGrid,
   Button,
   Card,
-  colors,
   Copy,
   DateTimeField,
   Field,
@@ -15,6 +15,8 @@ import {
   Page,
   Pager,
   ResourceState,
+  SectionHeader,
+  colors,
   dateLabel,
   money,
   statusLabel,
@@ -138,6 +140,22 @@ export default function ConcertList({
 }) {
   const [page, setPage] = useState(1);
   const { can } = useAuth();
+  const preferences = usePreferences();
+  const recActive =
+    mode === "discover" &&
+    preferences.enabled === true &&
+    !preferences.loading &&
+    !preferences.saving;
+  const recResource = useResource<{
+    enabled: boolean;
+    recommendations: { concert: Concert; reason: string }[];
+  }>(recActive ? "/recommendations" : null);
+  const recs = recResource.result?.data?.recommendations ?? [];
+  const recsOff =
+    mode === "discover" &&
+    (preferences.enabled === false ||
+      (recActive && recResource.result?.data.enabled === false));
+
   const [draft, setDraft] = useState<Record<string, string>>({});
   const [filters, setFilters] = useState<Record<string, string>>({});
   const [expanded, setExpanded] = useState(false);
@@ -181,7 +199,7 @@ export default function ConcertList({
     <Page
       eyebrow={
         mode === "discover"
-          ? "VENTI · CARTELERA EN VIVO"
+          ? "VENTI · DESCUBRIR Y CARTELERA"
           : mode === "organizer"
             ? "VENTI · PANEL DE ORGANIZADOR"
             : "VENTI · GESTIÓN GLOBAL"
@@ -193,7 +211,11 @@ export default function ConcertList({
             ? "Mis conciertos"
             : "Todos los conciertos"
       }
-      subtitle="Música en vivo. Experiencias que quedan."
+      subtitle={
+        mode === "discover"
+          ? "Recomendaciones personalizadas y cartelera completa en vivo."
+          : "Música en vivo. Experiencias que quedan."
+      }
       actions={
         mode !== "discover" ? (
           <>
@@ -216,6 +238,58 @@ export default function ConcertList({
         ) : undefined
       }
     >
+      {/* 5. Unificación: Mostrar primero las recomendaciones personalizadas */}
+      {mode === "discover" && recActive && recs.length > 0 && (
+        <View style={{ gap: 12, marginBottom: 8 }}>
+          <SectionHeader
+            title="✨ Recomendados para vos"
+            subtitle="Sugerencias personalizadas según tus entradas y preferencias."
+            action={
+              <Button
+                title="Actualizar recomendaciones"
+                secondary
+                onPress={() => void recResource.reload()}
+              />
+            }
+          />
+          <BentoGrid>
+            {recs.map((item, index) => (
+              <ConcertCard
+                key={`rec-${item.concert.id}`}
+                concert={item.concert}
+                reason={item.reason}
+                featured={index === 0 && recs.length > 1}
+              />
+            ))}
+          </BentoGrid>
+        </View>
+      )}
+
+      {mode === "discover" && recsOff && (
+        <Card variant="featured" style={{ marginBottom: 8 }}>
+          <View style={styles.between}>
+            <View style={{ gap: 2, flex: 1, paddingRight: 8 }}>
+              <Copy strong>Recomendaciones personalizadas desactivadas</Copy>
+              <Copy muted size="small">
+                Podés activarlas en Mi cuenta para recibir sugerencias personalizadas de Venti Discover.
+              </Copy>
+            </View>
+            <Button
+              title="Ir a preferencias"
+              secondary
+              onPress={() => router.push("/profile")}
+            />
+          </View>
+        </Card>
+      )}
+
+      {mode === "discover" && (
+        <SectionHeader
+          title="🎵 Todos los conciertos en cartelera"
+          subtitle="Explorá el catálogo completo y filtrá según tus preferencias."
+        />
+      )}
+
       <Card>
         <View style={styles.row}>
           <Field

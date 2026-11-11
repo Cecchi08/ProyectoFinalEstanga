@@ -323,6 +323,11 @@ export interface Purchase {
   start_datetime?: string | null;
   status: string;
   total: string;
+  subtotal?: string | null;
+  discount?: string | null;
+  promocion?: string | null;
+  promotion_id?: string | null;
+  promotion_code?: string | null;
   created_at: string;
   expires_at: string | null;
   refund_status?: "NONE" | "REFUNDED";
@@ -338,6 +343,36 @@ export interface Purchase {
     venue_name?: string | null;
     start_datetime?: string | null;
   }[];
+}
+
+export interface PromotionValidationResult {
+  code: string;
+  description: string;
+  discount_type: "PERCENTAGE" | "FIXED";
+  discount_value: string;
+  subtotal: string;
+  discount: string;
+  total: string;
+}
+
+export interface AdminPromotion {
+  id: string;
+  code: string;
+  description: string;
+  discount_type: "PERCENTAGE" | "FIXED";
+  discount_value: string;
+  min_order_amount: string;
+  concert_id: string | null;
+  concert_title?: string | null;
+  max_uses: number | null;
+  current_uses: number;
+  status: "ACTIVE" | "INACTIVE" | "EXPIRED";
+  valid_from: string;
+  valid_until: string;
+  created_at: string;
+  updated_at: string;
+  active_redemptions_count?: number;
+  total_redemptions_count?: number;
 }
 export interface Ticket {
   id: string;
@@ -361,7 +396,7 @@ export interface Attendee {
   used_at: string | null;
 }
 // Permission codes the API authorizes with (backend/src/utils/access.util.js plus the codes
-// seeded in database/venti_shema2.sql). GET /auth/me returns the union of the user's profiles.
+// seeded in backups/schema.sql). GET /auth/me returns the union of the user's profiles.
 export type Permission =
   | "concerts.browse"
   | "concerts.manage"

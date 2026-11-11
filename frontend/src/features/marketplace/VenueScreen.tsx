@@ -64,12 +64,12 @@ export default function VenueScreen() {
   };
   const reserve = () => book.run(async () => {
     validation.assertValid();
-    const { data } = await api.request<Reservation>("/marketplace/reservations", { method: "POST", body: { ...schedule(), notes: form.notes?.trim() || null } });
+    const { data } = await api.request<Reservation>("/marketplace/reservations/create", { method: "POST", body: { ...schedule(), notes: form.notes?.trim() || null } });
     router.push(`/marketplace/reservations/${data.id}`);
   });
   const requestQuote = () => book.run(async () => {
     validation.assertValid();
-    const { data } = await api.request<Quote>("/marketplace/quotes", {
+    const { data } = await api.request<Quote>("/marketplace/quotes/create", {
       method: "POST", body: { ...schedule(), event_description: form.description?.trim() || null, requester_notes: form.notes?.trim() || null },
     });
     router.push(`/marketplace/quotes/${data.id}`);
@@ -148,11 +148,11 @@ export default function VenueScreen() {
             >
               <Card>
                 <SectionHeader title="Disponibilidad y franja (hora de Argentina)" />
-                <View style={styles.row}>
+                <View style={[styles.row, { flexWrap: "wrap", alignItems: "stretch" }]}>
                   <DateTimeField label="Fecha del evento" mode="date" required value={form.date ?? ""} onChange={(v) => set("date", v)} />
                   <DateTimeField label="Armado desde (opcional)" mode="time" defaultTime="16:00" value={form.setup ?? ""} onChange={(v) => set("setup", v)} />
                 </View>
-                <View style={styles.row}>
+                <View style={[styles.row, { flexWrap: "wrap", alignItems: "stretch" }]}>
                   <DateTimeField label="Inicio del evento" mode="time" required defaultTime="18:00" value={form.start ?? ""} onChange={(v) => set("start", v)} />
                   <DateTimeField label="Fin del evento" mode="time" required defaultTime="20:00" value={form.end ?? ""} onChange={(v) => set("end", v)} />
                   <DateTimeField label="Desarme hasta (opcional)" mode="time" defaultTime="22:00" value={form.teardown ?? ""} onChange={(v) => set("teardown", v)} />

@@ -338,7 +338,7 @@ function ArtistPitchToVenueForm({
         ? fromArgDateTimeToUtcIso(form.event_date.trim(), "21:00")
         : new Date(Date.now() + 14 * 86400000).toISOString();
 
-      await api.request("/proposals", {
+      await api.request("/proposals/create", {
         method: "POST",
         body: {
           flow_type: "ARTIST_TO_VENUE",
@@ -473,8 +473,8 @@ function ArtistEditor({
         genre_ids: genres,
       };
       const { data } = await api.request<ArtistDetail>(
-        artist ? `/artists/${artist.id}` : "/artists",
-        { method: artist ? "PATCH" : "POST", body },
+        artist ? `/artists/${artist.id}/update` : "/artists/create",
+        { method: "POST", body },
       );
       await done(data.id);
     });
@@ -581,7 +581,7 @@ export function ArtistScreen() {
   const addMember = () =>
     action.run(async () => {
       if (!email.trim()) throw new Error("Poné el email de la cuenta.");
-      await api.request(`/artists/${id}/members`, {
+      await api.request(`/artists/${id}/members/add`, {
         method: "POST",
         body: { email: email.trim(), member_role: role },
       });
@@ -591,8 +591,8 @@ export function ArtistScreen() {
     });
   const setMemberRole = (member: ArtistMember, next: MemberRole) =>
     action.run(async () => {
-      await api.request(`/artists/${id}/members/${member.user_id}`, {
-        method: "PATCH",
+      await api.request(`/artists/${id}/members/${member.user_id}/update`, {
+        method: "POST",
         body: { member_role: next },
       });
       await resource.reload();
@@ -600,8 +600,8 @@ export function ArtistScreen() {
     });
   const removeMember = (member: ArtistMember) =>
     action.run(async () => {
-      await api.request(`/artists/${id}/members/${member.user_id}`, {
-        method: "DELETE",
+      await api.request(`/artists/${id}/members/${member.user_id}/delete`, {
+        method: "POST",
       });
       setConfirm(null);
       await resource.reload();

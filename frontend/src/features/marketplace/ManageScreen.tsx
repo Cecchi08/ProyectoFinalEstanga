@@ -68,7 +68,7 @@ export default function ManageScreen() {
   const { mobile } = useBento();
   const createOrganization = () => action.run(async () => {
     validation.assertValid();
-    await api.request("/marketplace/organizations", { method: "POST", body: { name: form.org_name ?? "", tax_id: text(form.tax_id) } });
+    await api.request("/marketplace/organizations/create", { method: "POST", body: { name: form.org_name ?? "", tax_id: text(form.tax_id) } });
     setForm({}); await organizations.reload(); action.setMessage("Organización creada.");
   });
   return (
@@ -202,13 +202,13 @@ export function MembersPanel({ organization, path = `/marketplace/organizations/
             <View style={styles.row}>
               {(Object.keys(roleNames) as Member["member_role"][]).filter((r) => r !== member.member_role).map((next) => (
                 <Button key={next} title={`Hacer ${roleNames[next]}: ${member.email}`} secondary disabled={action.busy}
-                  onPress={() => void run(() => api.request(`${path}/${member.user_id}`, { method: "PATCH", body: { member_role: next } }), "Rol actualizado.")} />
+                  onPress={() => void run(() => api.request(`${path}/${member.user_id}/update`, { method: "POST", body: { member_role: next } }), "Rol actualizado.")} />
               ))}
             </View>
           )}
           {(manage || member.user_id === user?.id) && (
             <Button title={member.user_id === user?.id ? "Salir de la organización" : `Quitar a ${member.email}`} secondary danger disabled={action.busy}
-              onPress={() => void run(() => api.request(`${path}/${member.user_id}`, { method: "DELETE" }), "Miembro quitado.")} />
+              onPress={() => void run(() => api.request(`${path}/${member.user_id}/delete`, { method: "POST" }), "Miembro quitado.")} />
           )}
         </View>
       ))}
@@ -222,7 +222,7 @@ export function MembersPanel({ organization, path = `/marketplace/organizations/
               ))}
             </View>
             <Button title="Agregar miembro" disabled={action.busy}
-              onPress={() => void run(async () => { validation.assertValid(); await api.request(path, { method: "POST", body: { email, member_role: role } }); setEmail(""); }, "Miembro agregado.")} />
+              onPress={() => void run(async () => { validation.assertValid(); await api.request(`${path}/add`, { method: "POST", body: { email, member_role: role } }); setEmail(""); }, "Miembro agregado.")} />
           </View>
         </FormScope>
       )}
@@ -245,8 +245,8 @@ function EstablishmentForm({ establishment, organizations, done }: { establishme
     validation.assertValid();
     const body = { city_id: form.city_id, name: form.name, address_line: form.address_line, description: text(form.description),
       postal_code: text(form.postal_code), phone: text(form.phone), email: text(form.email), website: text(form.website) };
-    await api.request(establishment ? `/marketplace/establishments/${establishment.id}` : "/marketplace/establishments", {
-      method: establishment ? "PATCH" : "POST", body: establishment ? body : { ...body, organization_id: form.organization_id },
+    await api.request(establishment ? `/marketplace/establishments/${establishment.id}/update` : "/marketplace/establishments/create", {
+      method: "POST", body: establishment ? body : { ...body, organization_id: form.organization_id },
     });
     await done();
   });
@@ -595,7 +595,7 @@ function HireArtistPanel({
       const proposedDate = form.event_date?.trim()
         ? fromArgDateTimeToUtcIso(form.event_date.trim(), "21:00")
         : new Date(Date.now() + 14 * 86400000).toISOString();
-      await api.request("/proposals", {
+      await api.request("/proposals/create", {
         method: "POST",
         body: {
           flow_type: "VENUE_TO_ARTIST",
@@ -866,8 +866,8 @@ function VenueForm({ establishmentId, venueId, done }: { establishmentId: string
       price_per_hour: Number(form.price_per_hour || 0), min_booking_minutes: Number(form.min_booking_minutes || 60),
       amenities, photos, opening_hours: openingHours,
     };
-    await api.request(venueId ? `/marketplace/venues/${venueId}` : `/marketplace/establishments/${establishmentId}/venues`, {
-      method: venueId ? "PATCH" : "POST", body,
+    await api.request(venueId ? `/marketplace/venues/${venueId}/update` : `/marketplace/establishments/${establishmentId}/venues/create`, {
+      method: "POST", body,
     });
     await done();
   });
@@ -919,7 +919,7 @@ function BlocksPanel({ establishment }: { establishment: Establishment }) {
     if (!isDate(form.date ?? "")) throw new Error("Elegí la fecha del bloqueo.");
     const starts = at(form.date, form.from ?? ""), ends = at(form.date, form.to ?? "");
     if (ends <= starts) ends.setTime(ends.getTime() + 86400000);
-    await api.request(`/marketplace/establishments/${establishment.id}/blocks`, { method: "POST", body: {
+    await api.request(`/marketplace/establishments/${establishment.id}/blocks/create`, { method: "POST", body: {
       venue_id: venue[0] ?? null, reason: reason[0] ?? "OTHER", description: text(form.description), starts_at: starts.toISOString(), ends_at: ends.toISOString(),
     } });
     setForm({}); await blocks.reload(); action.setMessage("Bloqueo creado.");
@@ -933,7 +933,7 @@ function BlocksPanel({ establishment }: { establishment: Establishment }) {
           <View key={block.id} style={styles.row}>
             <Copy muted>{range(block.starts_at, block.ends_at)} · {name(block.venue_id)} · {reasonLabel[block.reason] ?? statusLabel(block.reason)}{block.description ? ` · ${block.description}` : ""}</Copy>
             <Button title="Quitar bloqueo" secondary danger disabled={action.busy}
-              onPress={() => void action.run(async () => { await api.request(`/marketplace/blocks/${block.id}`, { method: "DELETE" }); await blocks.reload(); })} />
+              onPress={() => void action.run(async () => { await api.request(`/marketplace/blocks/${block.id}/delete`, { method: "POST" }); await blocks.reload(); })} />
           </View>
         ))}
         <Codes label="Espacio bloqueado (sin elegir: todo el establecimiento)" items={venues.result?.data} values={venue} onChange={setVenue} />

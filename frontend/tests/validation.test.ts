@@ -42,6 +42,22 @@ test("descripciones y textos libres aceptan puntuación legítima y solo limitan
   assert.equal(check("AC/DC & Blink-182", inferRules("Artista (texto del cartel)")), null);
   // Notes allow 16000 characters in the API (marketplace and services): the form must not cut them at 255.
   for (const label of ["Notas (opcional)", "Notas para el cliente"]) assert.equal(check(`Llegada 18:00; prueba de sonido. ${"x".repeat(900)}`, inferRules(label)), null, label);
+
+  // Verificación estricta anti-XSS más allá de simples etiquetas <script>:
+  const eventNameRule = inferRules("Nombre del evento");
+  for (const xssPayload of [
+    "<script>alert(1)</script>",
+    "<img src=x onerror=alert(1)>",
+    "<svg/onload=alert(1)>",
+    "<iframe src='data:text/html,...'></iframe>",
+    "<body onload=alert(1)>",
+    "javascript:alert(1)",
+    "data:text/html;base64,PHNjcmlwdD5hbGVydCgxKTwvc2NyaXB0Pg==",
+    "onload=alert(1)",
+  ]) {
+    assert.ok(check(xssPayload, description), `Descripción debe rechazar ${xssPayload}`);
+    assert.ok(check(xssPayload, eventNameRule), `Nombre de evento debe rechazar ${xssPayload}`);
+  }
 });
 
 test("la regla se infiere de la etiqueta del campo y los opcionales vacíos no se validan", () => {

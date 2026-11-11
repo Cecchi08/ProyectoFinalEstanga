@@ -37,7 +37,7 @@ La API impide dejar una cuenta sin perfiles (`LAST_ROLE`) y dejar la plataforma 
    - miembro de la organización (`organization_members`), tanto de espacios como de empresas de servicios. El rol de miembro es OWNER, ADMIN o STAFF: es un rol dentro de esa organización, no un perfil de la cuenta;
    - miembro del perfil de artista (`artist_members`: OWNER o MEMBER).
 
-El catálogo de códigos está en `backend/src/utils/access.util.js`. Las asignaciones de permisos a perfiles (`role_permissions`) se siembran en `database/venti_shema2.sql`.
+El catálogo de códigos está en `backend/src/utils/access.util.js`. Las asignaciones de permisos a perfiles (`role_permissions`) se siembran en `backups/schema.sql`.
 
 La autorización por rol (`authorize(...)`, `roles.includes(...)`) ya no se usa. El frontend lee los permisos de `GET /auth/me` y oculta pantallas con la misma regla `can(...)`. Esos guards son solo de interfaz: la decisión real la toma la API. Ante un `403`, el frontend recarga los permisos.
 

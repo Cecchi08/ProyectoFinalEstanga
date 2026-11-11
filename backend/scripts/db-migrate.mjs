@@ -1,4 +1,4 @@
-// Applies one migration file from database/migrations to the configured database (backend/.env). Does not drop data.
+// Applies one migration file from migrations/ to the configured database (backend/.env). Does not drop data.
 // Usage: node scripts/db-migrate.mjs --file <migration.sql> --backup <file.sql> --confirm <database-name>
 // Guards: the backup file must exist and not be empty, --confirm must match the database name and the
 // migration must select that database. Statements run in order and stop at the first failure.

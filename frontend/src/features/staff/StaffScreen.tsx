@@ -1,5 +1,5 @@
-import { useRef, useState } from "react";
-import { Platform, View } from "react-native";
+import { useEffect, useRef, useState } from "react";
+import { Platform, Pressable, Text, View } from "react-native";
 import { CameraView, useCameraPermissions } from "expo-camera";
 import { api } from "../../services/api";
 import { ApiError } from "../../services/http";
@@ -15,6 +15,7 @@ import {
   ResourceState,
   SectionHeader,
   dateLabel,
+  radius,
   statusLabel,
   styles,
   useBento,
@@ -23,6 +24,7 @@ import { useResource } from "../../hooks/useResource";
 import { useAuth } from "../../contexts/AuthContext";
 import type { Concert, Attendee } from "../../types/api";
 import { scanMessage } from "./validation";
+import { notifyTicketValidated } from "../tickets/ticketEvents";
 
 export default function StaffScreen() {
   const { can } = useAuth();
@@ -200,6 +202,14 @@ function Scanner({
   const [valid, setValid] = useState(false);
   const [busy, setBusy] = useState(false);
   const locked = useRef(false);
+
+  useEffect(() => {
+    return () => {
+      // Liberar recursos de cámara al abandonar la pantalla
+      setCamera(false);
+    };
+  }, []);
+
   const scan = async (value: string) => {
     if (locked.current) return;
     locked.current = true;
@@ -217,6 +227,9 @@ function Scanner({
       );
       setValid(data.result === "VALID");
       setResult(scanMessage(data.result));
+      if (data.result === "VALID") {
+        notifyTicketValidated();
+      }
       onValidated();
     } catch (e) {
       setResult(scanMessage(e instanceof ApiError ? e.code : "ERROR"));
@@ -273,8 +286,8 @@ function Scanner({
         )}
       </View>
       {camera && (
-        <>
-          <View style={{ height: 300, borderRadius: 12, overflow: "hidden" }}>
+        <View style={{ gap: 10 }}>
+          <View style={{ height: 320, borderRadius: 12, overflow: "hidden", position: "relative" }}>
             <CameraView
               style={{ flex: 1 }}
               facing="back"
@@ -287,13 +300,37 @@ function Scanner({
                 );
               }}
             />
+            {/* Botón flotante visible sobre el visor para cerrar y liberar la cámara */}
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel="Cancelar y cerrar escáner de cámara"
+              onPress={() => setCamera(false)}
+              style={({ pressed }) => ({
+                position: "absolute",
+                top: 12,
+                right: 12,
+                backgroundColor: pressed ? "rgba(0,0,0,0.85)" : "rgba(17,17,19,0.78)",
+                paddingVertical: 7,
+                paddingHorizontal: 12,
+                borderRadius: radius.pill,
+                borderWidth: 1,
+                borderColor: "rgba(255,255,255,0.35)",
+                flexDirection: "row",
+                alignItems: "center",
+                gap: 6,
+                zIndex: 10,
+              })}
+            >
+              <Text aria-hidden style={{ color: "#fff", fontSize: 13, fontWeight: "700" }}>✕</Text>
+              <Text style={{ color: "#fff", fontSize: 12, fontWeight: "700" }}>Cerrar cámara</Text>
+            </Pressable>
           </View>
           <Button
-            title="Cerrar cámara"
+            title="Cancelar escaneo"
             secondary
             onPress={() => setCamera(false)}
           />
-        </>
+        </View>
       )}
       <Notice message={result} error={!valid} />
       {result && <Button title="Siguiente entrada" onPress={next} />}

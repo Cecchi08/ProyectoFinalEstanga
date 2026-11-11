@@ -168,7 +168,7 @@ export function DateTimeField({
   const cells = mode !== "time" ? buildCalendarMonth(viewYear, viewMonth) : [];
 
   return (
-    <View style={{ gap: 6, flexShrink: 1, minWidth: 0, maxWidth: "100%" }}>
+    <View style={{ gap: 6, flexGrow: 1, flexShrink: 1, minWidth: mobile ? "100%" : 200, maxWidth: "100%" }}>
       <Text style={[styles.label, open && { color: colors.accentText }, message ? { color: colors.dangerText } : null]}>
         {label}
         {required ? <Text aria-hidden style={{ color: colors.accentText }}> *</Text> : null}
@@ -188,10 +188,11 @@ export function DateTimeField({
             styles.input,
             {
               flex: 1,
+              minWidth: 0,
               flexDirection: "row",
               alignItems: "center",
               justifyContent: "space-between",
-              gap: 10,
+              gap: 8,
               backgroundColor: pressed ? colors.surfaceHover : colors.surfaceAlt,
               borderColor: message ? colors.dangerBorder : displayValue ? colors.accentBorder : colors.borderStrong,
               opacity: disabled ? 0.55 : 1,
@@ -202,27 +203,41 @@ export function DateTimeField({
             numberOfLines={1}
             style={{
               color: displayValue ? colors.text : colors.muted,
-              fontSize: 15,
+              fontSize: 14,
               fontWeight: displayValue ? "600" : "400",
               flexShrink: 1,
             }}
           >
             {displayValue || placeholderText}
           </Text>
-          <Text aria-hidden style={{ color: colors.accentText, fontSize: 13, fontWeight: "700" }}>
+          <Text aria-hidden style={{ color: colors.accentText, fontSize: 14, fontWeight: "700" }}>
             {mode === "time" ? "🕒" : "📅"}
           </Text>
         </Pressable>
 
         {!required && Boolean(value) && !disabled && (
-          <Button
-            title={`Limpiar ${label.toLowerCase()}`}
-            secondary
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel={`Limpiar ${label.toLowerCase()}`}
             onPress={() => {
               setTouched(true);
               onChange("");
             }}
-          />
+            hitSlop={8}
+            style={({ pressed }) => ({
+              height: 48,
+              paddingHorizontal: 12,
+              borderRadius: radius.md,
+              borderWidth: 1,
+              borderColor: colors.borderStrong,
+              backgroundColor: pressed ? colors.surfaceHover : colors.surfaceAlt,
+              alignItems: "center",
+              justifyContent: "center",
+              flexShrink: 0,
+            })}
+          >
+            <Text style={{ color: colors.muted, fontSize: 12, fontWeight: "700" }}>✕ Limpiar</Text>
+          </Pressable>
         )}
       </View>
 

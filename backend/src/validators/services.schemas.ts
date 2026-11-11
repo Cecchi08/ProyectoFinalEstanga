@@ -32,9 +32,15 @@ export const offeringSchema = z.strictObject(offeringFields).refine(priced, 'Ind
 export const offeringPatchSchema = z.strictObject({ ...offeringFields, pricing_unit: pricing.optional() }).partial()
     .refine(value => Object.keys(value).length > 0, 'Enviar al menos un campo.');
 
+const DANGEROUS_CONTENT = /<\s*\/?[a-zA-Z!]|javascript:|vbscript:|data:\s*text\/html|\bon[a-zA-Z]+\s*=/i;
+const safeName = (max: number) => nameSchema(max).refine(value => !DANGEROUS_CONTENT.test(value), 'Contenido no permitido (no se admiten etiquetas HTML ni código ejecutable).');
+const safeText = (max: number) => text(max).refine(value => !value || !DANGEROUS_CONTENT.test(value), 'Contenido no permitido (no se admiten etiquetas HTML ni código ejecutable).');
+
 export const serviceQuoteRequestSchema = z.strictObject({
     offering_id: idSchema, concert_id: idSchema.nullable().optional(), reservation_id: idSchema.nullable().optional(),
-    event_name: nameSchema(200), event_start_at: when, event_end_at: when, location_text: text(255), requester_notes: text(16000),
+    event_name: safeName(200), event_start_at: when, event_end_at: when, location_text: safeText(255), requester_notes: safeText(16000),
+    attendees: z.number().int().positive().max(1000000).nullable().optional(),
+    expected_attendance: z.number().int().positive().max(1000000).nullable().optional(),
 }).refine(value => value.event_start_at < value.event_end_at, 'El servicio debe terminar después de empezar.');
 export const serviceQuoteResponseSchema = z.strictObject({
     items: z.array(z.strictObject({

@@ -188,17 +188,15 @@ export function Select<Item extends SelectItem = SelectItem>({
                   {label}
                 </Copy>
                 <View style={styles.row}>
-                  {values.length > 0 && (
-                    <Button
-                      title={`Limpiar ${label.toLowerCase()}`}
-                      secondary
-                      onPress={() => {
-                        onChange([]);
-                        if (!multiple) setOpen(false);
-                      }}
-                    />
-                  )}
-                  <Button title="Listo" secondary={!multiple} onPress={() => setOpen(false)} />
+                  <Button
+                    title={multiple ? "Todas / Limpiar" : "Todas"}
+                    secondary={values.length > 0}
+                    onPress={() => {
+                      onChange([]);
+                      if (!multiple) setOpen(false);
+                    }}
+                  />
+                  <Button title="Listo" secondary onPress={() => setOpen(false)} />
                 </View>
               </View>
 

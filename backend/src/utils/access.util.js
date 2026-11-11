@@ -1,5 +1,5 @@
 // Permission codes checked by the API. The grants per role live in the database (role_permissions);
-// database/venti_shema2.sql seeds them. Ownership and memberships (concert owner, concert_staff,
+// backups/schema.sql seeds them. Ownership and memberships (concert owner, concert_staff,
 // organization_members) are still checked on top of these. tickets.validate is never granted by a role:
 // MysqlAuthRepository.access adds it while the user holds a concert_staff assignment.
 export const PERMISSIONS = Object.freeze({

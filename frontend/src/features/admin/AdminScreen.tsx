@@ -84,6 +84,13 @@ export default function AdminScreen() {
               onPress={() => router.push("/admin/concerts")}
             />
           )}
+          {can("orders.read_all", "catalogs.manage") && (
+            <Button
+              title="Promociones y descuentos"
+              secondary
+              onPress={() => router.push("/admin/promotions")}
+            />
+          )}
         </View>
       </Card>
 
@@ -257,8 +264,8 @@ function CatalogEditor({
                     }
                   : {}),
               };
-              await api.request(`/${kind}${item ? `/${item.id}` : ""}`, {
-                method: item ? "PATCH" : "POST",
+              await api.request(`/${kind}${item ? `/${item.id}/update` : "/create"}`, {
+                method: "POST",
                 body,
               });
               await done();
@@ -274,8 +281,8 @@ function CatalogEditor({
             onPress={() =>
               confirm
                 ? void action.run(async () => {
-                    await api.request(`/${kind}/${item.id}`, {
-                      method: "DELETE",
+                    await api.request(`/${kind}/${item.id}/delete`, {
+                      method: "POST",
                     });
                     await done();
                   })

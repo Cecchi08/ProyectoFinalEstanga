@@ -29,8 +29,8 @@ La API autoriza **por permiso**. Cada cuenta tiene uno o más perfiles, y sus pe
 backend/src/                Rutas, controladores, servicios, repositorios y validadores
 backend/tests/              Pruebas HTTP con MySQL real
 backend/scripts/            Checks, respaldo/migración de la base y recorrido E2E en navegador
-database/venti_shema2.sql   Esquema vigente: tablas, triggers, procedimientos y datos iniciales
-database/migrations/        Migraciones para bases creadas con una versión anterior del esquema
+backups/schema.sql          Esquema canónico vigente: tablas, triggers, procedimientos y datos iniciales
+migrations/                  Migraciones para bases creadas con una versión anterior del esquema
 frontend/app/               Rutas Expo Router
 frontend/src/               Pantallas, componentes, tema, contextos y cliente HTTP
 frontend/tests/             Pruebas unitarias del cliente
@@ -41,7 +41,7 @@ docs/                       Contratos, permisos, instalación y manual
 
 Requisitos: Node **22.13+** (validado con 24), npm, MySQL 8.0+/8.4 y SMTP de desarrollo o real. OAuth requiere credenciales propias y es opcional. Instrucciones completas y SQL: [Instalación](docs/INSTALLATION.md).
 
-1. En MySQL 8 (no MariaDB), ejecutar `SOURCE /ruta/al/proyecto/database/venti_shema2.sql;` sobre una instalación nueva y crear el usuario limitado de la API. Después, registrar la primera cuenta y darle el perfil ADMIN por SQL ([pasos](docs/INSTALLATION.md#cuentas-y-perfiles-para-la-demostración)).
+1. En MySQL 8 (no MariaDB), ejecutar `SOURCE /ruta/al/proyecto/backups/schema.sql;` sobre una instalación nueva y crear el usuario limitado de la API. Después, registrar la primera cuenta y darle el perfil ADMIN por SQL ([pasos](docs/INSTALLATION.md#cuentas-y-perfiles-para-la-demostración)).
 2. Ejecutar `cd backend; npm ci` y `cd frontend; npm ci`.
 3. Copiar `backend/.env.example` a `backend/.env` y `frontend/.env.example` a `frontend/.env`. Configurar MySQL, secreto JWT aleatorio, SMTP y URL de la API.
 4. En una terminal: `cd backend`, `npm run build`, `npm start` (desarrollo: `npm run dev`).

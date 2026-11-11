@@ -16,24 +16,24 @@ export function artistsRoutes(database: Database, authenticate: RequestHandler):
     const manage = requirePermission(P.artistProfileManage, P.artistsAdmin);
     router.use(['/artists', '/proposals'], (_req, res, next) => { res.setHeader('Cache-Control', 'no-store'); next(); });
     for (const param of ['id', 'userId', 'establishmentId']) router.param(param, (_req, _res, next, value) => { idSchema.parse(value); next(); });
-    router.get('/artists', controller.list);
-    router.get('/artists/mine', authenticate, manage, controller.mine);
-    router.get('/artists/:id', optionalAuth, controller.get);
-    router.get('/artists/:id/concerts', optionalAuth, controller.concerts);
-    router.post('/artists', authenticate, manage, validateRequest(artistSchema), controller.create);
-    router.patch('/artists/:id', authenticate, manage, validateRequest(artistPatchSchema), controller.update);
+    router.post('/artists', controller.list);
+    router.post('/artists/mine', authenticate, manage, controller.mine);
+    router.post('/artists/:id', optionalAuth, controller.get);
+    router.post('/artists/:id/concerts', optionalAuth, controller.concerts);
+    router.post('/artists/create', authenticate, manage, validateRequest(artistSchema), controller.create);
+    router.post('/artists/:id/update', authenticate, manage, validateRequest(artistPatchSchema), controller.update);
     router.post('/artists/:id/publish', authenticate, manage, validateRequest(emptySchema.default({})), controller.status('PUBLISHED'));
     router.post('/artists/:id/archive', authenticate, manage, validateRequest(emptySchema.default({})), controller.status('ARCHIVED'));
-    router.get('/artists/:id/members', authenticate, manage, controller.members);
-    router.post('/artists/:id/members', authenticate, manage, validateRequest(artistMemberSchema), controller.addMember);
-    router.patch('/artists/:id/members/:userId', authenticate, manage, controller.updateMember);
-    router.delete('/artists/:id/members/:userId', authenticate, manage, controller.removeMember);
+    router.post('/artists/:id/members', authenticate, manage, controller.members);
+    router.post('/artists/:id/members/add', authenticate, manage, validateRequest(artistMemberSchema), controller.addMember);
+    router.post('/artists/:id/members/:userId/update', authenticate, manage, controller.updateMember);
+    router.post('/artists/:id/members/:userId/delete', authenticate, manage, controller.removeMember);
 
     // Bidirectional hiring & presentation proposals (Venue <-> Artist, Organizer -> Artist)
-    router.get('/proposals', authenticate, controller.proposals);
-    router.get('/proposals/venue-summary/:establishmentId', authenticate, controller.venueSummary);
-    router.get('/proposals/:id', authenticate, controller.proposal);
-    router.post('/proposals', authenticate, validateRequest(proposalSchema), controller.createProposal);
+    router.post('/proposals', authenticate, controller.proposals);
+    router.post('/proposals/venue-summary/:establishmentId', authenticate, controller.venueSummary);
+    router.post('/proposals/:id', authenticate, controller.proposal);
+    router.post('/proposals/create', authenticate, validateRequest(proposalSchema), controller.createProposal);
     router.post('/proposals/:id/accept', authenticate, validateRequest(proposalDecisionSchema), controller.decideProposal('accept'));
     router.post('/proposals/:id/reject', authenticate, validateRequest(proposalDecisionSchema), controller.decideProposal('reject'));
     router.post('/proposals/:id/cancel', authenticate, validateRequest(proposalDecisionSchema), controller.decideProposal('cancel'));

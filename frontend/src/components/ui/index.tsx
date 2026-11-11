@@ -191,8 +191,8 @@ export const styles = StyleSheet.create(buildStyles());
 
 // Spread on every <Switch> so toggles use the brand instead of the platform default.
 const buildSwitchColors = () => ({
-  trackColor: { false: colors.borderStrong, true: colors.primary },
-  thumbColor: colors.surface,
+  trackColor: { false: colors.borderStrong, true: colors.accentBorder },
+  thumbColor: colors.primary,
   ios_backgroundColor: colors.borderStrong,
 });
 export const switchColors = buildSwitchColors();
@@ -679,17 +679,19 @@ export function Button({
   disabled = false,
   secondary = false,
   danger = false,
+  positive = false,
 }: {
   title: string;
   onPress(): void;
   disabled?: boolean;
   secondary?: boolean;
   danger?: boolean;
+  positive?: boolean;
 }) {
   const [hovered, setHovered] = useState(false);
   const [focused, setFocused] = useState(false);
   const active = hovered && !disabled;
-  const solid = danger ? colors.danger : colors.primary;
+  const solid = danger ? colors.danger : positive ? colors.success : colors.primary;
   return (
     <Pressable
       accessibilityRole="button"
@@ -713,40 +715,60 @@ export function Button({
         borderColor: secondary
           ? danger
             ? colors.dangerBorder
-            : colors.borderStrong
+            : positive
+              ? colors.successBorder
+              : colors.borderStrong
           : danger
             ? colors.danger
-            : colors.primaryHover,
+            : positive
+              ? colors.successBorder
+              : colors.primaryHover,
         backgroundColor: secondary
           ? danger
             ? active || pressed
               ? colors.dangerBorder
               : colors.dangerSoft
-            : active || pressed
-              ? colors.secondaryHover
-              : colors.secondary
+            : positive
+              ? active || pressed
+                ? colors.successBorder
+                : colors.successSoft
+              : active || pressed
+                ? colors.secondaryHover
+                : colors.secondary
           : danger
             ? pressed || active
               ? colors.dangerHover
               : solid
-            : pressed
-              ? colors.primaryPressed
-              : active
-                ? colors.primaryHover
-                : solid,
+            : positive
+              ? pressed || active
+                ? colors.success
+                : solid
+              : pressed
+                ? colors.primaryPressed
+                : active
+                  ? colors.primaryHover
+                  : solid,
         boxShadow: focused
           ? shadows.focus
-          : !secondary && !danger && !disabled && active
+          : !secondary && !danger && !positive && !disabled && active
             ? shadows.primary
             : undefined,
-        opacity: disabled ? 0.55 : pressed && (secondary || danger) ? 0.9 : 1,
+        opacity: disabled ? 0.55 : pressed && (secondary || danger || positive) ? 0.9 : 1,
         transform: [{ scale: pressed && !disabled ? 0.985 : 1 }],
         justifyContent: "center",
       })}
     >
       <Text
         style={{
-          color: secondary ? (danger ? colors.dangerText : colors.onSecondary) : danger ? colors.onDanger : colors.onPrimary,
+          color: secondary
+            ? danger
+              ? colors.dangerText
+              : positive
+                ? colors.successText
+                : colors.onSecondary
+            : danger || positive
+              ? colors.onDanger
+              : colors.onPrimary,
           fontSize: 14,
           fontWeight: secondary ? "600" : "700",
           letterSpacing: 0.15,
@@ -759,7 +781,7 @@ export function Button({
   );
 }
 
-export function ThemeToggle() {
+export function ThemeToggle({ compact = false }: { compact?: boolean } = {}) {
   const { theme, toggle } = useThemeMode();
   const [hovered, setHovered] = useState(false);
   const next = theme === "dark" ? "claro" : "oscuro";
@@ -771,22 +793,25 @@ export function ThemeToggle() {
       onHoverIn={() => setHovered(true)}
       onHoverOut={() => setHovered(false)}
       style={{
-        minHeight: 40,
-        paddingHorizontal: 13,
-        paddingVertical: 7,
+        minHeight: compact ? 36 : 40,
+        height: compact ? 36 : undefined,
+        width: compact ? 36 : undefined,
+        paddingHorizontal: compact ? 0 : 13,
+        paddingVertical: compact ? 0 : 7,
         flexDirection: "row",
         alignItems: "center",
-        gap: 8,
-        borderRadius: radius.md,
+        justifyContent: "center",
+        gap: compact ? 0 : 8,
+        borderRadius: compact ? radius.pill : radius.md,
         borderWidth: 1,
         borderColor: colors.borderStrong,
         backgroundColor: hovered ? colors.surfaceHover : colors.surface,
       }}
     >
-      <Text aria-hidden style={{ color: colors.accent, fontSize: 14, lineHeight: 18 }}>
+      <Text aria-hidden style={{ color: colors.accent, fontSize: compact ? 16 : 14, lineHeight: compact ? 20 : 18 }}>
         {theme === "dark" ? "☀" : "☾"}
       </Text>
-      <Text style={{ color: colors.text, fontSize: 13, fontWeight: "600" }}>{`Tema ${next}`}</Text>
+      {!compact && <Text style={{ color: colors.text, fontSize: 13, fontWeight: "600" }}>{`Tema ${next}`}</Text>}
     </Pressable>
   );
 }
@@ -842,6 +867,32 @@ const afterRelease = (show: () => void) => {
   document.addEventListener("pointerup", () => setTimeout(show, 0), { once: true });
 };
 
+function PasswordEyeIcon({ off, color }: { off: boolean; color: string }) {
+  return (
+    <Svg width={20} height={20} viewBox="0 0 24 24" fill="none">
+      <Path
+        d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"
+        stroke={color}
+        strokeWidth={2}
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+      <Circle cx={12} cy={12} r={3} stroke={color} strokeWidth={2} />
+      {off && (
+        <Line
+          x1={2}
+          y1={2}
+          x2={22}
+          y2={22}
+          stroke={color}
+          strokeWidth={2}
+          strokeLinecap="round"
+        />
+      )}
+    </Svg>
+  );
+}
+
 export function Field({
   label,
   required = false,
@@ -853,6 +904,8 @@ export function Field({
   const id = useId();
   const [focused, setFocused] = useState(false);
   const [touched, setTouched] = useState(false);
+  const isPassword = Boolean(props.secureTextEntry);
+  const [showPassword, setShowPassword] = useState(false);
   const value = typeof props.value === "string" ? props.value : "";
   const check = useRef(() => null as string | null);
   check.current = () => fieldError(value, { required, rules: rules ?? inferRules(label) });
@@ -865,32 +918,56 @@ export function Field({
         {label}
         {required ? <Text aria-hidden style={{ color: colors.accentText }}> *</Text> : null}
       </Text>
-      <TextInput
-        accessibilityLabel={label}
-        aria-required={required || undefined}
-        aria-invalid={message ? true : undefined}
-        aria-describedby={message ? errorId : undefined}
-        placeholderTextColor={colors.muted}
-        selectionColor={colors.accent}
-        autoCapitalize="none"
-        {...props}
-        onFocus={(event) => {
-          setFocused(true);
-          props.onFocus?.(event);
-        }}
-        onBlur={(event) => {
-          setFocused(false);
-          afterRelease(() => setTouched(true));
-          props.onBlur?.(event);
-        }}
-        style={[
-          styles.input,
-          props.multiline ? { minHeight: 84, textAlignVertical: "top" } : null,
-          message ? { borderColor: colors.dangerBorder } : null,
-          focused && { borderColor: message ? colors.dangerBorder : colors.focus, boxShadow: shadows.focus },
-          props.style,
-        ]}
-      />
+      <View style={{ position: "relative", width: "100%", justifyContent: "center" }}>
+        <TextInput
+          accessibilityLabel={label}
+          aria-required={required || undefined}
+          aria-invalid={message ? true : undefined}
+          aria-describedby={message ? errorId : undefined}
+          placeholderTextColor={colors.muted}
+          selectionColor={colors.accent}
+          autoCapitalize="none"
+          {...props}
+          secureTextEntry={isPassword ? !showPassword : props.secureTextEntry}
+          onFocus={(event) => {
+            setFocused(true);
+            props.onFocus?.(event);
+          }}
+          onBlur={(event) => {
+            setFocused(false);
+            afterRelease(() => setTouched(true));
+            props.onBlur?.(event);
+          }}
+          style={[
+            styles.input,
+            isPassword ? { paddingRight: 44 } : null,
+            props.multiline ? { minHeight: 84, textAlignVertical: "top" } : null,
+            message ? { borderColor: colors.dangerBorder } : null,
+            focused && { borderColor: message ? colors.dangerBorder : colors.focus, boxShadow: shadows.focus },
+            props.style,
+          ]}
+        />
+        {isPassword && (
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel={showPassword ? "Ocultar contraseña" : "Mostrar contraseña"}
+            onPress={() => setShowPassword((prev) => !prev)}
+            hitSlop={8}
+            style={({ pressed }) => ({
+              position: "absolute",
+              right: 6,
+              width: 36,
+              height: 36,
+              alignItems: "center",
+              justifyContent: "center",
+              borderRadius: radius.sm,
+              backgroundColor: pressed ? colors.surfaceHover : "transparent",
+            })}
+          >
+            <PasswordEyeIcon off={!showPassword} color={showPassword ? colors.accent : colors.muted} />
+          </Pressable>
+        )}
+      </View>
       {message ? (
         <Text nativeID={errorId} accessibilityLiveRegion="polite" style={{ color: colors.dangerText, ...type.small }}>
           {message}

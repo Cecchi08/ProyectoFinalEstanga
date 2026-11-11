@@ -8,8 +8,8 @@ export function recommendationsRoutes(database: Database, authenticate: RequestH
     const router = Router();
     const controller = new RecommendationsController(new RecommendationsService(database));
     router.use(['/recommendations', '/preferences'], (_req, res, next) => { res.setHeader('Cache-Control', 'no-store'); next(); }, authenticate);
-    router.get('/recommendations', controller.recommendations);
-    router.get('/preferences', controller.preferences);
-    router.patch('/preferences', validateRequest(preferencesPatchSchema), controller.update);
+    router.post('/recommendations', controller.recommendations);
+    router.post('/preferences', controller.preferences);
+    router.post('/preferences/update', validateRequest(preferencesPatchSchema), controller.update);
     return router;
 }

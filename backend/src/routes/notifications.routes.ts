@@ -5,8 +5,8 @@ import { NotificationsController } from '../controllers/notifications.controller
 export function notificationsRoutes(database: Database, authenticate: RequestHandler): Router {
     const router = Router(); const controller = new NotificationsController(new NotificationsService(database));
     router.use('/notifications', authenticate, (_req, res, next) => { res.setHeader('Cache-Control', 'no-store'); next(); });
-    router.get('/notifications', controller.list);
-    router.patch('/notifications/read-all', controller.read);
-    router.patch('/notifications/:id/read', controller.read);
+    router.post('/notifications', controller.list);
+    router.post('/notifications/read-all', controller.read);
+    router.post('/notifications/:id/read', controller.read);
     return router;
 }

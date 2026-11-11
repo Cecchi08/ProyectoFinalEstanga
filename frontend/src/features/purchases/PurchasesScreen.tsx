@@ -87,6 +87,9 @@ export default function PurchasesScreen() {
                 <Copy muted>
                   {dateLabel(purchase.created_at)} · {money(purchase.total)}
                 </Copy>
+                {purchase.promotion_code || purchase.promocion ? (
+                  <Copy muted>Cupón: {purchase.promotion_code ?? purchase.promocion}</Copy>
+                ) : null}
                 {purchase.status === "PENDING" && purchase.expires_at && (
                   <HoldIndicator
                     expiresAt={purchase.expires_at}
@@ -220,6 +223,9 @@ export function PurchaseDetail() {
                   <Copy strong>¡Compra realizada con éxito!</Copy>
                   <Copy>Concierto: {purchase.concert_name ?? "Show en vivo"}</Copy>
                   <Copy>Cantidad de entradas: {totalTickets}</Copy>
+                  {purchase.promocion ? (
+                    <Copy muted>Promoción: {purchase.promocion}</Copy>
+                  ) : null}
                   <Copy strong>Monto total: {money(purchase.total)}</Copy>
                   <Copy muted>Fecha de operación: {dateLabel(purchase.created_at)}</Copy>
                 </View>
@@ -243,6 +249,14 @@ export function PurchaseDetail() {
                 ))}
               </View>
 
+              {purchase.discount && Number(purchase.discount) > 0 ? (
+                <View style={{ gap: 2, marginVertical: 4 }}>
+                  <Copy muted>Subtotal entradas: {money(purchase.subtotal ?? purchase.total)}</Copy>
+                  <Copy color={colors.accent}>
+                    Descuento cupón{(purchase.promotion_code ?? purchase.promocion) ? ` (${purchase.promotion_code ?? purchase.promocion})` : ""}: -{money(purchase.discount)}
+                  </Copy>
+                </View>
+              ) : null}
               <Text style={[styles.heading, { color: colors.accent }]}>Total: {money(purchase.total)}</Text>
               {purchase.expires_at && purchase.status === "PENDING" && (
                 <HoldIndicator

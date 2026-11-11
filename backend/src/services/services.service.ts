@@ -243,10 +243,15 @@ export class ServicesService {
                 if (parties.user_id !== user.id && !await repo.memberRole(parties.organization_id, user.id))
                     fail(403, 'FORBIDDEN', 'La reserva no es tuya ni de tu espacio.');
             }
+            const attendeeNote = (input.expected_attendance || input.attendees)
+                ? `Asistentes estimados: ${input.expected_attendance || input.attendees}`
+                : null;
+            const requesterNotes = [attendeeNote, input.requester_notes].filter(Boolean).join('\n\n') || null;
+
             const id = await repo.createQuote({ offering_id: input.offering_id, organization_id: providerId, requester_user_id: user.id,
                 concert_id: input.concert_id ?? null, reservation_id: input.reservation_id ?? null, event_name: input.event_name,
                 event_start_at: input.event_start_at, event_end_at: input.event_end_at, location_text: input.location_text,
-                requester_notes: input.requester_notes, currency: String(offering.currency), status: 'REQUESTED' });
+                requester_notes: requesterNotes, currency: String(offering.currency), status: 'REQUESTED' });
             await repo.notifyProvider(providerId, id, 'Nueva solicitud de cotización', `${input.event_name}: ${String(offering.name)}.`);
             return this.quoteDetails(repo, id);
         });

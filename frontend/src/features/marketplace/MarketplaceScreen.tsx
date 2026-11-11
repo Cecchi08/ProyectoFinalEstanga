@@ -78,19 +78,38 @@ export const VenueCard = memo(function VenueCard({
 });
 
 // Toggle buttons for a catalog; multiple keeps every selected code.
-export function Codes({ items, values, onChange, multiple = false, label }: {
-  items: Named[] | undefined; values: string[]; onChange(values: string[]): void; multiple?: boolean; label: string;
+export function Codes({ items, values, onChange, multiple = false, label, allLabel = "Todas" }: {
+  items: Named[] | undefined; values: string[]; onChange(values: string[]): void; multiple?: boolean; label: string; allLabel?: string;
 }) {
-  if (!items) return null;
+  if (!items || items.length === 0) return null;
+  const isAll = values.length === 0;
+
   return (
     <View style={{ gap: 8, minWidth: 0, maxWidth: "100%" }}>
       <Copy muted>{label}</Copy>
-      <View style={styles.row}>
+      <View style={[styles.row, { flexWrap: "wrap" }]}>
+        <Button
+          title={`${isAll ? "✓ " : ""}${allLabel}`}
+          secondary={!isAll}
+          onPress={() => onChange([])}
+        />
         {items.map((item) => {
-          const code = item.code ?? item.id, on = values.includes(code);
+          const code = item.code ?? item.id;
+          const on = values.includes(code);
           return (
-            <Button key={code} title={`${on ? "✓ " : ""}${item.name}`} secondary={!on}
-              onPress={() => onChange(multiple ? (on ? values.filter((v) => v !== code) : [...values, code]) : on ? [] : [code])} />
+            <Button
+              key={code}
+              title={`${on ? "✓ " : ""}${item.name}`}
+              secondary={!on}
+              onPress={() => {
+                if (multiple) {
+                  const next = on ? values.filter((v) => v !== code) : [...values, code];
+                  onChange(next);
+                } else {
+                  onChange(on ? [] : [code]);
+                }
+              }}
+            />
           );
         })}
       </View>
@@ -157,7 +176,7 @@ export default function MarketplaceScreen() {
         </View>
         <View style={{ gap: 8, paddingTop: 8, borderTopWidth: 1, borderColor: colors.border }}>
           <Copy muted>Libre en una franja (hora de Argentina, opcional)</Copy>
-          <View style={styles.row}>
+          <View style={[styles.row, { flexWrap: "wrap", alignItems: "stretch" }]}>
             <DateTimeField label="Fecha" mode="date" value={draft.date ?? ""} onChange={(v) => set("date", v)} />
             <DateTimeField label="Desde" mode="time" defaultTime="18:00" value={draft.from ?? ""} onChange={(v) => set("from", v)} />
             <DateTimeField label="Hasta" mode="time" defaultTime="20:00" value={draft.to ?? ""} onChange={(v) => set("to", v)} />

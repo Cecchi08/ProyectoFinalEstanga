@@ -2,16 +2,16 @@ import { z } from 'zod';
 export const emailSchema = z.string().trim().toLowerCase().max(190).pipe(z.email());
 export const passwordSchema = z.string().min(12).max(72).refine(v => Buffer.byteLength(v, 'utf8') <= 72, 'La contraseña no puede superar 72 bytes UTF-8.');
 export const tokenSchema = z.string().regex(/^[a-f0-9]{64}$/);
-// People: Unicode letters (accents, ñ), spaces, apostrophe, dot and hyphen; never digits or control characters.
+// People: Unicode letters (accents, ñ), spaces, apostrophe, dot and hyphen; minimum 2, maximum 30 characters; never digits or control characters.
 // Same rule in frontend/src/utils/validation.ts.
-const name = z.string().trim().min(1).max(80).regex(/^[\p{L}\p{M}][\p{L}\p{M} '’.-]*$/u, 'Usá solo letras, espacios, apóstrofos, puntos o guiones.');
+const personName = z.string().trim().min(2, 'Mínimo 2 caracteres.').max(30, 'Máximo 30 caracteres.').regex(/^[\p{L}\p{M}][\p{L}\p{M} '’.-]*$/u, 'Usá solo letras, espacios, apóstrofos, puntos o guiones.');
 export const phoneSchema = z.string().trim().regex(/^\+?[\d\s()-]{6,30}$/, 'Teléfono inválido.');
 // Roles públicos elegibles durante el registro inicial (un único rol principal por cuenta; nunca ADMIN ni GUEST).
 export const PUBLIC_REGISTRATION_ROLES = ['COMPRADOR', 'ARTISTA', 'ORGANIZADOR', 'VENUE', 'ESPACIO_FISICO', 'EMPRESA_SERVICIOS'];
 export const publicRoleSchema = z.enum(PUBLIC_REGISTRATION_ROLES);
 export const registerSchema = z.strictObject({
-    first_name: name,
-    last_name: name,
+    first_name: personName,
+    last_name: personName,
     email: emailSchema,
     password: passwordSchema,
     phone: phoneSchema.nullable().optional(),
@@ -19,8 +19,8 @@ export const registerSchema = z.strictObject({
 });
 // Campos seguros del perfil propio: nunca email, contraseña, roles, permisos ni estado.
 export const profileUpdateSchema = z.strictObject({
-    first_name: name.optional(),
-    last_name: name.optional(),
+    first_name: personName.optional(),
+    last_name: personName.optional(),
     display_name: z.string().trim().min(1).max(150).nullable().optional(),
     phone: phoneSchema.nullable().optional(),
 }).refine(value => Object.keys(value).length > 0, 'Indique al menos un campo a modificar.');

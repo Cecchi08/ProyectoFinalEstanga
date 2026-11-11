@@ -89,7 +89,7 @@ const COUNTED = ['users', 'user_roles', 'user_preferences', 'email_verification_
 
 export async function seedDemo(target = demoTarget(), log = console.log, password = demoPassword(target)) {
     const created = await ensureDatabase(target);
-    log(created ? `Base ${target.database} creada desde database/venti_shema2.sql.` : `Base ${target.database} existente: se completa sin borrar nada.`);
+    log(created ? `Base ${target.database} creada desde backups/schema.sql.` : `Base ${target.database} existente: se completa sin borrar nada.`);
     const env = loadEnv({ NODE_ENV: 'development', DB_HOST: target.host, DB_PORT: String(target.port), DB_USER: target.user, DB_PASSWORD: target.password,
         DB_NAME: target.database, JWT_ACCESS_SECRET: randomBytes(48).toString('hex'), BCRYPT_ROUNDS: '10', SMTP_HOST: '127.0.0.1', SMTP_FROM: 'demo@venti.example',
         AUTH_RATE_LIMIT_MAX: '100000' });

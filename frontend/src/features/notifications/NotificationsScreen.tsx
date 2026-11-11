@@ -17,13 +17,13 @@ export default function NotificationsScreen() {
 
   useFocusEffect(useCallback(() => { void resource.reload(); }, [resource.reload]));
   const read = (id?: string) => action.run(async () => {
-    await api.request(id ? `/notifications/${id}/read` : '/notifications/read-all', { method: 'PATCH' });
+    await api.request(id ? `/notifications/${id}/read` : '/notifications/read-all', { method: 'POST' });
     await Promise.all([resource.reload(), badge.reload()]);
   });
   // Each notification opens the exact resource it announces; the detail screen asks the API again,
   // so access is checked server-side and the current state is shown. Opening it also marks it as read.
   const open = (item: Notification, path: string) => {
-    if (!item.read_at) void api.request(`/notifications/${item.id}/read`, { method: 'PATCH' }).then(() => badge.reload()).catch(() => undefined);
+    if (!item.read_at) void api.request(`/notifications/${item.id}/read`, { method: 'POST' }).then(() => badge.reload()).catch(() => undefined);
     router.push(path);
   };
   const target = (item: Notification): { title: string; path: string } | null => notificationTarget(item);

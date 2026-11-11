@@ -43,14 +43,14 @@ La plantilla `backend/.env.example` es orientativa: elegí una URL o el conjunto
 Abrí el cliente con `mysql -u root -p` (o su ruta completa en Windows) y ejecutá sobre una instalación nueva:
 
 ```sql
-SOURCE C:/ruta/ProyectoFinalEstanga/database/venti_shema2.sql;
+SOURCE C:/ruta/ProyectoFinalEstanga/backups/schema.sql;
 CREATE USER 'venti_app'@'127.0.0.1' IDENTIFIED BY 'REEMPLAZAR_POR_PASSWORD_PROPIO';
 GRANT SELECT, INSERT, UPDATE, DELETE, EXECUTE ON venti.* TO 'venti_app'@'127.0.0.1';
 ```
 
 Completá ese usuario/password y `DB_HOST=127.0.0.1` en `.env`. Adaptá el host del usuario si MySQL está en otra máquina. `EXECUTE` es necesario porque las reservas del marketplace usan procedimientos almacenados (`sp_create_reservation_hold`, `sp_simulate_payment`).
 
-`database/venti_shema2.sql` es el **esquema vigente**. Crea la base, las tablas, los triggers, los procedimientos y el evento de vencimiento de reservas. También carga los datos iniciales:
+`backups/schema.sql` es el **esquema canónico vigente**. Crea la base, las tablas, los triggers, los procedimientos y el evento de vencimiento de reservas. También carga los datos iniciales:
 
 - perfiles, permisos y sus asignaciones;
 - estados y proveedores;
@@ -58,9 +58,9 @@ Completá ese usuario/password y `DB_HOST=127.0.0.1` en `.env`. Adaptá el host 
 
 No incluye usuarios, conciertos ni datos de demostración. El evento necesita `event_scheduler=ON` en el servidor. **Importarlo una sola vez**: las tablas no son una migración idempotente. No eliminar una base existente para reinstalar.
 
-**Base creada con una versión anterior de `venti_shema2.sql`.** Las diferencias van en `database/migrations/`. Cada migración se aplica **una sola vez**, con respaldo previo, mediante `node scripts/db-migrate.mjs` (desde `backend`; ver el encabezado de cada archivo). `20261026_perfiles_y_pagos.sql` ya está aplicada en la base de Railway: no volver a ejecutarla.
+**Base creada con una versión anterior de `schema.sql`.** Las diferencias van en `migrations/`. Cada migración se aplica **una sola vez**, con respaldo previo, mediante `node scripts/db-migrate.mjs` (desde `backend`; ver el encabezado de cada archivo).
 
-`database/venti_shema2.sql` selecciona explícitamente la base `venti`. En Railway, asegurate de que `MYSQLDATABASE` (o el nombre incluido en la URL) también sea `venti`. Si Railway asigna otro nombre y no permite crear `venti`, conservá intacto el archivo original y prepará una copia revisada que cambie únicamente `CREATE DATABASE` y `USE venti` por el nombre asignado; importala solo en una base vacía o respaldada. No borres tablas ni vuelvas a importar sobre datos existentes. `npm run db:check` marca error si el nombre conectado no coincide.
+`backups/schema.sql` selecciona explícitamente la base `venti`. En el proveedor (Aiven/Railway), asegurate de que `MYSQLDATABASE` (o el nombre incluido en la URL) también sea `venti`.
 
 ## Backend, Expo y Web
 

@@ -1,5 +1,5 @@
-import { useState } from "react";
-import { Text, View } from "react-native";
+import { useEffect, useState } from "react";
+import { AppState, Platform, Text, View } from "react-native";
 import QRCode from "react-native-qrcode-svg";
 import { useResource } from "../../hooks/useResource";
 import type { Ticket } from "../../types/api";
@@ -18,11 +18,46 @@ import {
   styles,
   useBento,
 } from "../../components/ui";
+import { subscribeTicketUpdates } from "./ticketEvents";
 
 export default function TicketsScreen() {
   const { width, mobile } = useBento();
   const [page, setPage] = useState(1);
   const resource = useResource<Ticket[]>(`/tickets?page=${page}`);
+
+  // Escuchar evento directo de validación en tiempo real (mismo cliente/sesión)
+  useEffect(() => {
+    return subscribeTicketUpdates(() => {
+      void resource.reload();
+    });
+  }, [resource]);
+
+  // Polling inteligente: solo cuando hay al menos una entrada con estado VALID
+  // para reflejar la confirmación del servidor en tiempo real sin recarga manual
+  const hasValidTickets = Boolean(
+    resource.result?.data?.some((t) => t.status === "VALID")
+  );
+
+  useEffect(() => {
+    if (!hasValidTickets) return;
+    const interval = setInterval(() => {
+      void resource.reload();
+    }, 7000);
+    return () => clearInterval(interval);
+  }, [hasValidTickets, resource]);
+
+  // Recarga automática al volver al foco / primer plano
+  useEffect(() => {
+    if (Platform.OS === "web" && typeof window !== "undefined") {
+      const onFocus = () => void resource.reload();
+      window.addEventListener("focus", onFocus);
+      return () => window.removeEventListener("focus", onFocus);
+    }
+    const sub = AppState.addEventListener("change", (state) => {
+      if (state === "active") void resource.reload();
+    });
+    return () => sub.remove();
+  }, [resource]);
   return (
     <Page
       eyebrow="VENTI · PASES DIGITALES"
