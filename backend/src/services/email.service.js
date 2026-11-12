@@ -1,4 +1,5 @@
 import nodemailer from 'nodemailer';
+import { waitUntil } from '@vercel/functions';
 export class SmtpMailer {
     env;
     transporter;
@@ -14,8 +15,11 @@ export class SmtpMailer {
     enqueue(message) {
         // SMTP latency must not reveal whether forgot-password found an account.
         const pending = this.send(message).catch(() => { console.error('[EMAIL_DELIVERY_FAILED] Revisar SMTP; se puede solicitar un nuevo enlace.'); });
+        // 1. Mantiene la promesa para el graceful shutdown local
         this.pending.add(pending);
         void pending.finally(() => this.pending.delete(pending));
+        // 2. Le dice a Vercel que no congele el proceso serverless hasta que se complete el envío del mail
+        waitUntil(pending);
     }
     async send(message) {
         const verification = message.kind === 'verification';

@@ -24,6 +24,7 @@
     "test:6": "node --import tsx --test --test-concurrency=1 tests/auth.test.js tests/commerce.test.js tests/management.test.js tests/participation.test.js tests/recommendations.test.js tests/security.test.js"
   },
   "dependencies": {
+    "@vercel/functions": "^3.11.1",
     "bcrypt": "^6.0.0",
     "cors": "^2.8.5",
     "dotenv": "^17.2.0",
