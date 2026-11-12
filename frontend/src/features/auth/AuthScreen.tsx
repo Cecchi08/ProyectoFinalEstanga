@@ -1,3 +1,4 @@
+// Pantalla de autenticación: ingreso, registro, validación de correo y recuperación de cuenta.
 import { useEffect, useState } from "react";
 import { Link, Redirect, router, useLocalSearchParams } from "expo-router";
 import * as Linking from "expo-linking";
@@ -40,7 +41,7 @@ type Mode =
 const titles: Record<Mode, string> = {
   login: "La música te espera.",
   register: "Creá tu cuenta",
-  "verify-email": "Verificá tu email",
+  "verify-email": "Validación de correo electrónico",
   "forgot-password": "Recuperá tu cuenta",
   "reset-password": "Nueva contraseña",
   "oauth-callback": "Conectando tu cuenta",
@@ -49,18 +50,25 @@ const titles: Record<Mode, string> = {
 export default function AuthScreen({ mode }: { mode: Mode }) {
   const auth = useAuth();
   const action = useAction();
+  const resendAction = useAction();
   const form = useForm();
   const { desktop } = useBento();
-  const params = useLocalSearchParams<{ code?: string; token?: string }>();
+  const params = useLocalSearchParams<{ code?: string; token?: string; email?: string }>();
   const url = Linking.useURL();
-  const [email, setEmail] = useState("");
+
+  const [email, setEmail] = useState(params.email ?? "");
   const [password, setPassword] = useState("");
   const [first, setFirst] = useState("");
   const [last, setLast] = useState("");
   const [phone, setPhone] = useState("");
   const [role, setRole] = useState<PublicRegistrationRole>("COMPRADOR");
-  const [token, setToken] = useState("");
+  const [token, setToken] = useState(params.token ?? "");
+  const [registeredSuccess, setRegisteredSuccess] = useState(false);
+  const [verifiedSuccess, setVerifiedSuccess] = useState(false);
+
   const requiresPhone = role === "ORGANIZADOR" || role === "VENUE" || role === "EMPRESA_SERVICIOS";
+
+  // Extracción del token seguro desde la URL o el fragmento hash si proviene del enlace de correo.
   useEffect(() => {
     const raw =
       Platform.OS === "web" ? window.location.hash : (url?.split("#")[1] ?? "");
@@ -68,59 +76,120 @@ export default function AuthScreen({ mode }: { mode: Mode }) {
       new URLSearchParams(raw.replace(/^#/, "")).get("token") ?? params.token;
     if (value) {
       setToken(value);
-      if (Platform.OS === "web")
+      if (Platform.OS === "web") {
         window.history.replaceState(null, "", window.location.pathname);
+      }
     }
   }, [url, params.token]);
+
+  // Si se abre la pantalla con un token de validación en la URL, se ejecuta automáticamente la validación segura.
   useEffect(() => {
-    if (mode === "oauth-callback" && params.code)
+    if (mode === "verify-email" && token && !verifiedSuccess) {
+      void action.run(async () => {
+        const { data } = await api.request<{ message?: string }>("/auth/verify-email", {
+          method: "POST",
+          body: { token: token.trim() },
+          auth: false,
+        });
+        setVerifiedSuccess(true);
+        action.setMessage(data.message ?? "¡Tu correo electrónico ha sido validado exitosamente!");
+      });
+    }
+  }, [mode, token, verifiedSuccess]);
+
+  // Manejo del intercambio de credenciales OAuth de terceros.
+  useEffect(() => {
+    if (mode === "oauth-callback" && params.code) {
       void action.run(async () => {
         await finishOAuth(params.code!);
-        router.replace("/discover");
+        router.replace("/cartelera");
       });
+    }
   }, [mode, params.code]);
+
   if (
     auth.user &&
     (mode === "login" || mode === "register" || mode === "oauth-callback")
-  )
-    return <Redirect href="/discover" />;
+  ) {
+    return <Redirect href="/cartelera" />;
+  }
+
+  // Envío del formulario principal con validación previa y reinicio de errores.
   const submit = () =>
     action.run(async () => {
       form.assertValid();
+
       if (mode === "login") {
         await auth.login(email.trim(), password);
-        router.replace("/discover");
+        router.replace("/cartelera");
         return;
       }
-      const body =
-        mode === "register"
-          ? {
-              first_name: first.trim(),
-              last_name: last.trim(),
-              email: email.trim(),
-              password,
-              role,
-              phone: phone.trim() ? phone.trim() : null,
-            }
-          : mode === "verify-email"
-            ? { token: token.trim() }
-            : mode === "reset-password"
-              ? { token: token.trim(), password }
-              : { email: email.trim() };
-      const { data } = await api.request<{ message?: string }>(
-        `/auth/${mode}`,
-        { method: "POST", body, auth: false },
-      );
-      action.setMessage(
-        data.message ??
-          (mode === "register"
-            ? "Cuenta creada. Revisá tu email para verificarla."
-            : "Operación completada. Ya podés volver al ingreso."),
-      );
-      setPassword("");
+
+      if (mode === "register") {
+        const body = {
+          first_name: first.trim(),
+          last_name: last.trim(),
+          email: email.trim(),
+          password,
+          role,
+          phone: phone.trim() ? phone.trim() : null,
+        };
+        const { data } = await api.request<{ message?: string }>(
+          "/auth/register",
+          { method: "POST", body, auth: false },
+        );
+        // Reiniciamos el formulario y ocultamos errores previos.
+        form.reset();
+        setPassword("");
+        setRegisteredSuccess(true);
+        action.setMessage(
+          data.message ?? "Cuenta creada exitosamente. Revisá tu casilla de correo para validarla.",
+        );
+        return;
+      }
+
+      if (mode === "reset-password") {
+        const body = { token: token.trim(), password };
+        const { data } = await api.request<{ message?: string }>(
+          "/auth/reset-password",
+          { method: "POST", body, auth: false },
+        );
+        form.reset();
+        setPassword("");
+        action.setMessage(data.message ?? "Contraseña actualizada exitosamente. Ya podés iniciar sesión.");
+        return;
+      }
+
+      if (mode === "forgot-password") {
+        const body = { email: email.trim() };
+        const { data } = await api.request<{ message?: string }>(
+          "/auth/forgot-password",
+          { method: "POST", body, auth: false },
+        );
+        form.reset();
+        action.setMessage(data.message ?? "Enlace de recuperación enviado. Revisá tu correo.");
+        return;
+      }
     });
-  // Tarjeta informativa del login: en pantallas apiladas (celular/tablet) se muestra debajo del
-  // formulario, que es lo primero que necesita el usuario; en escritorio queda a la izquierda.
+
+  // Reenvío del correo de validación con retroalimentación completa de carga, éxito y error.
+  const handleResendVerification = () => {
+    void resendAction.run(async () => {
+      if (!email.trim()) {
+        throw new Error("Ingresá tu correo electrónico para reenviar la validación.");
+      }
+      const { data } = await api.request<{ message?: string }>("/auth/resend-verification", {
+        method: "POST",
+        body: { email: email.trim() },
+        auth: false,
+      });
+      resendAction.setMessage(
+        data.message ?? `Se ha reenviado el correo de validación a ${email.trim()}. Revisá tu casilla.`,
+      );
+    });
+  };
+
+  // Tarjeta informativa de perfiles para el ingreso en Venti.
   const roleInfo = (
     <View
       style={{
@@ -163,6 +232,7 @@ export default function AuthScreen({ mode }: { mode: Mode }) {
       </Card>
     </View>
   );
+
   return (
     <Page title="VENTI" subtitle="Tu próxima noche inolvidable empieza acá.">
       <BentoGrid style={{ alignItems: "stretch" }}>
@@ -232,6 +302,106 @@ export default function AuthScreen({ mode }: { mode: Mode }) {
             </View>
             {!desktop && roleInfo}
           </>
+        ) : mode === "verify-email" ? (
+          // Vista especializada para validación de correo sin entrada manual de token
+          <View
+            style={{
+              flexGrow: 1,
+              flexShrink: 1,
+              minWidth: 0,
+              maxWidth: 540,
+              alignSelf: "center",
+              width: "100%",
+              gap: 16,
+            }}
+          >
+            <Card variant="featured" style={{ gap: 16 }}>
+              <View style={{ gap: 6 }}>
+                <Text style={styles.heading}>Validación de correo electrónico</Text>
+                <Copy muted>
+                  {verifiedSuccess
+                    ? "Tu dirección de correo fue confirmada correctamente."
+                    : "Confirmá tu dirección de email para activar tu cuenta de Venti."}
+                </Copy>
+              </View>
+
+              {/* Indicador de estado */}
+              <View
+                style={{
+                  flexDirection: "row",
+                  alignItems: "center",
+                  justifyContent: "space-between",
+                  padding: 12,
+                  borderRadius: radius.md,
+                  backgroundColor: verifiedSuccess ? colors.successSoft : colors.surfaceAlt,
+                  borderWidth: 1,
+                  borderColor: verifiedSuccess ? colors.successBorder : colors.border,
+                }}
+              >
+                <View style={{ gap: 2 }}>
+                  <Text style={{ color: colors.muted, fontSize: 11, fontWeight: "700", textTransform: "uppercase" }}>
+                    Estado de validación
+                  </Text>
+                  <Text style={{ color: verifiedSuccess ? colors.successText : colors.text, fontSize: 14, fontWeight: "700" }}>
+                    {verifiedSuccess ? "✓ Correo validado" : "⏳ Pendiente de validación"}
+                  </Text>
+                </View>
+              </View>
+
+              {/* Información sobre el correo destinatario */}
+              <View style={{ gap: 10 }}>
+                <Field
+                  label="Correo electrónico"
+                  required
+                  value={email}
+                  onChangeText={setEmail}
+                  keyboardType="email-address"
+                  autoComplete="email"
+                  editable={!verifiedSuccess && !resendAction.busy}
+                />
+                <Copy muted size="small">
+                  {verifiedSuccess
+                    ? "Tu cuenta ya se encuentra activa. Podés iniciar sesión con normalidad."
+                    : "Te enviamos un enlace de validación a esta casilla. Hacé clic en el enlace para activar tu cuenta."}
+                </Copy>
+              </View>
+
+              {/* Mensajes de retroalimentación de la acción */}
+              <ActionFeedback action={action} />
+              <ActionFeedback action={resendAction} />
+
+              {/* Acciones principales */}
+              {verifiedSuccess ? (
+                <Button
+                  title="Iniciar sesión"
+                  onPress={() => router.replace("/login")}
+                />
+              ) : (
+                <Button
+                  title="Reenviar correo de validación"
+                  disabled={resendAction.busy}
+                  onPress={handleResendVerification}
+                />
+              )}
+            </Card>
+
+            <Card variant="subtle" style={{ paddingVertical: 14 }}>
+              <View style={styles.row}>
+                <Link
+                  href="/login"
+                  style={{ color: colors.accent, paddingVertical: 6, paddingHorizontal: 8, fontWeight: "600", fontSize: 14 }}
+                >
+                  Volver al inicio de sesión
+                </Link>
+                <Link
+                  href="/register"
+                  style={{ color: colors.accent, paddingVertical: 6, paddingHorizontal: 8, fontWeight: "600", fontSize: 14 }}
+                >
+                  Crear otra cuenta
+                </Link>
+              </View>
+            </Card>
+          </View>
         ) : (
           <>
             {desktop && (
@@ -284,143 +454,163 @@ export default function AuthScreen({ mode }: { mode: Mode }) {
                 gap: 16,
               }}
             >
-              <Card variant="featured">
-                <FormScope form={form}>
-                  <Text style={styles.heading}>{titles[mode]}</Text>
-                  {mode === "register" && (
-                    <View style={{ gap: 10 }}>
-                      <Text style={styles.label}>ELEGÍ EL PERFIL DE TU CUENTA</Text>
-                      <Copy muted size="small">
-                        Elegí el tipo de actividad principal que querés desarrollar dentro de Venti.
-                      </Copy>
-                      <View style={{ gap: 8 }}>
-                        {PUBLIC_REGISTRATION_ROLES.map((item) => {
-                          const selected = role === item;
-                          const guide = ROLE_GUIDES[item];
-                          return (
-                            <Pressable
-                              key={item}
-                              accessibilityRole="radio"
-                              accessibilityState={{ checked: selected }}
-                              accessibilityLabel={`${guide.title}: ${guide.subtitle}`}
-                              onPress={() => setRole(item)}
-                              style={{
-                                paddingVertical: 10,
-                                paddingHorizontal: 14,
-                                borderRadius: radius.md,
-                                borderWidth: 1,
-                                borderColor: selected ? colors.primary : colors.border,
-                                backgroundColor: selected ? colors.primarySoft : colors.surfaceAlt,
-                                gap: 2,
-                              }}
-                            >
-                              <View style={styles.between}>
-                                <Copy weight="700" color={selected ? colors.accent : colors.text}>
-                                  {guide.title}
-                                </Copy>
-                                <Text style={{ color: selected ? colors.accent : colors.muted, fontSize: 12, fontWeight: "700" }}>
-                                  {selected ? "● Seleccionado" : "○ Elegir"}
-                                </Text>
-                              </View>
-                              <Copy muted size="small">{guide.subtitle}</Copy>
-                            </Pressable>
-                          );
-                        })}
-                      </View>
-                      <View
-                        style={{
-                          padding: 12,
-                          borderRadius: radius.md,
-                          backgroundColor: colors.surfaceAlt,
-                          borderWidth: 1,
-                          borderColor: colors.borderStrong,
-                          gap: 4,
-                        }}
-                      >
-                        <Copy size="label" color={colors.accent}>
-                          {ROLE_GUIDES[role].title.toUpperCase()}
-                        </Copy>
-                        <Copy size="small">{ROLE_GUIDES[role].allows}</Copy>
-                      </View>
-                      <View style={styles.row}>
-                        <Field label="Nombre" required value={first} onChangeText={setFirst} autoComplete="given-name" />
-                        <Field label="Apellido" required value={last} onChangeText={setLast} autoComplete="family-name" />
-                      </View>
-                      <Field
-                        label="Teléfono de contacto"
-                        required={requiresPhone}
-                        placeholder="+54 223 555-0100"
-                        value={phone}
-                        onChangeText={setPhone}
-                        keyboardType="phone-pad"
-                        autoComplete="tel"
-                      />
-                    </View>
-                  )}
-                  {["login", "register", "forgot-password"].includes(mode) && (
-                    <Field
-                      label="Email"
-                      required
-                      value={email}
-                      onChangeText={setEmail}
-                      keyboardType="email-address"
-                      autoComplete="email"
-                    />
-                  )}
-                  {["verify-email", "reset-password"].includes(mode) && (
-                    <Field
-                      label="Token del enlace de email"
-                      required
-                      rules={[(value) => (/^[a-f0-9]{64}$/.test(value.trim()) ? null : "El token del enlace tiene 64 caracteres hexadecimales.")]}
-                      value={token}
-                      onChangeText={setToken}
-                    />
-                  )}
-                  {["register", "reset-password"].includes(mode) && (
-                    <Field
-                      label="Contraseña (mínimo 12 caracteres)"
-                      required
-                      value={password}
-                      onChangeText={setPassword}
-                      secureTextEntry
-                      autoComplete="new-password"
-                    />
-                  )}
-                  <ActionFeedback action={action} />
-                </FormScope>
-                {mode !== "oauth-callback" && (
-                  <Button
-                    title="Continuar"
-                    disabled={action.busy}
-                    onPress={() => void submit()}
-                  />
-                )}
-                {mode === "verify-email" && (
-                  <>
-                    <Field
-                      label="Email para reenviar verificación"
-                      value={email}
-                      onChangeText={setEmail}
-                      keyboardType="email-address"
+              {/* Si el registro fue exitoso, se muestra exclusivamente la pantalla limpia de confirmación */}
+              {registeredSuccess ? (
+                <Card variant="featured" style={{ gap: 16 }}>
+                  <View style={{ gap: 6 }}>
+                    <Text style={styles.heading}>¡Revisá tu correo!</Text>
+                    <Copy muted>
+                      Enviamos un correo de validación a <Text style={{ color: colors.text, fontWeight: "700" }}>{email}</Text>.
+                    </Copy>
+                  </View>
+
+                  <View
+                    style={{
+                      padding: 14,
+                      borderRadius: radius.md,
+                      backgroundColor: colors.successSoft,
+                      borderWidth: 1,
+                      borderColor: colors.successBorder,
+                      gap: 6,
+                    }}
+                  >
+                    <Text style={{ color: colors.successText, fontSize: 14, fontWeight: "700" }}>
+                      ✓ Registro completado
+                    </Text>
+                    <Copy size="small" color={colors.successText}>
+                      Hacé clic en el enlace seguro enviado a tu casilla para activar tu cuenta antes de iniciar sesión. Si no lo encontrás, revisá la carpeta de correo no deseado o spam.
+                    </Copy>
+                  </View>
+
+                  <ActionFeedback action={resendAction} />
+
+                  <View style={{ gap: 10 }}>
+                    <Button
+                      title="Ir a Iniciar Sesión"
+                      onPress={() => router.replace("/login")}
                     />
                     <Button
-                      title="Reenviar email"
+                      title="Reenviar correo de validación"
                       secondary
-                      disabled={action.busy}
-                      onPress={() =>
-                        void action.run(async () => {
-                          await api.request("/auth/resend-verification", {
-                            method: "POST",
-                            body: { email },
-                            auth: false,
-                          });
-                          action.setMessage("Revisá tu correo.");
-                        })
-                      }
+                      disabled={resendAction.busy}
+                      onPress={handleResendVerification}
                     />
-                  </>
-                )}
-              </Card>
+                  </View>
+                </Card>
+              ) : (
+                <Card variant="featured">
+                  <FormScope form={form}>
+                    <Text style={styles.heading}>{titles[mode]}</Text>
+                    {mode === "register" && (
+                      <View style={{ gap: 10 }}>
+                        <Text style={styles.label}>ELEGÍ EL PERFIL DE TU CUENTA</Text>
+                        <Copy muted size="small">
+                          Elegí el tipo de actividad principal que querés desarrollar dentro de Venti.
+                        </Copy>
+                        <View style={{ gap: 8 }}>
+                          {PUBLIC_REGISTRATION_ROLES.map((item) => {
+                            const selected = role === item;
+                            const guide = ROLE_GUIDES[item];
+                            return (
+                              <Pressable
+                                key={item}
+                                accessibilityRole="radio"
+                                accessibilityState={{ checked: selected }}
+                                accessibilityLabel={`${guide.title}: ${guide.subtitle}`}
+                                onPress={() => setRole(item)}
+                                style={{
+                                  paddingVertical: 10,
+                                  paddingHorizontal: 14,
+                                  borderRadius: radius.md,
+                                  borderWidth: 1,
+                                  borderColor: selected ? colors.primary : colors.border,
+                                  backgroundColor: selected ? colors.primarySoft : colors.surfaceAlt,
+                                  gap: 2,
+                                }}
+                              >
+                                <View style={styles.between}>
+                                  <Copy weight="700" color={selected ? colors.accent : colors.text}>
+                                    {guide.title}
+                                  </Copy>
+                                  <Text style={{ color: selected ? colors.accent : colors.muted, fontSize: 12, fontWeight: "700" }}>
+                                    {selected ? "● Seleccionado" : "○ Elegir"}
+                                  </Text>
+                                </View>
+                                <Copy muted size="small">{guide.subtitle}</Copy>
+                              </Pressable>
+                            );
+                          })}
+                        </View>
+                        <View
+                          style={{
+                            padding: 12,
+                            borderRadius: radius.md,
+                            backgroundColor: colors.surfaceAlt,
+                            borderWidth: 1,
+                            borderColor: colors.borderStrong,
+                            gap: 4,
+                          }}
+                        >
+                          <Copy size="label" color={colors.accent}>
+                            {ROLE_GUIDES[role].title.toUpperCase()}
+                          </Copy>
+                          <Copy size="small">{ROLE_GUIDES[role].allows}</Copy>
+                        </View>
+                        <View style={styles.row}>
+                          <Field label="Nombre" required value={first} onChangeText={setFirst} autoComplete="given-name" />
+                          <Field label="Apellido" required value={last} onChangeText={setLast} autoComplete="family-name" />
+                        </View>
+                        <Field
+                          label="Teléfono de contacto"
+                          required={requiresPhone}
+                          placeholder="+54 223 555-0100"
+                          value={phone}
+                          onChangeText={setPhone}
+                          keyboardType="phone-pad"
+                          autoComplete="tel"
+                        />
+                      </View>
+                    )}
+                    {["register", "forgot-password"].includes(mode) && (
+                      <Field
+                        label="Email"
+                        required
+                        value={email}
+                        onChangeText={setEmail}
+                        keyboardType="email-address"
+                        autoComplete="email"
+                      />
+                    )}
+                    {mode === "reset-password" && (
+                      <Field
+                        label="Token del enlace"
+                        required
+                        rules={[(value) => (/^[a-f0-9]{64}$/.test(value.trim()) ? null : "El token del enlace tiene 64 caracteres hexadecimales.")]}
+                        value={token}
+                        onChangeText={setToken}
+                      />
+                    )}
+                    {["register", "reset-password"].includes(mode) && (
+                      <Field
+                        label="Contraseña (mínimo 12 caracteres)"
+                        required
+                        value={password}
+                        onChangeText={setPassword}
+                        secureTextEntry
+                        autoComplete="new-password"
+                      />
+                    )}
+                    <ActionFeedback action={action} />
+                  </FormScope>
+                  {mode !== "oauth-callback" && (
+                    <Button
+                      title={mode === "register" ? "Registrarme" : "Continuar"}
+                      disabled={action.busy}
+                      onPress={() => void submit()}
+                    />
+                  )}
+                </Card>
+              )}
               <Card variant="subtle" style={{ paddingVertical: 14 }}>
                 <View style={styles.row}>
                   {(["login", "register", "forgot-password", "verify-email"] as const)
@@ -436,7 +626,7 @@ export default function AuthScreen({ mode }: { mode: Mode }) {
                             login: "Ingresar",
                             register: "Registrarse",
                             "forgot-password": "Olvidé mi contraseña",
-                            "verify-email": "Verificar email",
+                            "verify-email": "Validar correo",
                           }[item]
                         }
                       </Link>

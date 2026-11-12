@@ -7,9 +7,9 @@ import { PERMISSIONS as P } from '../utils/access.util.js';
 import { grantSchema, selfProfileSchema, suspendSchema } from '../validators/admin.schemas.ts';
 import type { Database } from '../types/management.types.ts';
 
-export function adminRoutes(database: Database, authenticate: RequestHandler): Router {
+export function adminRoutes(database: Database, authenticate: RequestHandler, mailer?: any): Router {
     const router = Router();
-    const controller = new AdminController(new AdminService(database));
+    const controller = new AdminController(new AdminService(database, mailer));
     router.use(['/admin/users', '/admin/audit'], authenticate, requirePermission(P.usersManage), (_req, res, next) => {
         res.setHeader('Cache-Control', 'no-store'); next();
     });

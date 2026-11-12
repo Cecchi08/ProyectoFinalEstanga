@@ -91,9 +91,9 @@ export function resolveActiveRole(
   return primaryRole(roles);
 }
 export function linksForRole(role: Role, staff: boolean): { path: string; label: string }[] {
+  // Sección única de exploración unificada: Cartelera (reemplaza a Descubrir)
   const sharedStart = [
-    { path: "/discover", label: "Descubrir" },
-    { path: "/search", label: "Cartelera" },
+    { path: "/cartelera", label: "Cartelera" },
     { path: "/tickets", label: "Mis entradas" },
     { path: "/purchases", label: "Mis compras" },
   ];
@@ -109,6 +109,7 @@ export function linksForRole(role: Role, staff: boolean): { path: string; label:
         ...sharedStart,
         { path: "/admin", label: "Admin" },
         { path: "/admin/users", label: "Usuarios y roles" },
+        { path: "/admin/promotions", label: "Promociones" },
         { path: "/admin/organizations", label: "Organizaciones" },
         { path: "/admin/establishments", label: "Revisión de espacios" },
         { path: "/admin/concerts", label: "Conciertos" },
@@ -189,12 +190,12 @@ export function mobileBottomTabs(role: Role, staff: boolean): { path: string; la
       default:
         return staff
           ? { path: "/staff", label: "Staff" }
-          : { path: "/search", label: "Cartelera" };
+          : { path: "/cartelera", label: "Cartelera" };
     }
   })();
 
   return [
-    { path: "/discover", label: "Descubrir" },
+    { path: "/cartelera", label: "Cartelera" },
     contextual,
     { path: "/tickets", label: "Entradas" },
     { path: "/notifications", label: "Notificaciones" },

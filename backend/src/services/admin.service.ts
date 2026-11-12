@@ -11,9 +11,9 @@ const SELF_SERVICE = new Set(SELF_SERVICE_ROLES);
 const REQUESTABLE = new Set(REQUESTABLE_ROLES);
 const required = <T>(value: T | undefined, message: string): T => value ?? fail(404, 'NOT_FOUND', message);
 
-// Role changes take effect on the user's next request: the principal is rebuilt from user_roles every time.
+// Servicio de administración de usuarios, auditoría, perfiles y notificaciones por correo de estado de cuenta.
 export class AdminService {
-    constructor(private readonly db: Database) {}
+    constructor(private readonly db: Database, private readonly mailer?: { enqueue(msg: any): void }) {}
     private run<T>(write: boolean, work: (repo: AdminRepository) => Promise<T>): Promise<T> {
         const execute = (repo: { connection: ConstructorParameters<typeof AdminRepository>[0] }) => work(new AdminRepository(repo.connection));
         return write ? this.db.transaction(execute) : this.db.read(execute);
@@ -22,9 +22,9 @@ export class AdminService {
     user(id: string) { return this.run(false, async repo => await repo.user(id) ?? fail(404, 'NOT_FOUND', 'Usuario inexistente.')); }
     auditLog(query: AuditQuery) { return this.run(false, repo => repo.auditLog(query)); }
     organizations(query: OrganizationQuery) { return this.run(false, repo => repo.organizations(query)); }
-    // Suspension uses users.status: login, refresh and every authenticated request already refuse non-ACTIVE accounts.
-    suspend(userId: string, reason: string, actor: Principal) {
-        return this.run(true, async repo => {
+    // Suspensión de usuario con registro de auditoría y notificación por correo electrónico.
+    async suspend(userId: string, reason: string, actor: Principal) {
+        const result = await this.run(true, async repo => {
             if (userId === actor.id) fail(409, 'SELF_SUSPEND', 'No podés suspender tu propia cuenta.');
             const { role, user } = await this.lock(repo, 'ADMIN', userId);
             if (user.status !== 'ACTIVE') fail(409, 'INVALID_STATE', 'Solo se suspende una cuenta activa.');
@@ -33,18 +33,55 @@ export class AdminService {
             const sessions = await repo.revokeSessions(userId);
             await repo.audit({ actor: actor.id, action: 'USER_SUSPENDED', target: userId, entity: { type: 'USER', id: userId },
                 details: { reason, target_email: user.email, revoked_sessions: sessions } });
-            return repo.user(userId);
+            const updated = await repo.user(userId);
+            const firstName = (updated as any)?.first_name || '';
+            const lastName = (updated as any)?.last_name || '';
+            return { user: updated, email: user.email, name: `${firstName} ${lastName}`.trim() };
         });
+
+        // Envío asíncrono del correo tras persistencia exitosa. Errores de entrega no revierten la operación.
+        if (this.mailer && result.email) {
+            try {
+                this.mailer.enqueue({
+                    kind: 'suspension',
+                    to: result.email,
+                    reason,
+                    userName: result.name || undefined,
+                });
+            } catch (err) {
+                console.error('[ADMIN_SUSPEND_EMAIL_ERROR] Error al encolar correo de suspensión:', err);
+            }
+        }
+        return result.user;
     }
-    reactivate(userId: string, reason: string | null | undefined, actor: Principal) {
-        return this.run(true, async repo => {
+    // Reactivación de usuario con registro de auditoría y notificación por correo electrónico.
+    async reactivate(userId: string, reason: string | null | undefined, actor: Principal) {
+        const result = await this.run(true, async repo => {
             const { user } = await this.lock(repo, 'ADMIN', userId);
             if (user.status !== 'BLOCKED') fail(409, 'INVALID_STATE', 'Solo se reactiva una cuenta suspendida.');
             await repo.setStatus(userId, 'ACTIVE');
             await repo.audit({ actor: actor.id, action: 'USER_REACTIVATED', target: userId, entity: { type: 'USER', id: userId },
                 details: { reason: reason ?? null, target_email: user.email } });
-            return repo.user(userId);
+            const updated = await repo.user(userId);
+            const firstName = (updated as any)?.first_name || '';
+            const lastName = (updated as any)?.last_name || '';
+            return { user: updated, email: user.email, name: `${firstName} ${lastName}`.trim() };
         });
+
+        // Envío asíncrono del correo tras persistencia exitosa. Errores de entrega no revierten la operación.
+        if (this.mailer && result.email) {
+            try {
+                this.mailer.enqueue({
+                    kind: 'reactivation',
+                    to: result.email,
+                    reason: reason ?? undefined,
+                    userName: result.name || undefined,
+                });
+            } catch (err) {
+                console.error('[ADMIN_REACTIVATE_EMAIL_ERROR] Error al encolar correo de reactivación:', err);
+            }
+        }
+        return result.user;
     }
     // The change and its audit row commit together: a role change is never left unrecorded.
     grant(userId: string, role: string, reason: string | null | undefined, actor: Principal, replace = false) {

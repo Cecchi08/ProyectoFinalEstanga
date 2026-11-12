@@ -32,6 +32,7 @@ import { lineup, place } from "./ConcertDetail";
 
 const PRICE = /^\d+(\.\d{1,2})?$/;
 
+// Tarjeta individual de concierto con diferenciación visual destacada para recomendaciones.
 export const ConcertCard = memo(function ConcertCard({
   concert,
   manage = false,
@@ -46,6 +47,7 @@ export const ConcertCard = memo(function ConcertCard({
   const { can } = useAuth();
   const { desktop, mobile } = useBento();
   const isHero = featured && desktop;
+  const isRecommendation = Boolean(reason);
   return (
     <View
       style={{
@@ -57,8 +59,33 @@ export const ConcertCard = memo(function ConcertCard({
         maxWidth: "100%",
       }}
     >
-      <Card variant={isHero ? "featured" : "default"} style={{ flexGrow: 1, justifyContent: "space-between" }}>
+      <Card
+        variant={isRecommendation ? "featured" : isHero ? "featured" : "default"}
+        style={{
+          flexGrow: 1,
+          justifyContent: "space-between",
+          borderColor: isRecommendation ? colors.accentBorder : undefined,
+          borderWidth: isRecommendation ? 1.5 : 1,
+        }}
+      >
         <View style={{ gap: 10, minWidth: 0 }}>
+          {isRecommendation && (
+            <View
+              style={{
+                alignSelf: "flex-start",
+                paddingVertical: 3,
+                paddingHorizontal: 8,
+                borderRadius: 6,
+                backgroundColor: colors.accentSoft,
+                borderWidth: 1,
+                borderColor: colors.accentBorder,
+              }}
+            >
+              <Text style={{ color: colors.accentText, fontSize: 10, fontWeight: "800", letterSpacing: 0.8 }}>
+                RECOMENDADO POR VENTI
+              </Text>
+            </View>
+          )}
           <MusicalCover
             uri={concert.image_url}
             alt={concert.name}
@@ -88,7 +115,7 @@ export const ConcertCard = memo(function ConcertCard({
                 borderColor: colors.border,
               }}
             >
-              <Copy>{reason}</Copy>
+              <Copy size="small">{reason}</Copy>
             </View>
           )}
         </View>
@@ -199,21 +226,21 @@ export default function ConcertList({
     <Page
       eyebrow={
         mode === "discover"
-          ? "VENTI · DESCUBRIR Y CARTELERA"
+          ? "VENTI · CARTELERA"
           : mode === "organizer"
             ? "VENTI · PANEL DE ORGANIZADOR"
             : "VENTI · GESTIÓN GLOBAL"
       }
       title={
         mode === "discover"
-          ? "Encontrá tu próximo show"
+          ? "Cartelera de Conciertos"
           : mode === "organizer"
             ? "Mis conciertos"
             : "Todos los conciertos"
       }
       subtitle={
         mode === "discover"
-          ? "Recomendaciones personalizadas y cartelera completa en vivo."
+          ? "Explorá la cartelera completa en vivo y recibí recomendaciones personalizadas de Venti."
           : "Música en vivo. Experiencias que quedan."
       }
       actions={
@@ -238,62 +265,12 @@ export default function ConcertList({
         ) : undefined
       }
     >
-      {/* 5. Unificación: Mostrar primero las recomendaciones personalizadas */}
-      {mode === "discover" && recActive && recs.length > 0 && (
-        <View style={{ gap: 12, marginBottom: 8 }}>
-          <SectionHeader
-            title="✨ Recomendados para vos"
-            subtitle="Sugerencias personalizadas según tus entradas y preferencias."
-            action={
-              <Button
-                title="Actualizar recomendaciones"
-                secondary
-                onPress={() => void recResource.reload()}
-              />
-            }
-          />
-          <BentoGrid>
-            {recs.map((item, index) => (
-              <ConcertCard
-                key={`rec-${item.concert.id}`}
-                concert={item.concert}
-                reason={item.reason}
-                featured={index === 0 && recs.length > 1}
-              />
-            ))}
-          </BentoGrid>
-        </View>
-      )}
-
-      {mode === "discover" && recsOff && (
-        <Card variant="featured" style={{ marginBottom: 8 }}>
-          <View style={styles.between}>
-            <View style={{ gap: 2, flex: 1, paddingRight: 8 }}>
-              <Copy strong>Recomendaciones personalizadas desactivadas</Copy>
-              <Copy muted size="small">
-                Podés activarlas en Mi cuenta para recibir sugerencias personalizadas de Venti Discover.
-              </Copy>
-            </View>
-            <Button
-              title="Ir a preferencias"
-              secondary
-              onPress={() => router.push("/profile")}
-            />
-          </View>
-        </Card>
-      )}
-
-      {mode === "discover" && (
-        <SectionHeader
-          title="🎵 Todos los conciertos en cartelera"
-          subtitle="Explorá el catálogo completo y filtrá según tus preferencias."
-        />
-      )}
-
+      {/* 1. FILTROS EN LA PARTE SUPERIOR DE LA PANTALLA */}
       <Card>
         <View style={styles.row}>
           <Field
             label="Buscar conciertos"
+            placeholder="Nombre del show, artista o palabras clave..."
             value={draft.q ?? ""}
             onChangeText={(value) => set("q", value)}
             onSubmitEditing={() => apply()}
@@ -400,6 +377,61 @@ export default function ConcertList({
         )}
         <Notice message={invalid} error />
       </Card>
+
+      {/* 2. RECOMENDACIONES DE VENTI INMEDIATAMENTE DEBAJO DE LOS FILTROS */}
+      {mode === "discover" && recActive && recs.length > 0 && (
+        <View style={{ gap: 12, marginTop: 12, marginBottom: 8 }}>
+          <SectionHeader
+            title="Recomendados para vos"
+            subtitle="Sugerencias personalizadas de Venti basadas en tus entradas adquiridas."
+            action={
+              <Button
+                title="Actualizar recomendaciones"
+                secondary
+                onPress={() => void recResource.reload()}
+              />
+            }
+          />
+          <BentoGrid>
+            {recs.map((item, index) => (
+              <ConcertCard
+                key={`rec-${item.concert.id}`}
+                concert={item.concert}
+                reason={item.reason}
+                featured={index === 0 && recs.length > 1}
+              />
+            ))}
+          </BentoGrid>
+        </View>
+      )}
+
+      {mode === "discover" && recsOff && (
+        <Card variant="featured" style={{ marginTop: 12, marginBottom: 8 }}>
+          <View style={styles.between}>
+            <View style={{ gap: 2, flex: 1, paddingRight: 8 }}>
+              <Copy strong>Recomendaciones personalizadas desactivadas</Copy>
+              <Copy muted size="small">
+                Podés activarlas en Mi cuenta para recibir sugerencias personalizadas de Venti Discover.
+              </Copy>
+            </View>
+            <Button
+              title="Ir a preferencias"
+              secondary
+              onPress={() => router.push("/profile")}
+            />
+          </View>
+        </Card>
+      )}
+
+      {/* 3. RESTO DE LOS CONCIERTOS DISPONIBLES DEBAJO DE LAS RECOMENDACIONES */}
+      {mode === "discover" && (
+        <View style={{ marginTop: 12 }}>
+          <SectionHeader
+            title="Todos los conciertos en cartelera"
+            subtitle="Explorá el catálogo completo y encontrá tu próximo show."
+          />
+        </View>
+      )}
       <ResourceState
         {...resource}
         empty={resource.result?.data.length === 0}

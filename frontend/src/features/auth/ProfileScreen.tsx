@@ -1,3 +1,4 @@
+// Pantalla de configuración, datos de cuenta, seguridad y preferencias del usuario.
 import { router } from "expo-router";
 import { Switch, Text, View } from "react-native";
 import { usePreferences } from "../../contexts/PreferencesContext";
@@ -21,6 +22,7 @@ import {
   useAction,
   useBento,
 } from "../../components/ui";
+import { LockIcon, SettingsIcon, TargetIcon, UserIcon } from "../../components/ui/icons";
 
 export default function ProfileScreen() {
   const auth = useAuth();
@@ -48,7 +50,8 @@ export default function ProfileScreen() {
         {/* SECCIÓN 1: DATOS DE LA CUENTA */}
         <View style={[bento.cell(1, cols), { gap: 16 }]}>
           <SectionHeader
-            title="👤 Datos de la cuenta"
+            title="Datos de la cuenta"
+            icon={<UserIcon size={18} color={colors.text} />}
             subtitle="Información de contacto, perfiles asignados y acceso a edición."
           />
 
@@ -168,7 +171,8 @@ export default function ProfileScreen() {
 
           {/* SECCIÓN 3: CONFIGURACIÓN SENSIBLE */}
           <SectionHeader
-            title="🔒 Configuración sensible"
+            title="Configuración sensible"
+            icon={<LockIcon size={18} color={colors.text} />}
             subtitle="Acciones de seguridad, cambio de clave y cierre de sesión."
           />
           <Card>
@@ -196,15 +200,16 @@ export default function ProfileScreen() {
         {/* SECCIÓN 2: CONFIGURACIÓN GENERAL */}
         <View style={[bento.cell(1, cols), { gap: 16 }]}>
           <SectionHeader
-            title="⚙️ Configuración general"
+            title="Configuración general"
+            icon={<SettingsIcon size={18} color={colors.text} />}
             subtitle="Control de notificaciones automáticas y recomendaciones personalizadas."
           />
 
           <Card>
             <View style={styles.between}>
               <View style={{ gap: 2, flex: 1, paddingRight: 8 }}>
-                <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
-                  <Text aria-hidden style={{ fontSize: 16 }}>🎯</Text>
+                <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
+                  <TargetIcon size={18} color={colors.text} />
                   <Copy size="subheading" weight="700">Recomendaciones personalizadas</Copy>
                 </View>
                 <Copy muted size="small">

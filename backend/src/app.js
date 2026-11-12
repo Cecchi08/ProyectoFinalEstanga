@@ -81,7 +81,7 @@ export function createApp({ env, database, mailer, oauthClient }) {
         notificationsRoutes(database, gate),
         statisticsRoutes(database, gate),
         marketplaceRoutes(database, gate),
-        adminRoutes(database, gate),
+        adminRoutes(database, gate, mailer),
         artistsRoutes(database, gate),
         servicesRoutes(database, gate),
     ];

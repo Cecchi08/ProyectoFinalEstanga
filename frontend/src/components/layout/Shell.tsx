@@ -1,3 +1,4 @@
+// Estructura y contenedor principal de la aplicación Venti con navegación lateral unificada.
 import { Redirect, Slot, router, usePathname } from "expo-router";
 import { useEffect, useState, type PropsWithChildren, type ReactNode } from "react";
 import {
@@ -23,28 +24,14 @@ import {
   type Role,
 } from "../../types/api";
 import { colors, Copy, fonts, Page, radius, ResourceState, shadows, ThemeToggle } from "../ui";
+import { ArrowBackIcon, BellIcon, CartIcon, RouteIcon } from "../ui/icons";
+import { VentiIsotype } from "../ui/logo";
 
-function tabIcon(path: string): string {
-  if (path === "/discover" || path === "/search") return "🧭";
-  if (path === "/tickets") return "🎟️";
-  if (path === "/notifications") return "🔔";
-  if (path === "/profile") return "👤";
-  if (path === "/admin") return "🛡️";
-  if (path === "/organizer") return "📋";
-  if (path === "/marketplace/manage") return "🏛️";
-  if (path === "/services/mine") return "🛠️";
-  if (path === "/artists") return "🎤";
-  if (path === "/staff") return "🎫";
-  if (path === "/purchases") return "🛍️";
-  return "🎵";
-}
-
+// Elemento de navegación para el menú lateral.
 function NavTab({
   path = "",
   label,
   selected,
-  vertical,
-  compact = false,
   role = "tab",
   onPress,
   children,
@@ -52,8 +39,6 @@ function NavTab({
   path?: string;
   label: string;
   selected: boolean;
-  vertical: boolean;
-  compact?: boolean;
   role?: "tab" | "button";
   onPress(): void;
   children?: ReactNode;
@@ -68,53 +53,33 @@ function NavTab({
       onHoverIn={() => setHovered(true)}
       onHoverOut={() => setHovered(false)}
       style={{
-        flex: compact ? 1 : undefined,
-        minWidth: compact ? 0 : undefined,
-        paddingVertical: compact ? 6 : vertical ? 11 : 10,
-        paddingHorizontal: compact ? 2 : 14,
+        paddingVertical: 12,
+        paddingHorizontal: 14,
         minHeight: 48,
-        alignItems: compact ? "center" : undefined,
-        justifyContent: "center",
         borderRadius: radius.md,
         borderWidth: 1,
         borderColor: selected ? colors.borderStrong : "transparent",
         backgroundColor: selected ? colors.primarySoft : hovered ? colors.surfaceHover : "transparent",
+        justifyContent: "center",
       }}
     >
       {selected && (
         <View
           aria-hidden
-          style={
-            vertical
-              ? { position: "absolute", left: 4, top: 10, bottom: 10, width: 3, borderRadius: radius.pill, backgroundColor: colors.primary }
-              : { position: "absolute", left: compact ? 8 : 12, right: compact ? 8 : 12, bottom: 2, height: 3, borderRadius: radius.pill, backgroundColor: colors.primary }
-          }
+          style={{
+            position: "absolute",
+            left: 4,
+            top: 10,
+            bottom: 10,
+            width: 3,
+            borderRadius: radius.pill,
+            backgroundColor: colors.primary,
+          }}
         />
       )}
-      {compact ? (
-        <View style={{ alignItems: "center", justifyContent: "center", gap: 2 }}>
-          <View style={{ position: "relative" }}>
-            <Text aria-hidden style={{ fontSize: 18 }}>
-              {tabIcon(path)}
-            </Text>
-            {children}
-          </View>
-          <Text
-            numberOfLines={1}
-            style={{
-              color: selected ? colors.accent : hovered ? colors.text : colors.muted,
-              fontSize: 10,
-              lineHeight: 13,
-              fontWeight: selected ? "700" : "500",
-              letterSpacing: -0.2,
-              textAlign: "center",
-            }}
-          >
-            {label}
-          </Text>
-        </View>
-      ) : (
-        <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between" }}>
+      <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between" }}>
+        <View style={{ flexDirection: "row", alignItems: "center", gap: 10, flex: 1, minWidth: 0 }}>
+          <RouteIcon path={path} size={18} color={selected ? colors.accent : colors.muted} />
           <Text
             numberOfLines={1}
             style={{
@@ -124,19 +89,19 @@ function NavTab({
               fontWeight: selected ? "700" : "600",
               letterSpacing: -0.1,
               textAlign: "left",
+              flexShrink: 1,
             }}
           >
             {label}
           </Text>
-          {children}
         </View>
-      )}
+        {children}
+      </View>
     </Pressable>
   );
 }
 
-// Sections are gated by permission, like the API. While /auth/me is in flight the decision
-// is not known yet, so the guard waits instead of denying.
+// Control de acceso según los permisos del usuario activo.
 export function Require({
   permissions,
   children,
@@ -167,7 +132,7 @@ export function Require({
   );
 }
 
-// Layout version: guards every route under the folder.
+// Versión protectora de rutas completas en carpetas de navegación.
 export function Guard({ permissions }: { permissions: Permission[] }) {
   return (
     <Require permissions={permissions}>
@@ -178,14 +143,19 @@ export function Guard({ permissions }: { permissions: Permission[] }) {
 
 export { linksForRole, mobileBottomTabs };
 
+// Contenedor principal de la aplicación Venti con navegación lateral única y botón flotante.
 export default function Shell() {
   const auth = useAuth();
   const { width } = useWindowDimensions();
   const path = usePathname();
   const [drawerOpen, setDrawerOpen] = useState(false);
+
+  // Cerrar el menú lateral al cambiar de pantalla.
   useEffect(() => {
     setDrawerOpen(false);
   }, [path]);
+
+  // Manejo de la tecla Escape en web y botón atrás en Android para cerrar el menú lateral.
   useEffect(() => {
     if (!drawerOpen) return;
     if (Platform.OS === "web" && typeof window !== "undefined") {
@@ -201,13 +171,14 @@ export default function Shell() {
     });
     return () => sub.remove();
   }, [drawerOpen]);
-  // Staff is a per-concert assignment: tickets.validate comes from concert_staff (published concerts),
-  // tickets.validate_all lets ADMIN validate any ticket; an assignment to an unpublished concert also shows the tab.
+
+  // Detección de permisos para el rol de staff en conciertos asignados.
   const validator = auth.can("tickets.validate", "tickets.validate_all");
   const assignments = useResource<Concert[]>(
     auth.user && !auth.accessLoading && !validator ? "/staff/assignments?limit=1" : null,
   );
   const staff = validator || Boolean(assignments.result?.pagination?.total);
+
   if (auth.loading)
     return (
       <Page title="VENTI">
@@ -215,13 +186,16 @@ export default function Shell() {
       </Page>
     );
   if (!auth.user) return <Redirect href="/login" />;
+
   const desktop = width >= 900;
   const activeRole = auth.activeRole;
   const assignableRoles: Role[] = auth.roles.filter((r) => r !== "GUEST");
   const links = linksForRole(activeRole, staff);
-  const bottomTabs = mobileBottomTabs(activeRole, staff);
   const insets = useSafeAreaInsets();
+
+  // Rutas raíz donde no se debe mostrar el botón flotante de retorno.
   const rootPaths = [
+    "/cartelera",
     "/discover",
     "/search",
     "/tickets",
@@ -237,6 +211,7 @@ export default function Shell() {
   const isRoot = rootPaths.includes(path);
   const showFloatingBack = !isRoot && router.canGoBack();
 
+  // Verificación de selección de ruta para destacar el enlace correspondiente.
   const isSelected = (linkPath: string, pool: { path: string }[] = links) => {
     if (path === linkPath) return true;
     if (!path.startsWith(`${linkPath}/`)) return false;
@@ -247,6 +222,8 @@ export default function Shell() {
         (path === other.path || path.startsWith(`${other.path}/`)),
     );
   };
+
+  // Selector de roles cuando el usuario posee múltiples perfiles asignados.
   const roleSelector = assignableRoles.length > 1 && (
     <View
       style={{
@@ -293,6 +270,8 @@ export default function Shell() {
       </View>
     </View>
   );
+
+  // Renderizado del listado de enlaces del menú lateral con iconos monocromáticos.
   const renderMenuList = (items: { path: string; label: string }[], asTablist: boolean) => (
     <View
       accessibilityRole={asTablist ? "tablist" : undefined}
@@ -304,7 +283,6 @@ export default function Shell() {
           path={link.path}
           label={link.label}
           selected={isSelected(link.path)}
-          vertical
           role={asTablist ? "tab" : "button"}
           onPress={() => {
             setDrawerOpen(false);
@@ -316,8 +294,9 @@ export default function Shell() {
       ))}
     </View>
   );
-  const secondaryLinks = links.filter((link) => !bottomTabs.some((tab) => tab.path === link.path));
-  const sessionFooter = (
+
+  // Pie del menú lateral para escritorio con información de sesión y alternador de tema.
+  const desktopSessionFooter = (
     <View
       style={{
         marginHorizontal: 10,
@@ -342,6 +321,31 @@ export default function Shell() {
       <ThemeToggle />
     </View>
   );
+
+  // Pie del menú lateral en móviles sin alternador duplicado (solo presente en el header).
+  const mobileDrawerFooter = (
+    <View
+      style={{
+        marginHorizontal: 10,
+        marginTop: 8,
+        marginBottom: 20,
+        padding: 12,
+        borderRadius: radius.md,
+        backgroundColor: colors.surfaceAlt,
+        borderWidth: 1,
+        borderColor: colors.border,
+        gap: 4,
+      }}
+    >
+      <Text style={{ color: colors.muted, fontSize: 10, fontWeight: "700", letterSpacing: 0.8, textTransform: "uppercase" }}>
+        CUENTA ACTIVA · {ROLE_LABELS[activeRole]}
+      </Text>
+      <Text numberOfLines={1} style={{ color: colors.text, fontSize: 12, fontWeight: "600" }}>
+        {auth.user.email}
+      </Text>
+    </View>
+  );
+
   return (
     <PreferencesProvider key={auth.user.id}>
       <NotificationsProvider>
@@ -353,6 +357,7 @@ export default function Shell() {
             overflow: "hidden",
           }}
         >
+          {/* Navegación lateral persistente en pantallas de escritorio */}
           {desktop && (
             <ScrollView
               style={{
@@ -376,22 +381,7 @@ export default function Shell() {
                   borderColor: colors.border,
                 }}
               >
-                <View
-                  aria-hidden
-                  style={{
-                    width: 34,
-                    height: 34,
-                    borderRadius: radius.sm,
-                    backgroundColor: colors.primary,
-                    alignItems: "center",
-                    justifyContent: "center",
-                    boxShadow: shadows.primary,
-                  }}
-                >
-                  <Text style={{ color: colors.onPrimary, fontSize: 17, fontWeight: "800", fontFamily: fonts.display }}>
-                    V
-                  </Text>
-                </View>
+                <VentiIsotype size={32} />
                 <View style={{ gap: 1, flex: 1 }}>
                   <Text style={{ color: colors.text, fontSize: 19, fontWeight: "800", letterSpacing: 2.2, fontFamily: fonts.display }}>
                     VENTI
@@ -400,9 +390,11 @@ export default function Shell() {
               </View>
               {roleSelector}
               {renderMenuList(links, true)}
-              {sessionFooter}
+              {desktopSessionFooter}
             </ScrollView>
           )}
+
+          {/* Encabezado superior en dispositivos móviles */}
           {!desktop && (
             <View
               style={{
@@ -418,7 +410,7 @@ export default function Shell() {
                 gap: 8,
               }}
             >
-              <View style={{ flexDirection: "row", alignItems: "center", gap: 8, minWidth: 0, flexShrink: 1 }}>
+              <View style={{ flexDirection: "row", alignItems: "center", gap: 10, minWidth: 0, flexShrink: 1 }}>
                 <Pressable
                   accessibilityRole="button"
                   accessibilityLabel={drawerOpen ? "Cerrar menú de navegación" : "Abrir menú de navegación"}
@@ -438,21 +430,26 @@ export default function Shell() {
                     {drawerOpen ? "✕" : "☰"}
                   </Text>
                 </Pressable>
-                <View style={{ gap: 1, minWidth: 0, flexShrink: 1 }}>
-                  <Text numberOfLines={1} style={{ color: colors.text, fontSize: 15, fontWeight: "800", letterSpacing: 1.6, fontFamily: fonts.display }}>
+                <View style={{ flexDirection: "row", alignItems: "center", gap: 8, minWidth: 0, flexShrink: 1 }}>
+                  <VentiIsotype size={24} />
+                  <Text numberOfLines={1} style={{ color: colors.text, fontSize: 16, fontWeight: "800", letterSpacing: 1.6, fontFamily: fonts.display }}>
                     VENTI
                   </Text>
                 </View>
               </View>
-              <View style={{ flexDirection: "row", alignItems: "center", gap: 6, flexShrink: 0 }}>
+
+              <View style={{ flexDirection: "row", alignItems: "center", gap: 8, flexShrink: 0 }}>
+                {/* Selector claro/oscuro en el header */}
                 <ThemeToggle compact />
+
+                {/* Acceso a notificaciones con insignia flotante */}
                 <Pressable
                   accessibilityRole="button"
                   accessibilityLabel="Ver notificaciones"
                   onPress={() => router.navigate("/notifications")}
                   style={({ pressed }) => ({
-                    width: 36,
-                    height: 36,
+                    width: 38,
+                    height: 38,
                     borderRadius: radius.pill,
                     borderWidth: 1,
                     borderColor: path.startsWith("/notifications") ? colors.accentBorder : colors.border,
@@ -462,10 +459,12 @@ export default function Shell() {
                   })}
                 >
                   <View style={{ position: "relative" }}>
-                    <Text aria-hidden style={{ fontSize: 16 }}>🔔</Text>
+                    <BellIcon size={18} color={path.startsWith("/notifications") ? colors.accent : colors.text} />
                     <NotificationBadge />
                   </View>
                 </Pressable>
+
+                {/* Selector rápido de rol si el usuario tiene múltiples */}
                 {assignableRoles.length > 1 && (
                   <Pressable
                     accessibilityRole="button"
@@ -490,62 +489,35 @@ export default function Shell() {
                     </Text>
                   </Pressable>
                 )}
+
+                {/* Carrito de compras monocromático en el header */}
                 <Pressable
                   accessibilityRole="button"
                   accessibilityLabel="Mis compras"
                   onPress={() => router.navigate("/purchases")}
-                  style={{
-                    paddingHorizontal: 10,
-                    paddingVertical: 7,
-                    minHeight: 36,
+                  style={({ pressed }) => ({
+                    width: 38,
+                    height: 38,
                     borderRadius: radius.pill,
                     borderWidth: 1,
                     borderColor: path.startsWith("/purchases") ? colors.accentBorder : colors.border,
-                    backgroundColor: path.startsWith("/purchases") ? colors.accentSoft : colors.surfaceAlt,
+                    backgroundColor: path.startsWith("/purchases") ? colors.accentSoft : pressed ? colors.surfaceHover : colors.surfaceAlt,
+                    alignItems: "center",
                     justifyContent: "center",
-                  }}
+                  })}
                 >
-                  <Text style={{ color: path.startsWith("/purchases") ? colors.accentText : colors.text, fontSize: 12, fontWeight: "700" }}>
-                    Compras
-                  </Text>
+                  <CartIcon size={18} color={path.startsWith("/purchases") ? colors.accent : colors.text} />
                 </Pressable>
               </View>
             </View>
           )}
+
+          {/* Área principal del contenido */}
           <View style={{ flex: 1, minWidth: 0, minHeight: 0, overflow: "hidden" }}>
             <Slot key={auth.user.id} />
           </View>
-          {!desktop && (
-            <View
-              accessibilityRole="tablist"
-              style={{
-                flexDirection: "row",
-                alignItems: "center",
-                justifyContent: "space-between",
-                gap: 2,
-                paddingHorizontal: 4,
-                paddingVertical: 6,
-                borderTopWidth: 1,
-                borderColor: colors.border,
-                backgroundColor: colors.surface,
-                boxShadow: shadows.bar,
-              }}
-            >
-              {bottomTabs.map((tab) => (
-                <NavTab
-                  key={tab.path}
-                  path={tab.path}
-                  label={tab.label}
-                  selected={isSelected(tab.path, bottomTabs)}
-                  vertical={false}
-                  compact
-                  onPress={() => router.navigate(tab.path)}
-                >
-                  {tab.path === "/notifications" && <NotificationBadge />}
-                </NavTab>
-              ))}
-            </View>
-          )}
+
+          {/* Menú lateral desplegable para móvil (sin barra redundante inferior) */}
           {!desktop && drawerOpen && (
             <View
               style={{
@@ -580,21 +552,7 @@ export default function Shell() {
                   }}
                 >
                   <View style={{ flexDirection: "row", alignItems: "center", gap: 10, minWidth: 0, flex: 1 }}>
-                    <View
-                      aria-hidden
-                      style={{
-                        width: 32,
-                        height: 32,
-                        borderRadius: radius.sm,
-                        backgroundColor: colors.primary,
-                        alignItems: "center",
-                        justifyContent: "center",
-                      }}
-                    >
-                      <Text style={{ color: colors.onPrimary, fontSize: 15, fontWeight: "800", fontFamily: fonts.display }}>
-                        V
-                      </Text>
-                    </View>
+                    <VentiIsotype size={28} />
                     <View style={{ minWidth: 0, flex: 1 }}>
                       <Text numberOfLines={1} style={{ color: colors.text, fontSize: 16, fontWeight: "800", letterSpacing: 1.6, fontFamily: fonts.display }}>
                         VENTI
@@ -623,8 +581,9 @@ export default function Shell() {
                 </View>
                 <ScrollView style={{ flex: 1 }} showsVerticalScrollIndicator={false}>
                   {roleSelector}
-                  {renderMenuList(secondaryLinks, false)}
-                  {sessionFooter}
+                  {/* Se muestran todas las rutas disponibles en el menú lateral */}
+                  {renderMenuList(links, false)}
+                  {mobileDrawerFooter}
                 </ScrollView>
               </View>
               <Pressable
@@ -638,6 +597,8 @@ export default function Shell() {
               />
             </View>
           )}
+
+          {/* Botón flotante para volver atrás con mayor tamaño y diseño accesible */}
           {showFloatingBack && (
             <Pressable
               accessibilityRole="button"
@@ -645,25 +606,24 @@ export default function Shell() {
               onPress={() => router.back()}
               style={({ pressed }) => ({
                 position: "absolute",
-                bottom: desktop ? 24 : 64 + Math.max(insets.bottom, 4),
-                left: desktop ? 236 : 14,
+                bottom: Math.max(insets.bottom + 18, 20),
+                left: desktop ? 240 : 18,
                 zIndex: 90,
                 flexDirection: "row",
                 alignItems: "center",
-                gap: 6,
-                paddingVertical: 8,
-                paddingHorizontal: 13,
+                gap: 8,
+                paddingVertical: 10,
+                paddingHorizontal: 16,
+                minHeight: 46,
                 borderRadius: radius.pill,
                 backgroundColor: pressed ? colors.surfaceHover : colors.surface,
-                borderWidth: 1,
+                borderWidth: 1.5,
                 borderColor: colors.borderStrong,
                 boxShadow: shadows.card,
               })}
             >
-              <Text aria-hidden style={{ color: colors.accent, fontSize: 15, fontWeight: "800" }}>
-                ←
-              </Text>
-              <Text style={{ color: colors.text, fontSize: 12, fontWeight: "700" }}>
+              <ArrowBackIcon size={18} color={colors.text} />
+              <Text style={{ color: colors.text, fontSize: 13, fontWeight: "700", letterSpacing: -0.1 }}>
                 Volver
               </Text>
             </Pressable>

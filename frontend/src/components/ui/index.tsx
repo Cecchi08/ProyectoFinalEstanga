@@ -361,10 +361,12 @@ export function BentoGrid({ children, style }: PropsWithChildren<{ style?: Style
 export function SectionHeader({
   title,
   subtitle,
+  icon,
   action,
 }: {
   title: string;
   subtitle?: string;
+  icon?: ReactNode;
   action?: ReactNode;
 }) {
   return (
@@ -372,6 +374,7 @@ export function SectionHeader({
       <View style={{ gap: 2, flexShrink: 1, minWidth: 0 }}>
         <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
           <View aria-hidden style={{ width: 4, height: 16, borderRadius: radius.pill, backgroundColor: colors.primary }} />
+          {icon ? <View aria-hidden>{icon}</View> : null}
           <Text style={styles.heading}>{title}</Text>
         </View>
         {subtitle ? <Text style={styles.muted}>{subtitle}</Text> : null}
@@ -840,6 +843,10 @@ export function useForm() {
       setSubmitted(true);
       const invalid = [...validators.current.values()].map((check) => check()).filter(Boolean).length;
       if (invalid) throw new Error(invalid === 1 ? "Revisá el campo marcado." : `Revisá los ${invalid} campos marcados.`);
+    },
+    // Reinicia el estado de validación y oculta errores previos.
+    reset() {
+      setSubmitted(false);
     },
   };
 }

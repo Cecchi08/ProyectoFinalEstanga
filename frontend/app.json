@@ -4,6 +4,7 @@
     "slug": "venti",
     "scheme": "venti",
     "version": "1.0.0",
+    "icon": "./assets/icon.png",
     "userInterfaceStyle": "automatic",
     "plugins": [
       "expo-router",
@@ -21,16 +22,22 @@
     "web": {
       "bundler": "metro",
       "output": "single",
-      "name": "VENTI"
+      "name": "VENTI",
+      "favicon": "./assets/favicon.png"
     },
     "ios": {
       "supportsTablet": true,
       "bundleIdentifier": "com.venti.app",
-      "buildNumber": "1"
+      "buildNumber": "1",
+      "icon": "./assets/icon.png"
     },
     "android": {
       "package": "com.venti.app",
       "versionCode": 1,
+      "adaptiveIcon": {
+        "foregroundImage": "./assets/adaptive-icon.png",
+        "backgroundColor": "#111113"
+      },
       "permissions": [
         "android.permission.CAMERA"
       ]

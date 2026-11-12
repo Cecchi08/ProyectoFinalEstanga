@@ -1,6 +1,8 @@
-import { Switch, Text, View } from "react-native";
+// Componente de preferencias de notificaciones opcionales de eventos con icono monocromático.
+import { Switch, View } from "react-native";
 import { usePreferences } from "../../contexts/PreferencesContext";
 import { Card, Copy, ResourceState, colors, radius, styles, switchColors } from "../../components/ui";
+import { BellIcon } from "../../components/ui/icons";
 
 export default function NotificationPreference() {
   const preferences = usePreferences();
@@ -8,8 +10,8 @@ export default function NotificationPreference() {
     <Card>
       <View style={styles.between}>
         <View style={{ gap: 2, flex: 1, paddingRight: 8 }}>
-          <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
-            <Text aria-hidden style={{ fontSize: 16 }}>🔔</Text>
+          <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
+            <BellIcon size={18} color={colors.text} />
             <Copy size="subheading" weight="700">Notificaciones de eventos</Copy>
           </View>
           <Copy muted size="small">

@@ -1,3 +1,4 @@
+// Pantalla de administración de promociones y cupones de descuento para Venti.
 import { useState } from "react";
 import { View } from "react-native";
 import { useAuth } from "../../contexts/AuthContext";
@@ -13,6 +14,7 @@ import {
   Card,
   Copy,
   Field,
+  FormScope,
   Page,
   Pager,
   ResourceState,
@@ -23,7 +25,9 @@ import {
   styles,
   useAction,
   useBento,
+  useForm,
 } from "../../components/ui";
+import { TagIcon } from "../../components/ui/icons";
 
 const PROMO_STATUS_LABELS: Record<string, string> = {
   ACTIVE: "Activa",
@@ -66,6 +70,8 @@ export default function PromotionsAdminScreen() {
   const [formData, setFormData] = useState<FormState>(defaultForm);
 
   const action = useAction();
+  const createForm = useForm();
+  const editForm = useForm();
   const bento = useBento();
   const cols = bento.cols;
 
@@ -75,6 +81,7 @@ export default function PromotionsAdminScreen() {
     status: statusFilter === "ALL" ? undefined : statusFilter,
   });
 
+  // Carga de listado de cupones vía endpoint administrativo.
   const resource = useResource<AdminPromotion[]>(
     can("orders.read_all", "catalogs.manage") ? `/admin/promotions${filterQuery}` : null,
   );
@@ -83,12 +90,14 @@ export default function PromotionsAdminScreen() {
 
   const openCreate = () => {
     setEditingPromo(null);
+    createForm.reset();
     setFormData(defaultForm);
     setIsCreating(true);
   };
 
   const openEdit = (promo: AdminPromotion) => {
     setIsCreating(false);
+    editForm.reset();
     setEditingPromo(promo);
     setFormData({
       code: promo.code,
@@ -103,10 +112,12 @@ export default function PromotionsAdminScreen() {
     });
   };
 
+  // Creación de cupón vía API con validación de campos y manejo de errores.
   const handleCreate = () =>
     action.run(async () => {
+      createForm.assertValid();
       if (!formData.code.trim()) throw new Error("Ingresá el código promocional.");
-      if (!formData.description.trim()) throw new Error("Ingresá una descripción.");
+      if (!formData.description.trim()) throw new Error("Ingresá una descripción para el cupón.");
       const val = Number(formData.discountValue);
       if (isNaN(val) || val <= 0) throw new Error("El valor del descuento debe ser mayor a 0.");
       if (formData.discountType === "PERCENTAGE" && val > 100)
@@ -124,20 +135,23 @@ export default function PromotionsAdminScreen() {
         validUntil: new Date(`${formData.validUntil}T23:59:59.000Z`).toISOString(),
       };
 
-      await api.request("/admin/promotions", {
+      await api.request("/admin/promotions/create", {
         method: "POST",
         body,
       });
 
+      createForm.reset();
       setIsCreating(false);
       setFormData(defaultForm);
       action.setMessage("Promoción creada con éxito.");
       await resource.reload();
     });
 
+  // Actualización de cupón existente.
   const handleUpdate = (id: string) =>
     action.run(async () => {
-      if (!formData.description.trim()) throw new Error("Ingresá una descripción.");
+      editForm.assertValid();
+      if (!formData.description.trim()) throw new Error("Ingresá una descripción para el cupón.");
       const body = {
         description: formData.description.trim(),
         status: editingPromo?.status,
@@ -145,31 +159,34 @@ export default function PromotionsAdminScreen() {
         validUntil: new Date(`${formData.validUntil}T23:59:59.000Z`).toISOString(),
       };
 
-      await api.request(`/admin/promotions/${id}`, {
-        method: "PUT",
+      await api.request(`/admin/promotions/${id}/update`, {
+        method: "POST",
         body,
       });
 
+      editForm.reset();
       setEditingPromo(null);
       action.setMessage("Promoción actualizada con éxito.");
       await resource.reload();
     });
 
+  // Alternar estado activo / inactivo.
   const handleToggleStatus = (promo: AdminPromotion) =>
     action.run(async () => {
       const nextStatus = promo.status === "ACTIVE" ? "INACTIVE" : "ACTIVE";
-      await api.request(`/admin/promotions/${promo.id}`, {
-        method: "PUT",
+      await api.request(`/admin/promotions/${promo.id}/update`, {
+        method: "POST",
         body: { status: nextStatus },
       });
       action.setMessage(`Promoción ${nextStatus === "ACTIVE" ? "activada" : "desactivada"}.`);
       await resource.reload();
     });
 
+  // Eliminación o desactivación de cupón.
   const handleDelete = (promo: AdminPromotion) =>
     action.run(async () => {
-      const res = await api.request<{ deleted: boolean; deactivated: boolean }>(`/admin/promotions/${promo.id}`, {
-        method: "DELETE",
+      const res = await api.request<{ deleted: boolean; deactivated: boolean }>(`/admin/promotions/${promo.id}/delete`, {
+        method: "POST",
       });
       await resource.reload();
       action.setMessage(
@@ -181,6 +198,7 @@ export default function PromotionsAdminScreen() {
 
   return (
     <Page
+      eyebrow="VENTI · ADMINISTRACIÓN"
       title="Promociones y Descuentos"
       subtitle="Administración de códigos de descuento, vigencia, topes de uso y asignación por concierto."
     >
@@ -189,9 +207,12 @@ export default function PromotionsAdminScreen() {
       <Card variant="featured">
         <View style={styles.between}>
           <View style={{ gap: 4 }}>
-            <Copy size="subheading" weight="700">Gestión de Cupones</Copy>
+            <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
+              <TagIcon size={20} color={colors.accent} />
+              <Copy size="subheading" weight="700">Gestión de Cupones</Copy>
+            </View>
             <Copy muted>
-              Creá códigos con porcentaje o monto fijo, asignados a un concierto o para toda la plataforma.
+              Creá códigos con porcentaje o monto fijo, asignados a un concierto específico o para toda la plataforma.
             </Copy>
           </View>
           <Button title="+ Crear Promoción" onPress={openCreate} />
@@ -229,143 +250,158 @@ export default function PromotionsAdminScreen() {
         </View>
       </Card>
 
+      {/* Formulario de creación de cupón con validación */}
       {isCreating && (
         <Card variant="subtle">
           <SectionHeader
             title="Nueva Promoción"
+            icon={<TagIcon size={18} color={colors.text} />}
             subtitle="Ingresá los datos del cupón. El código se guardará en mayúsculas sin espacios."
           />
-          <View style={{ gap: 10 }}>
-            <View style={styles.row}>
-              <View style={{ flex: 1, minWidth: 150 }}>
-                <Field
-                  label="Código"
-                  placeholder="Ej: VERANO20"
-                  value={formData.code}
-                  autoCapitalize="characters"
-                  onChangeText={(v) => setFormData({ ...formData, code: v.toUpperCase() })}
-                />
-              </View>
-              <View style={{ flex: 1, minWidth: 150 }}>
-                <Copy size="label" muted style={{ marginBottom: 4 }}>Tipo de Descuento</Copy>
-                <View style={styles.row}>
-                  <Button
-                    title="Porcentaje (%)"
-                    secondary={formData.discountType !== "PERCENTAGE"}
-                    onPress={() => setFormData({ ...formData, discountType: "PERCENTAGE" })}
+          <FormScope form={createForm}>
+            <View style={{ gap: 10 }}>
+              <View style={styles.row}>
+                <View style={{ flex: 1, minWidth: 150 }}>
+                  <Field
+                    label="Código"
+                    required
+                    placeholder="Ej: TESTVENTI"
+                    value={formData.code}
+                    autoCapitalize="characters"
+                    onChangeText={(v) => setFormData({ ...formData, code: v.toUpperCase() })}
                   />
-                  <Button
-                    title="Monto Fijo ($)"
-                    secondary={formData.discountType !== "FIXED"}
-                    onPress={() => setFormData({ ...formData, discountType: "FIXED" })}
+                </View>
+                <View style={{ flex: 1, minWidth: 150 }}>
+                  <Copy size="label" muted style={{ marginBottom: 4 }}>Tipo de Descuento</Copy>
+                  <View style={styles.row}>
+                    <Button
+                      title="Porcentaje (%)"
+                      secondary={formData.discountType !== "PERCENTAGE"}
+                      onPress={() => setFormData({ ...formData, discountType: "PERCENTAGE" })}
+                    />
+                    <Button
+                      title="Monto Fijo ($)"
+                      secondary={formData.discountType !== "FIXED"}
+                      onPress={() => setFormData({ ...formData, discountType: "FIXED" })}
+                    />
+                  </View>
+                </View>
+                <View style={{ flex: 1, minWidth: 120 }}>
+                  <Field
+                    label={formData.discountType === "PERCENTAGE" ? "Porcentaje (%)" : "Importe ($)"}
+                    required
+                    placeholder="Ej: 10.00"
+                    value={formData.discountValue}
+                    onChangeText={(v) => setFormData({ ...formData, discountValue: v })}
                   />
                 </View>
               </View>
-              <View style={{ flex: 1, minWidth: 120 }}>
-                <Field
-                  label={formData.discountType === "PERCENTAGE" ? "Porcentaje (%)" : "Importe ($)"}
-                  placeholder="Ej: 15.00"
-                  value={formData.discountValue}
-                  onChangeText={(v) => setFormData({ ...formData, discountValue: v })}
-                />
+
+              <Field
+                label="Descripción pública"
+                required
+                placeholder="Ej: 10% de descuento en la compra de entradas para conciertos seleccionados"
+                value={formData.description}
+                onChangeText={(v) => setFormData({ ...formData, description: v })}
+              />
+
+              <View style={styles.row}>
+                <View style={{ flex: 1, minWidth: 140 }}>
+                  <Field
+                    label="Compra mínima ($)"
+                    placeholder="0.00 para sin mínimo"
+                    value={formData.minOrderAmount}
+                    onChangeText={(v) => setFormData({ ...formData, minOrderAmount: v })}
+                  />
+                </View>
+                <View style={{ flex: 1, minWidth: 140 }}>
+                  <Field
+                    label="Límite máx. usos"
+                    placeholder="Vacío para ilimitado"
+                    value={formData.maxUses}
+                    onChangeText={(v) => setFormData({ ...formData, maxUses: v })}
+                  />
+                </View>
+                <View style={{ flex: 1, minWidth: 140 }}>
+                  <Field
+                    label="ID Concierto (opcional)"
+                    placeholder="Vacío para todos"
+                    value={formData.concertId}
+                    onChangeText={(v) => setFormData({ ...formData, concertId: v })}
+                  />
+                </View>
+              </View>
+
+              <View style={styles.row}>
+                <View style={{ flex: 1, minWidth: 140 }}>
+                  <Field
+                    label="Válido desde (AAAA-MM-DD)"
+                    required
+                    placeholder="2026-01-01"
+                    value={formData.validFrom}
+                    onChangeText={(v) => setFormData({ ...formData, validFrom: v })}
+                  />
+                </View>
+                <View style={{ flex: 1, minWidth: 140 }}>
+                  <Field
+                    label="Válido hasta (AAAA-MM-DD)"
+                    required
+                    placeholder="2027-12-31"
+                    value={formData.validUntil}
+                    onChangeText={(v) => setFormData({ ...formData, validUntil: v })}
+                  />
+                </View>
+              </View>
+
+              <View style={[styles.row, { justifyContent: "flex-end", marginTop: 8 }]}>
+                <Button title="Cancelar" secondary onPress={() => setIsCreating(false)} />
+                <Button title="Guardar Cupón" onPress={handleCreate} disabled={action.busy} />
               </View>
             </View>
-
-            <Field
-              label="Descripción pública"
-              placeholder="Ej: 15% de descuento en tu compra de entradas"
-              value={formData.description}
-              onChangeText={(v) => setFormData({ ...formData, description: v })}
-            />
-
-            <View style={styles.row}>
-              <View style={{ flex: 1, minWidth: 140 }}>
-                <Field
-                  label="Compra mínima ($)"
-                  placeholder="0.00 para sin mínimo"
-                  value={formData.minOrderAmount}
-                  onChangeText={(v) => setFormData({ ...formData, minOrderAmount: v })}
-                />
-              </View>
-              <View style={{ flex: 1, minWidth: 140 }}>
-                <Field
-                  label="Límite máx. usos"
-                  placeholder="Vacío para ilimitado"
-                  value={formData.maxUses}
-                  onChangeText={(v) => setFormData({ ...formData, maxUses: v })}
-                />
-              </View>
-              <View style={{ flex: 1, minWidth: 140 }}>
-                <Field
-                  label="ID Concierto (opcional)"
-                  placeholder="Vacío para todos"
-                  value={formData.concertId}
-                  onChangeText={(v) => setFormData({ ...formData, concertId: v })}
-                />
-              </View>
-            </View>
-
-            <View style={styles.row}>
-              <View style={{ flex: 1, minWidth: 140 }}>
-                <Field
-                  label="Válido desde (AAAA-MM-DD)"
-                  placeholder="2026-01-01"
-                  value={formData.validFrom}
-                  onChangeText={(v) => setFormData({ ...formData, validFrom: v })}
-                />
-              </View>
-              <View style={{ flex: 1, minWidth: 140 }}>
-                <Field
-                  label="Válido hasta (AAAA-MM-DD)"
-                  placeholder="2027-12-31"
-                  value={formData.validUntil}
-                  onChangeText={(v) => setFormData({ ...formData, validUntil: v })}
-                />
-              </View>
-            </View>
-
-            <View style={[styles.row, { justifyContent: "flex-end", marginTop: 8 }]}>
-              <Button title="Cancelar" secondary onPress={() => setIsCreating(false)} />
-              <Button title="Guardar Cupón" onPress={handleCreate} disabled={action.busy} />
-            </View>
-          </View>
+          </FormScope>
         </Card>
       )}
 
+      {/* Formulario de edición */}
       {editingPromo && (
         <Card variant="subtle">
           <SectionHeader
             title={`Editar Cupón: ${editingPromo.code}`}
+            icon={<TagIcon size={18} color={colors.text} />}
             subtitle="Modificá la descripción, fecha de expiración o límite de usos."
           />
-          <View style={{ gap: 10 }}>
-            <Field
-              label="Descripción"
-              value={formData.description}
-              onChangeText={(v) => setFormData({ ...formData, description: v })}
-            />
-            <View style={styles.row}>
-              <View style={{ flex: 1, minWidth: 140 }}>
-                <Field
-                  label="Límite máx. usos"
-                  placeholder="Vacío para ilimitado"
-                  value={formData.maxUses}
-                  onChangeText={(v) => setFormData({ ...formData, maxUses: v })}
-                />
+          <FormScope form={editForm}>
+            <View style={{ gap: 10 }}>
+              <Field
+                label="Descripción"
+                required
+                value={formData.description}
+                onChangeText={(v) => setFormData({ ...formData, description: v })}
+              />
+              <View style={styles.row}>
+                <View style={{ flex: 1, minWidth: 140 }}>
+                  <Field
+                    label="Límite máx. usos"
+                    placeholder="Vacío para ilimitado"
+                    value={formData.maxUses}
+                    onChangeText={(v) => setFormData({ ...formData, maxUses: v })}
+                  />
+                </View>
+                <View style={{ flex: 1, minWidth: 140 }}>
+                  <Field
+                    label="Válido hasta (AAAA-MM-DD)"
+                    required
+                    value={formData.validUntil}
+                    onChangeText={(v) => setFormData({ ...formData, validUntil: v })}
+                  />
+                </View>
               </View>
-              <View style={{ flex: 1, minWidth: 140 }}>
-                <Field
-                  label="Válido hasta (AAAA-MM-DD)"
-                  value={formData.validUntil}
-                  onChangeText={(v) => setFormData({ ...formData, validUntil: v })}
-                />
+              <View style={[styles.row, { justifyContent: "flex-end", marginTop: 8 }]}>
+                <Button title="Cancelar" secondary onPress={() => setEditingPromo(null)} />
+                <Button title="Actualizar" onPress={() => handleUpdate(editingPromo.id)} disabled={action.busy} />
               </View>
             </View>
-            <View style={[styles.row, { justifyContent: "flex-end", marginTop: 8 }]}>
-              <Button title="Cancelar" secondary onPress={() => setEditingPromo(null)} />
-              <Button title="Actualizar" onPress={() => handleUpdate(editingPromo.id)} disabled={action.busy} />
-            </View>
-          </View>
+          </FormScope>
         </Card>
       )}
 

@@ -28,10 +28,18 @@ export function commerceRoutes(database: Database, authenticate: RequestHandler)
     router.post('/promotions/validate', requirePermission(P.ticketsPurchase), promotionLimiter, validateRequest(promotionValidationSchema), controller.validatePromotion);
 
     // Administración CRUD de promociones (ADMIN vía orders.read_all o catalogs.manage)
-    // Soportamos tanto verbos REST estándar como POST para compatibilidad total
+    // Soportamos tanto verbos REST estándar como POST para compatibilidad total con HttpClient
+    const handlePromotionsPost: RequestHandler = (req, res) => {
+        if (!req.body || !req.body.code) {
+            return void controller.listPromotions(req, res);
+        }
+        return validateRequest(createPromotionSchema)(req, res, () => void controller.createPromotion(req, res));
+    };
+
     router.get('/admin/promotions', requirePermission(P.ordersReadAll, P.catalogsManage), controller.listPromotions);
     router.post('/admin/promotions/list', requirePermission(P.ordersReadAll, P.catalogsManage), controller.listPromotions);
-    router.post('/admin/promotions', requirePermission(P.ordersReadAll, P.catalogsManage), validateRequest(createPromotionSchema), controller.createPromotion);
+    router.post('/admin/promotions/create', requirePermission(P.ordersReadAll, P.catalogsManage), validateRequest(createPromotionSchema), controller.createPromotion);
+    router.post('/admin/promotions', requirePermission(P.ordersReadAll, P.catalogsManage), handlePromotionsPost);
     router.get('/admin/promotions/:id', requirePermission(P.ordersReadAll, P.catalogsManage), controller.getPromotion);
     router.post('/admin/promotions/:id', requirePermission(P.ordersReadAll, P.catalogsManage), controller.getPromotion);
     router.put('/admin/promotions/:id', requirePermission(P.ordersReadAll, P.catalogsManage), validateRequest(updatePromotionSchema), controller.updatePromotion);

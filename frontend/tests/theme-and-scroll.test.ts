@@ -97,8 +97,8 @@ for (const name of ["dark", "light"] as const) {
   });
 }
 
-test("navegación multi-rol (Etapa 2): funciones compartidas permanentes y eliminación de duplicado /recommendations", () => {
-  const permanentPaths = ["/discover", "/search", "/tickets", "/purchases", "/notifications", "/profile"];
+test("navegación multi-rol (Etapa 2): funciones compartidas permanentes y unificación en /cartelera", () => {
+  const permanentPaths = ["/cartelera", "/tickets", "/purchases", "/notifications", "/profile"];
   for (const role of ROLES) {
     for (const staff of [false, true]) {
       const links = linksForRole(role, staff);
@@ -107,13 +107,14 @@ test("navegación multi-rol (Etapa 2): funciones compartidas permanentes y elimi
         assert.ok(paths.includes(required), `rol ${role} (staff=${staff}) debe conservar ${required}`);
       }
       assert.equal(paths.includes("/recommendations"), false, `rol ${role} no debe duplicar /recommendations en la barra`);
+      assert.equal(paths.includes("/discover"), false, `rol ${role} unifica /discover en /cartelera`);
+      assert.equal(paths.includes("/search"), false, `rol ${role} unifica /search en /cartelera`);
       assert.equal(paths.includes("/staff"), staff, `rol ${role} (staff=${staff}) acceso a /staff`);
 
       const bottom = mobileBottomTabs(role, staff);
-      assert.equal(bottom.length, 5, `barra inferior móvil de ${role} tiene exactamente 5 destinos`);
       const bottomPaths = bottom.map((item) => item.path);
-      for (const required of ["/discover", "/tickets", "/notifications", "/profile"]) {
-        assert.ok(bottomPaths.includes(required), `barra inferior móvil de ${role} incluye ${required}`);
+      for (const required of ["/cartelera", "/tickets", "/notifications", "/profile"]) {
+        assert.ok(bottomPaths.includes(required), `tabs móviles de ${role} incluye ${required}`);
       }
     }
   }
