@@ -21,8 +21,20 @@ export class OAuthService {
         const verifier = randomToken();
         const state = this.flows.put({ provider, mode, browserHash: hashToken(browser), verifier, codeChallenge, linkUserId });
         const url = new URL(config.authorize);
-        for (const [key, value] of Object.entries({ client_id: config.clientId, redirect_uri: config.callback,
-            response_type: 'code', scope: config.scope, state }))
+        const params = {
+            client_id: config.clientId,
+            redirect_uri: config.callback,
+            response_type: 'code',
+            state,
+        };
+        if (provider === 'facebook' && config.configId) {
+            // Facebook Login for Business: los permisos se definen en la configuración (config_id) y no deben mezclarse con scope.
+            params.config_id = config.configId;
+        }
+        else if (config.scope) {
+            params.scope = config.scope;
+        }
+        for (const [key, value] of Object.entries(params))
             url.searchParams.set(key, value);
         if (provider === 'google') {
             // Parámetro oficial de Google OAuth 2.0 para mostrar siempre el selector de cuentas.
@@ -40,12 +52,15 @@ export class OAuthService {
         }
         return { url: url.toString(), browser };
     }
-    async callback(provider, state, browser, code, error) {
+    async callback(provider, state, browser, code, error, errorMeta = undefined) {
         const flow = this.flows.take(state, f => f.provider === provider && equalSecret(f.browserHash, hashToken(browser)));
         if (!flow)
             throw new AppError(400, 'OAUTH_STATE_INVALID', 'Estado OAuth inválido, vencido o usado.');
-        if (error || !code)
+        if (error || !code) {
+            const parts = [error ?? 'missing_code', errorMeta?.errorCode, errorMeta?.errorReason, errorMeta?.errorDescription].filter(Boolean);
+            console.warn(`[OAUTH_CALLBACK_ERROR] provider=${provider} detail=${parts.join(' | ')}`);
             throw new AppError(400, 'OAUTH_DENIED', 'Autorización OAuth cancelada.');
+        }
         const identity = await this.client.identity(provider, code, flow.verifier);
         if (identity.provider !== provider)
             throw new AppError(401, 'OAUTH_PROVIDER_MISMATCH', 'Proveedor inválido.');

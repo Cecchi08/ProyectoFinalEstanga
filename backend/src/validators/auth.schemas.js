@@ -32,6 +32,13 @@ export const resetSchema = z.strictObject({ token: tokenSchema, password: passwo
 export const providerSchema = z.enum(['google', 'github', 'facebook']);
 export const oauthStartSchema = z.strictObject({ mode: z.enum(['web', 'mobile']).default('web'), codeChallenge: z.string().regex(/^[\w-]{43}$/).optional() })
     .refine(v => v.mode !== 'mobile' || Boolean(v.codeChallenge), 'Mobile requiere codeChallenge S256.');
-export const oauthCallbackSchema = z.object({ state: tokenSchema, code: z.string().min(1).max(4096).optional(), error: z.string().max(200).optional() })
+export const oauthCallbackSchema = z.object({
+    state: tokenSchema,
+    code: z.string().min(1).max(4096).optional(),
+    error: z.string().max(200).optional(),
+    error_code: z.string().max(100).optional(),
+    error_description: z.string().max(500).optional(),
+    error_reason: z.string().max(200).optional(),
+})
     .refine(v => Boolean(v.code) !== Boolean(v.error), 'Callback OAuth inválido.');
 export const oauthExchangeSchema = z.strictObject({ code: tokenSchema, codeVerifier: z.string().regex(/^[A-Za-z0-9._~-]{43,128}$/) });

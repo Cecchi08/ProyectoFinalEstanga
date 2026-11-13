@@ -29,7 +29,11 @@ export class OAuthController {
         const cookieName = `venti_oauth_${provider}`;
         const browser = (req.headers.cookie ?? '').split(';').map(v => v.trim()).find(v => v.startsWith(`${cookieName}=`))?.slice(cookieName.length + 1) ?? '';
         res.clearCookie(cookieName, { ...this.cookie, maxAge: undefined });
-        const result = await this.oauth.callback(provider, input.state, browser, input.code, input.error);
+        const result = await this.oauth.callback(provider, input.state, browser, input.code, input.error, {
+            errorCode: input.error_code,
+            errorDescription: input.error_description,
+            errorReason: input.error_reason,
+        });
         if (result.redirect) {
             res.redirect(302, result.redirect);
             return;

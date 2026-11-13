@@ -28,6 +28,7 @@ const schema = z.object({
     GOOGLE_CLIENT_ID: optional, GOOGLE_CLIENT_SECRET: optional, GOOGLE_CALLBACK_URL: optional,
     GITHUB_CLIENT_ID: optional, GITHUB_CLIENT_SECRET: optional, GITHUB_CALLBACK_URL: optional,
     FACEBOOK_CLIENT_ID: optional, FACEBOOK_CLIENT_SECRET: optional, FACEBOOK_CALLBACK_URL: optional,
+    FACEBOOK_CONFIG_ID: z.string().trim().default(''),
     FACEBOOK_GRAPH_VERSION: z.string().regex(/^v\d+\.\d+$/).default('v23.0'),
     APP_DEEP_LINK: z.url().default('venti://oauth-callback'),
     WEB_OAUTH_REDIRECT_URL: z.url().default('http://localhost:8081/oauth-callback'),
@@ -47,6 +48,8 @@ const schema = z.object({
                 ctx.addIssue({ code: 'custom', path: [`${provider}_CALLBACK_URL`], message: 'Callback HTTP válido; HTTPS en producción.' });
         }
     }
+    if (env.FACEBOOK_CONFIG_ID && !/^[A-Za-z0-9_-]{4,64}$/.test(env.FACEBOOK_CONFIG_ID))
+        ctx.addIssue({ code: 'custom', path: ['FACEBOOK_CONFIG_ID'], message: 'FACEBOOK_CONFIG_ID debe ser un identificador válido de Meta.' });
     if (env.NODE_ENV === 'production' && (env.BCRYPT_ROUNDS < 12 || env.JWT_ACCESS_SECRET.includes('replace')))
         ctx.addIssue({ code: 'custom', message: 'Configurar un secreto seguro y bcrypt >= 12 en producción.' });
     if (Boolean(env.SMTP_USER) !== Boolean(env.SMTP_PASSWORD))

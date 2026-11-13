@@ -17,8 +17,24 @@ export class HttpOAuthProviderClient {
         try {
             const response = await this.fetcher(url, { ...init, redirect: 'error', signal: AbortSignal.timeout(10000),
                 headers: { Accept: 'application/json', 'User-Agent': 'VENTI', ...init.headers } });
-            if (!response.ok)
+            if (!response.ok) {
+                const safeEndpoint = (() => {
+                    try { const u = new URL(url); return `${u.origin}${u.pathname}`; }
+                    catch { return 'oauth-provider'; }
+                })();
+                let providerError = '';
+                try {
+                    const errBody = await response.json();
+                    const errObj = errBody && typeof errBody === 'object' ? (errBody.error && typeof errBody.error === 'object' ? errBody.error : errBody) : null;
+                    if (errObj) {
+                        const parts = [errObj.code, errObj.type, errObj.error_subcode, errObj.message || errObj.error_description].filter(Boolean);
+                        providerError = parts.join(' | ');
+                    }
+                }
+                catch { /* ignore non-JSON error body */ }
+                console.warn(`[OAUTH_PROVIDER_HTTP_ERROR] endpoint=${safeEndpoint} status=${response.status}${providerError ? ` detail=${providerError}` : ''}`);
                 throw new Error();
+            }
             return await response.json();
         }
         catch {
