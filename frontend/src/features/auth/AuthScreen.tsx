@@ -58,6 +58,7 @@ export default function AuthScreen({ mode }: { mode: Mode }) {
 
   const [email, setEmail] = useState(params.email ?? "");
   const [password, setPassword] = useState("");
+  const [confirmPassword, setConfirmPassword] = useState("");
   const [first, setFirst] = useState("");
   const [last, setLast] = useState("");
   const [phone, setPhone] = useState("");
@@ -70,17 +71,23 @@ export default function AuthScreen({ mode }: { mode: Mode }) {
 
   // Extracción del token seguro desde la URL o el fragmento hash si proviene del enlace de correo.
   useEffect(() => {
-    const raw =
-      Platform.OS === "web" ? window.location.hash : (url?.split("#")[1] ?? "");
-    const value =
-      new URLSearchParams(raw.replace(/^#/, "")).get("token") ?? params.token;
+    let value = params.token;
+    if (!value && Platform.OS === "web" && typeof window !== "undefined") {
+      const search = new URLSearchParams(window.location.search).get("token");
+      const hash = new URLSearchParams((window.location.hash || "").replace(/^#/, "")).get("token");
+      value = search || hash || undefined;
+    } else if (!value && url) {
+      const [baseAndQuery, fragment] = url.split("#");
+      const queryPart = baseAndQuery.split("?")[1] ?? "";
+      value = new URLSearchParams(queryPart).get("token") ?? new URLSearchParams(fragment ?? "").get("token") ?? undefined;
+    }
     if (value) {
       setToken(value);
-      if (Platform.OS === "web") {
+      if (Platform.OS === "web" && typeof window !== "undefined" && mode === "verify-email") {
         window.history.replaceState(null, "", window.location.pathname);
       }
     }
-  }, [url, params.token]);
+  }, [url, params.token, mode]);
 
   // Si se abre la pantalla con un token de validación en la URL, se ejecuta automáticamente la validación segura.
   useEffect(() => {
@@ -149,6 +156,12 @@ export default function AuthScreen({ mode }: { mode: Mode }) {
       }
 
       if (mode === "reset-password") {
+        if (password !== confirmPassword) {
+          throw new Error("Las contraseñas no coinciden.");
+        }
+        if (!token.trim()) {
+          throw new Error("Enlace de recuperación inválido o vencido. Solicitá uno nuevo.");
+        }
         const body = { token: token.trim(), password };
         const { data } = await api.request<{ message?: string }>(
           "/auth/reset-password",
@@ -156,6 +169,7 @@ export default function AuthScreen({ mode }: { mode: Mode }) {
         );
         form.reset();
         setPassword("");
+        setConfirmPassword("");
         action.setMessage(data.message ?? "Contraseña actualizada exitosamente. Ya podés iniciar sesión.");
         return;
       }
@@ -582,15 +596,33 @@ export default function AuthScreen({ mode }: { mode: Mode }) {
                       />
                     )}
                     {mode === "reset-password" && (
-                      <Field
-                        label="Token del enlace"
-                        required
-                        rules={[(value) => (/^[a-f0-9]{64}$/.test(value.trim()) ? null : "El token del enlace tiene 64 caracteres hexadecimales.")]}
-                        value={token}
-                        onChangeText={setToken}
-                      />
+                      <>
+                        <Field
+                          label="Nueva contraseña"
+                          required
+                          rules={[
+                            (value) => (value.length >= 12 ? null : "La contraseña debe tener al menos 12 caracteres."),
+                          ]}
+                          value={password}
+                          onChangeText={setPassword}
+                          secureTextEntry
+                          autoComplete="new-password"
+                        />
+                        <Field
+                          label="Confirmar nueva contraseña"
+                          required
+                          rules={[
+                            (value) => (value.length >= 12 ? null : "La confirmación debe tener al menos 12 caracteres."),
+                            (value) => (value === password ? null : "Las contraseñas no coinciden."),
+                          ]}
+                          value={confirmPassword}
+                          onChangeText={setConfirmPassword}
+                          secureTextEntry
+                          autoComplete="new-password"
+                        />
+                      </>
                     )}
-                    {["register", "reset-password"].includes(mode) && (
+                    {mode === "register" && (
                       <Field
                         label="Contraseña (mínimo 12 caracteres)"
                         required
@@ -604,7 +636,7 @@ export default function AuthScreen({ mode }: { mode: Mode }) {
                   </FormScope>
                   {mode !== "oauth-callback" && (
                     <Button
-                      title={mode === "register" ? "Registrarme" : "Continuar"}
+                      title={mode === "register" ? "Registrarme" : mode === "reset-password" ? "Cambiar contraseña" : "Continuar"}
                       disabled={action.busy}
                       onPress={() => void submit()}
                     />

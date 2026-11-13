@@ -25,6 +25,7 @@ import { fieldError, inferRules, type Rule } from "../../utils/validation";
 import { shouldShowBackToTop } from "./scroll";
 import { colors, onNativePalette, radius, shadows, type } from "./theme";
 import { useThemeMode } from "./themeMode";
+import { MoonIcon, SunIcon } from "./icons";
 export { colors, fonts, radius, shadows, space, type } from "./theme";
 export { DateTimeField, type DateTimeMode } from "./DateTimeField";
 export { useReducedMotion } from "../../hooks/useReducedMotion";
@@ -811,9 +812,11 @@ export function ThemeToggle({ compact = false }: { compact?: boolean } = {}) {
         backgroundColor: hovered ? colors.surfaceHover : colors.surface,
       }}
     >
-      <Text aria-hidden style={{ color: colors.accent, fontSize: compact ? 16 : 14, lineHeight: compact ? 20 : 18 }}>
-        {theme === "dark" ? "☀" : "☾"}
-      </Text>
+      {theme === "dark" ? (
+        <SunIcon size={compact ? 16 : 18} color={colors.text} />
+      ) : (
+        <MoonIcon size={compact ? 16 : 18} color={colors.text} />
+      )}
       {!compact && <Text style={{ color: colors.text, fontSize: 13, fontWeight: "600" }}>{`Tema ${next}`}</Text>}
     </Pressable>
   );

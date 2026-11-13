@@ -194,12 +194,12 @@ export default function Shell() {
   const insets = useSafeAreaInsets();
 
   // Rutas raíz donde no se debe mostrar el botón flotante de retorno.
+  // /notifications permite retornar fluidamente a la pantalla desde donde se abrió la campana.
   const rootPaths = [
     "/cartelera",
     "/discover",
     "/search",
     "/tickets",
-    "/notifications",
     "/profile",
     "/admin",
     "/organizer",

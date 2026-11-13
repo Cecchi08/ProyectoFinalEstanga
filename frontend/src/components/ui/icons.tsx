@@ -253,13 +253,105 @@ export function TagIcon({ color = colors.text, size = 20 }: IconProps) {
   );
 }
 
+// Icono monocromático de sol para tema claro.
+export function SunIcon({ color = colors.text, size = 18 }: IconProps) {
+  return (
+    <Svg width={size} height={size} viewBox="0 0 24 24" fill="none">
+      <Circle cx={12} cy={12} r={5} stroke={color} strokeWidth={2} />
+      <Line x1={12} y1={1} x2={12} y2={3} stroke={color} strokeWidth={2} strokeLinecap="round" />
+      <Line x1={12} y1={21} x2={12} y2={23} stroke={color} strokeWidth={2} strokeLinecap="round" />
+      <Line x1={4.22} y1={4.22} x2={5.64} y2={5.64} stroke={color} strokeWidth={2} strokeLinecap="round" />
+      <Line x1={18.36} y1={18.36} x2={19.78} y2={19.78} stroke={color} strokeWidth={2} strokeLinecap="round" />
+      <Line x1={1} y1={12} x2={3} y2={12} stroke={color} strokeWidth={2} strokeLinecap="round" />
+      <Line x1={21} y1={12} x2={23} y2={12} stroke={color} strokeWidth={2} strokeLinecap="round" />
+      <Line x1={4.22} y1={19.78} x2={5.64} y2={18.36} stroke={color} strokeWidth={2} strokeLinecap="round" />
+      <Line x1={18.36} y1={5.64} x2={19.78} y2={4.22} stroke={color} strokeWidth={2} strokeLinecap="round" />
+    </Svg>
+  );
+}
+
+// Icono monocromático de luna para tema oscuro.
+export function MoonIcon({ color = colors.text, size = 18 }: IconProps) {
+  return (
+    <Svg width={size} height={size} viewBox="0 0 24 24" fill="none">
+      <Path
+        d="M21 12.79A9 9 0 1111.21 3 7 7 0 0021 12.79z"
+        stroke={color}
+        strokeWidth={2}
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </Svg>
+  );
+}
+
+// Icono monocromático de usuarios para gestión administrativa.
+export function UsersIcon({ color = colors.text, size = 18 }: IconProps) {
+  return (
+    <Svg width={size} height={size} viewBox="0 0 24 24" fill="none">
+      <Path
+        d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2"
+        stroke={color}
+        strokeWidth={2}
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+      <Circle cx={9} cy={7} r={4} stroke={color} strokeWidth={2} />
+      <Path
+        d="M23 21v-2a4 4 0 00-3-3.87M16 3.13a4 4 0 010 7.75"
+        stroke={color}
+        strokeWidth={2}
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </Svg>
+  );
+}
+
+// Icono monocromático de gráfico/estadísticas.
+export function ChartBarIcon({ color = colors.text, size = 18 }: IconProps) {
+  return (
+    <Svg width={size} height={size} viewBox="0 0 24 24" fill="none">
+      <Line x1={18} y1={20} x2={18} y2={10} stroke={color} strokeWidth={2} strokeLinecap="round" />
+      <Line x1={12} y1={20} x2={12} y2={4} stroke={color} strokeWidth={2} strokeLinecap="round" />
+      <Line x1={6} y1={20} x2={6} y2={14} stroke={color} strokeWidth={2} strokeLinecap="round" />
+    </Svg>
+  );
+}
+
+// Icono monocromático de auditoría / registro.
+export function AuditIcon({ color = colors.text, size = 18 }: IconProps) {
+  return (
+    <Svg width={size} height={size} viewBox="0 0 24 24" fill="none">
+      <Path
+        d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"
+        stroke={color}
+        strokeWidth={2}
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+      <Path d="M14 2v6h6M16 13H8M16 17H8M10 9H8" stroke={color} strokeWidth={2} strokeLinecap="round" />
+    </Svg>
+  );
+}
+
 // Resuelve el icono monocromático correspondiente a una ruta de navegación.
 export function RouteIcon({ path, color = colors.text, size = 18 }: { path: string; color?: string; size?: number }) {
-  if (path === "/cartelera" || path === "/discover" || path === "/search") return <ConcertIcon color={color} size={size} />;
+  if (path === "/cartelera" || path === "/discover" || path === "/search" || path.startsWith("/admin/concerts")) {
+    return <ConcertIcon color={color} size={size} />;
+  }
   if (path === "/tickets") return <TicketIcon color={color} size={size} />;
   if (path === "/notifications") return <BellIcon color={color} size={size} />;
-  if (path === "/profile" || path === "/account-details" || path === "/profiles") return <UserIcon color={color} size={size} />;
+  if (path === "/profile" || path === "/account-details" || path === "/profiles") {
+    return <UserIcon color={color} size={size} />;
+  }
+  if (path.startsWith("/admin/users")) return <UsersIcon color={color} size={size} />;
   if (path.startsWith("/admin/promotions")) return <TagIcon color={color} size={size} />;
+  if (path.includes("statistics")) return <ChartBarIcon color={color} size={size} />;
+  if (path.includes("audit")) return <AuditIcon color={color} size={size} />;
+  if (path.startsWith("/admin/organizations") || path.startsWith("/admin/establishments")) {
+    return <BuildingIcon color={color} size={size} />;
+  }
   if (path.startsWith("/admin")) return <ShieldIcon color={color} size={size} />;
   if (path.startsWith("/organizer")) return <ClipboardIcon color={color} size={size} />;
   if (path.startsWith("/marketplace")) return <BuildingIcon color={color} size={size} />;
