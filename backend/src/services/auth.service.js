@@ -25,12 +25,18 @@ export class AuthService {
             throw new AppError(403, 'EMAIL_VERIFICATION_REQUIRED', 'Verificá tu email antes de iniciar sesión.');
     }
     async issue(repo, user) {
+        console.info('[AUTH_STAGE:issue:roles_start]');
         const roles = await repo.roles(user.id);
+        console.info('[AUTH_STAGE:issue:roles_done]', `roles_count=${roles.length}`);
         if (!roles.length)
             throw new AppError(403, 'NO_ROLES', 'La cuenta no tiene permisos asignados.');
+        console.info('[AUTH_STAGE:issue:generate_token]');
         const refreshToken = randomToken();
+        const accessToken = this.jwt.sign(user.id, roles);
+        console.info('[AUTH_STAGE:issue:insert_token]');
         await repo.insertToken('refresh', user.id, hashToken(refreshToken), new Date(Date.now() + this.env.REFRESH_TOKEN_EXPIRES_DAYS * 86400000));
-        return { user: publicUser(user), roles, accessToken: this.jwt.sign(user.id, roles), refreshToken, tokenType: 'Bearer', expiresIn: this.jwt.expiresIn };
+        console.info('[AUTH_STAGE:issue:done]');
+        return { user: publicUser(user), roles, accessToken, refreshToken, tokenType: 'Bearer', expiresIn: this.jwt.expiresIn };
     }
     async emailToken(repo, user, kind) {
         const token = randomToken();
@@ -68,37 +74,51 @@ export class AuthService {
         }
     }
     async login(email, password) {
+        console.info('[AUTH_STAGE:login:db_read_user_start]');
         const snapshot = await this.db.read(repo => repo.findUserByEmail(email));
+        console.info('[AUTH_STAGE:login:db_read_user_done]', `user_found=${Boolean(snapshot)}`);
+        console.info('[AUTH_STAGE:login:validate_credentials_start]');
         const valid = await bcrypt.compare(password, snapshot?.password_hash ?? await this.dummyHash);
+        console.info('[AUTH_STAGE:login:validate_credentials_done]', `valid=${valid}`);
         if (!valid || !snapshot?.password_hash)
             throw unauthorized();
+        console.info('[AUTH_STAGE:login:transaction_start]');
         return this.db.transaction(async (repo) => {
+            console.info('[AUTH_STAGE:login:lock_user_start]');
             const user = await repo.findUserById(snapshot.id, true);
             this.active(user);
             if (user.password_hash !== snapshot.password_hash)
                 throw unauthorized();
             this.verified(user);
+            console.info('[AUTH_STAGE:login:issue_start]');
             return this.issue(repo, user);
         });
     }
     async lockedToken(repo, kind, raw) {
+        console.info(`[AUTH_STAGE:lockedToken:${kind}:find_start]`);
         const hash = hashToken(raw);
         const initial = await repo.findToken(kind, hash);
+        console.info(`[AUTH_STAGE:lockedToken:${kind}:find_done]`, `token_found=${Boolean(initial)}`);
         if (!initial)
             throw unauthorized();
         // Every operation locks the user before token rows, including password reset.
+        console.info(`[AUTH_STAGE:lockedToken:${kind}:lock_user]`);
         const user = await repo.findUserById(initial.user_id, true);
         this.active(user);
+        console.info(`[AUTH_STAGE:lockedToken:${kind}:lock_token]`);
         const token = await repo.findToken(kind, hash, true);
         if (!token || token.expires_at.getTime() <= Date.now() || token.revoked_at || token.used_at)
             throw unauthorized();
         return { user, token };
     }
     refresh(raw) {
+        console.info('[AUTH_STAGE:refresh:transaction_start]');
         return this.db.transaction(async (repo) => {
             const { user, token } = await this.lockedToken(repo, 'refresh', raw);
             this.verified(user);
+            console.info('[AUTH_STAGE:refresh:invalidate_token_start]');
             await repo.invalidateToken('refresh', token.id);
+            console.info('[AUTH_STAGE:refresh:issue_start]');
             return this.issue(repo, user);
         });
     }

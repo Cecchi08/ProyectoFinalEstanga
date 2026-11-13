@@ -1,6 +1,7 @@
 import { readFileSync } from 'node:fs';
 import mysql from 'mysql2/promise';
 import { MysqlAuthRepository } from '../repositories/mysql.repository.js';
+import { AppError } from '../utils/app-error.util.js';
 
 function decode(value) {
     try { return decodeURIComponent(value); }
@@ -57,9 +58,10 @@ export function databaseConfig(source = process.env) {
         if (ca)
             // Aiven y proveedores con CA propia: se valida la cadena contra el certificado provisto.
             config.ssl = { ca, rejectUnauthorized: true };
-        else if (source.NODE_ENV === 'production')
+        else if (source.NODE_ENV === 'production') {
+            console.error('[DB_CONFIG_ERROR]: TLS hacia MySQL en producción requiere MYSQL_SSL_CA o MYSQL_SSL_CA_PATH para validar el certificado; no se desactiva la verificación en producción.');
             throw new Error('TLS hacia MySQL en producción requiere MYSQL_SSL_CA o MYSQL_SSL_CA_PATH para validar el certificado; no se desactiva la verificación en producción.');
-        else
+        } else
             config.ssl = { rejectUnauthorized: false };
     }
     return config;
@@ -78,20 +80,57 @@ export class MysqlDatabase {
         this.pool = pool;
     }
     async run(transaction, work) {
-        const connection = await this.pool.getConnection();
+        console.info(`[DB_STAGE:getConnection:start] (transaction=${transaction})`);
+        let connection;
+        try {
+            connection = await this.pool.getConnection();
+            console.info('[DB_STAGE:getConnection:success]');
+        } catch (connError) {
+            const code = connError && typeof connError === 'object' && 'code' in connError && connError.code ? ` (${connError.code})` : '';
+            console.error(`[DB_STAGE:getConnection:error]${code}:`, connError instanceof Error ? connError.message : String(connError));
+            if (connError instanceof Error && connError.stack) {
+                console.error('[DB_STAGE:getConnection:stack]', connError.stack);
+            }
+            throw connError;
+        }
         try {
             // timezone:'Z' controls conversion only; the server session must also use UTC.
+            console.info('[DB_STAGE:setTimeZone]');
             await connection.query("SET time_zone = '+00:00'");
-            if (transaction)
+            if (transaction) {
+                console.info('[DB_STAGE:beginTransaction]');
                 await connection.beginTransaction();
+            }
+            console.info('[DB_STAGE:work_start]');
             const result = await work(new MysqlAuthRepository(connection));
-            if (transaction)
+            console.info('[DB_STAGE:work_done]');
+            if (transaction) {
+                console.info('[DB_STAGE:commit]');
                 await connection.commit();
+            }
             return result;
         }
         catch (error) {
-            if (transaction)
-                await connection.rollback();
+            if (!(error instanceof AppError)) {
+                const code = error && typeof error === 'object' && 'code' in error && error.code ? ` (${error.code})` : '';
+                const msg = error instanceof Error ? error.message : String(error);
+                const safeMsg = msg
+                    .replace(/[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/g, '[REDACTED_EMAIL]')
+                    .replace(/'[^']*'/g, "'[REDACTED]'");
+                console.error(`[DB_STAGE:work_error]${code}:`, safeMsg);
+                if (error instanceof Error && error.stack) {
+                    console.error('[DB_STAGE:work_stack]', error.stack);
+                }
+            } else {
+                console.info(`[DB_STAGE:work_app_error] code=${error.code} status=${error.status}`);
+            }
+            if (transaction) {
+                try {
+                    await connection.rollback();
+                } catch (rollbackErr) {
+                    console.error('[DB_STAGE:rollback_error]:', rollbackErr instanceof Error ? rollbackErr.message : String(rollbackErr));
+                }
+            }
             throw error;
         }
         finally {

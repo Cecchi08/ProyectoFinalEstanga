@@ -9,6 +9,12 @@ export function authRoutes(controller, oauth, authenticate, env) {
     // (el trust proxy se define en app.js) para evitar ERR_ERL_FORWARDED_HEADER en producción.
     const proxyValidate = { forwardedHeader: false, xForwardedForHeader: false, trustProxy: false };
     router.use((_req, res, next) => { res.setHeader('Cache-Control', 'no-store'); res.setHeader('Pragma', 'no-cache'); next(); });
+    router.use((req, _res, next) => {
+        if (req.path === '/login' || req.path === '/refresh') {
+            console.info(`[AUTH_STAGE:route_enter] ${req.method} ${req.path}`);
+        }
+        next();
+    });
     router.use(rateLimit({ windowMs: env.AUTH_RATE_LIMIT_WINDOW_MS, limit: env.AUTH_RATE_LIMIT_MAX, standardHeaders: 'draft-8', legacyHeaders: false, message, validate: proxyValidate }));
     const sensitive = rateLimit({ windowMs: env.AUTH_RATE_LIMIT_WINDOW_MS, limit: 10, standardHeaders: 'draft-8', legacyHeaders: false, message, validate: proxyValidate });
     router.post('/register', sensitive, validateRequest(registerSchema), controller.register);

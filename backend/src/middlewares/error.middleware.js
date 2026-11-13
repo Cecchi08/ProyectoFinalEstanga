@@ -24,8 +24,18 @@ export function errorHandler() {
                 return;
             }
         }
-        // Do not log driver errors: they can contain SQL parameters, email addresses and hashes.
-        console.error('[INTERNAL_ERROR]', error instanceof Error ? error.name : 'UnknownError');
+        // Registro seguro para diagnóstico: nombre, código y stack en logs privados del servidor.
+        // Se anonimizan correos y parámetros entrecomillados para evitar fugar datos sensibles o SQL.
+        const errorName = error instanceof Error ? error.name : 'UnknownError';
+        const errorCode = error && typeof error === 'object' && 'code' in error && error.code ? ` (${String(error.code).slice(0, 50)})` : '';
+        const rawMessage = error instanceof Error ? error.message : String(error ?? '');
+        const safeMessage = rawMessage
+            .replace(/[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/g, '[REDACTED_EMAIL]')
+            .replace(/'[^']*'/g, "'[REDACTED]'");
+        console.error(`[INTERNAL_ERROR] ${errorName}${errorCode}: ${safeMessage}`);
+        if (error instanceof Error && error.stack) {
+            console.error('[INTERNAL_ERROR_STACK]', error.stack);
+        }
         res.status(500).json({ success: false, error: { code: 'INTERNAL_ERROR', message: 'Error interno del servidor.' } });
     };
 }
