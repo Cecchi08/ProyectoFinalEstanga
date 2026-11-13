@@ -6,6 +6,7 @@ import { loadEnv } from '../src/config/env.config.js';
 import { oauthConfig } from '../src/config/oauth.config.js';
 import { OAuthService } from '../src/services/oauth.service.js';
 import { HttpOAuthProviderClient } from '../src/services/oauth-provider.service.js';
+import { OAuthController } from '../src/controllers/oauth.controller.js';
 import { oauthCallbackSchema } from '../src/validators/auth.schemas.js';
 
 function baseEnv(overrides = {}) {
@@ -180,5 +181,51 @@ test('db.config.js conserva la configuración de conexión MySQL sin alteracione
   const dbConfigSrc = readFileSync(new URL('../src/config/db.config.js', import.meta.url), 'utf8');
   assert.ok(dbConfigSrc.includes('MYSQL_PUBLIC_URL'));
   assert.ok(dbConfigSrc.includes('export function databaseConfig'));
+});
+
+test('OAuthController usa sameSite=none, secure=true, httpOnly=true solo en producción y conserva el nombre de cookie para todos los proveedores', async () => {
+  const prodCtrl = new OAuthController(
+    { start: () => ({ url: 'https://example.com/auth', browser: 'browser-tok' }), callback: async () => ({ redirect: 'https://app.example.com/cb' }) },
+    { NODE_ENV: 'production' },
+  );
+  assert.deepEqual(prodCtrl.cookie, {
+    httpOnly: true,
+    secure: true,
+    sameSite: 'none',
+    path: '/',
+    maxAge: 600000,
+  });
+
+  const devCtrl = new OAuthController({}, { NODE_ENV: 'development' });
+  assert.deepEqual(devCtrl.cookie, {
+    httpOnly: true,
+    secure: false,
+    sameSite: 'lax',
+    path: '/',
+    maxAge: 600000,
+  });
+
+  for (const provider of ['facebook', 'google', 'github']) {
+    const setCookies = [];
+    const clearedCookies = [];
+    const res = {
+      cookie: (name, value, opts) => setCookies.push({ name, value, opts }),
+      clearCookie: (name, opts) => clearedCookies.push({ name, opts }),
+      redirect: () => {},
+    };
+    prodCtrl.start({ params: { provider }, query: { mode: 'web' } }, res);
+    assert.equal(setCookies[0].name, `venti_oauth_${provider}`);
+    assert.equal(setCookies[0].opts.sameSite, 'none');
+    assert.equal(setCookies[0].opts.secure, true);
+    assert.equal(setCookies[0].opts.httpOnly, true);
+
+    await prodCtrl.callback(
+      { params: { provider }, query: { state: 'a'.repeat(64), code: 'c1' }, headers: { cookie: `venti_oauth_${provider}=browser-tok` } },
+      res,
+    );
+    assert.equal(clearedCookies[0].name, `venti_oauth_${provider}`);
+    assert.equal(clearedCookies[0].opts.sameSite, 'none');
+    assert.equal(clearedCookies[0].opts.secure, true);
+  }
 });
 
