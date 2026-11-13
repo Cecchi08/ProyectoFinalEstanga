@@ -12,7 +12,7 @@ try {
         process.exitCode = 1;
     }
 } catch (error) {
-    const configMessage = error instanceof Error && /^(MYSQL_PUBLIC_URL|MYSQL_URL|La URL MySQL|Configuración MySQL)/.test(error.message)
+    const configMessage = error instanceof Error && /^(MYSQL_PUBLIC_URL|Configuración MySQL)/.test(error.message)
         ? error.message : undefined;
     const code = error && typeof error === 'object' && 'code' in error ? ` (${String(error.code).slice(0, 40)})` : '';
     console.error(configMessage ? `MySQL: ${configMessage}` : `MySQL: conexión fallida${code}. Verifique host, puerto, usuario, permisos y disponibilidad.`);

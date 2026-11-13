@@ -18,41 +18,29 @@ function readCertificateAuthority(source) {
     catch { throw new Error('MYSQL_SSL_CA_PATH no apunta a un archivo de certificado legible.'); }
 }
 
-// Conexión única y directa a MySQL, pensada para Vercel Serverless: manda la URL pública y,
-// si no existe, las variables sueltas. No hay bases ni hosts de respaldo.
-const URL_VARIABLES = ['MYSQL_PUBLIC_URL', 'DATABASE_URL'];
+// Conexión única y directa a MySQL mediante MYSQL_PUBLIC_URL (Vercel Serverless y local).
+// No hay variables alternativas ni fallbacks.
 export function databaseConfig(source = process.env) {
-    const connectionUrl = URL_VARIABLES.map(name => source[name]?.trim()).find(Boolean);
-    let config;
-    let tlsParameter = '';
-    if (connectionUrl) {
-        let url;
-        try { url = new URL(connectionUrl); }
-        catch { throw new Error('MYSQL_PUBLIC_URL o DATABASE_URL no es una URL válida.'); }
-        if (!['mysql:', 'mysql2:'].includes(url.protocol) || !url.hostname || !url.username || !url.pathname || url.pathname === '/')
-            throw new Error('La URL MySQL debe incluir host, usuario y nombre de base.');
-        config = {
-            host: url.hostname,
-            port: url.port ? Number(url.port) : 3306,
-            user: decode(url.username),
-            password: decode(url.password),
-            database: source.MYSQLDATABASE?.trim() || source.MYSQL_DATABASE?.trim()
-                || source.DB_NAME?.trim() || decode(url.pathname.slice(1)),
-        };
-        // Proveedores cloud (Aiven, Railway, PlanetScale…) exigen TLS: se activa si la URL lo pide o si hay CA configurada.
-        tlsParameter = (url.searchParams.get('ssl') ?? url.searchParams.get('sslmode') ?? url.searchParams.get('ssl-mode') ?? '').toLowerCase();
-    } else {
-        config = {
-            host: source.MYSQLHOST?.trim() || source.DB_HOST?.trim(),
-            port: source.MYSQLPORT || source.DB_PORT || '3306',
-            user: source.MYSQLUSER?.trim() || source.DB_USER?.trim(),
-            password: source.MYSQLPASSWORD ?? source.DB_PASSWORD ?? '',
-            database: source.MYSQLDATABASE?.trim() || source.MYSQL_DATABASE?.trim() || source.DB_NAME?.trim() || 'venti',
-        };
-        config.port = Number(config.port);
-    }
-    if (!config.host || !config.user || !config.database || !Number.isInteger(config.port) || config.port < 1 || config.port > 65535)
-        throw new Error('Configuración MySQL incompleta: configure MYSQL_PUBLIC_URL (o host, puerto, usuario y base).');
+    const connectionUrl = source.MYSQL_PUBLIC_URL?.trim();
+    if (!connectionUrl)
+        throw new Error('Configuración MySQL incompleta: configure MYSQL_PUBLIC_URL.');
+    let url;
+    try { url = new URL(connectionUrl); }
+    catch { throw new Error('MYSQL_PUBLIC_URL no es una URL válida.'); }
+    if (!['mysql:', 'mysql2:'].includes(url.protocol) || !url.hostname || !url.username || !url.pathname || url.pathname === '/')
+        throw new Error('MYSQL_PUBLIC_URL debe incluir protocolo mysql://, host, usuario y nombre de base.');
+    const port = url.port ? Number(url.port) : 3306;
+    if (!Number.isInteger(port) || port < 1 || port > 65535)
+        throw new Error('MYSQL_PUBLIC_URL contiene un puerto inválido.');
+    const config = {
+        host: url.hostname,
+        port,
+        user: decode(url.username),
+        password: decode(url.password),
+        database: decode(url.pathname.slice(1)),
+    };
+    // Proveedores cloud (Aiven) exigen TLS: se activa si la URL lo pide o si hay CA configurada.
+    const tlsParameter = (url.searchParams.get('ssl') ?? url.searchParams.get('sslmode') ?? url.searchParams.get('ssl-mode') ?? '').toLowerCase();
     const ca = readCertificateAuthority(source);
     if (['true', '1', 'required', 'require'].includes(tlsParameter) || ca) {
         if (ca)
@@ -67,12 +55,27 @@ export function databaseConfig(source = process.env) {
     return config;
 }
 
-export function createPool(env) {
+export function createPool(env = process.env) {
     const db = databaseConfig(env);
     // Límites ajustados a Serverless: pocas conexiones por instancia, corte rápido y keep-alive para evitar ETIMEDOUT.
     return mysql.createPool({ ...db, connectionLimit: env.DB_CONNECTION_LIMIT ?? 5, timezone: 'Z',
         supportBigNumbers: true, bigNumberStrings: true, charset: 'utf8mb4', multipleStatements: false,
         waitForConnections: true, queueLimit: 100, connectTimeout: 10000, enableKeepAlive: true, keepAliveInitialDelay: 10000 });
+}
+
+let sharedPool = null;
+export function getSharedPool(env = process.env) {
+    if (!sharedPool)
+        sharedPool = createPool(env);
+    return sharedPool;
+}
+
+export async function closeSharedPool() {
+    if (!sharedPool)
+        return;
+    const pool = sharedPool;
+    sharedPool = null;
+    await pool.end();
 }
 export class MysqlDatabase {
     pool;

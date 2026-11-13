@@ -48,7 +48,7 @@ CREATE USER 'venti_app'@'127.0.0.1' IDENTIFIED BY 'REEMPLAZAR_POR_PASSWORD_PROPI
 GRANT SELECT, INSERT, UPDATE, DELETE, EXECUTE ON venti.* TO 'venti_app'@'127.0.0.1';
 ```
 
-Completá ese usuario/password y `DB_HOST=127.0.0.1` en `.env`. Adaptá el host del usuario si MySQL está en otra máquina. `EXECUTE` es necesario porque las reservas del marketplace usan procedimientos almacenados (`sp_create_reservation_hold`, `sp_simulate_payment`).
+Completá ese usuario/password en `MYSQL_PUBLIC_URL` dentro de `backend/.env` (ej. `mysql://venti_app:PASSWORD@127.0.0.1:3306/venti`). Adaptá el host del usuario si MySQL está en otra máquina. `EXECUTE` es necesario porque las reservas del marketplace usan procedimientos almacenados (`sp_create_reservation_hold`, `sp_simulate_payment`).
 
 `backups/schema.sql` es el **esquema canónico vigente**. Crea la base, las tablas, los triggers, los procedimientos y el evento de vencimiento de reservas. También carga los datos iniciales:
 
@@ -60,7 +60,7 @@ No incluye usuarios, conciertos ni datos de demostración. El evento necesita `e
 
 **Base creada con una versión anterior de `schema.sql`.** Las diferencias van en `migrations/`. Cada migración se aplica **una sola vez**, con respaldo previo, mediante `node scripts/db-migrate.mjs` (desde `backend`; ver el encabezado de cada archivo).
 
-`backups/schema.sql` selecciona explícitamente la base `venti`. En el proveedor (Aiven/Railway), asegurate de que `MYSQLDATABASE` (o el nombre incluido en la URL) también sea `venti`.
+`backups/schema.sql` selecciona explícitamente la base `venti`. En el proveedor (Aiven), asegurate de que el nombre de la base incluido en `MYSQL_PUBLIC_URL` también sea `venti`.
 
 ## Backend, Expo y Web
 
@@ -103,8 +103,8 @@ Variables de entorno de producción (nombres y ejemplos ficticios):
 2. **En Railway (Servicio Backend)**:
    - `NODE_ENV=production`
    - `PORT=3000`
-   - `MYSQL_URL=mysql://usuario:password@mysql.railway.internal:3306/venti` (red privada de Railway; `MYSQL_PUBLIC_URL` se ignora automáticamente cuando `RAILWAY_SERVICE_ID` está presente)
-   - `MYSQLDATABASE=venti`
+   - `MYSQL_PUBLIC_URL=mysql://usuario:password@host:puerto/venti?ssl=true` (única variable de conexión MySQL en local y producción)
+   - `MYSQL_SSL_CA` o `MYSQL_SSL_CA_PATH` (certificado CA de Aiven cuando se usa TLS en producción)
    - `JWT_ACCESS_SECRET=<secreto-hex-96-caracteres>`
    - `BCRYPT_ROUNDS=12`
    - `CORS_ORIGINS=https://venti-web-ejemplo.vercel.app` (origen exacto HTTPS asignado por Vercel, sin barra final)

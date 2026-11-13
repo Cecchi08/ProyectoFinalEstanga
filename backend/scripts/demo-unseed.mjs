@@ -86,7 +86,7 @@ async function remove(connection, found) {
 }
 
 export async function demoFootprint(target) {
-    const connection = await mysql.createConnection({ host: target.host, port: target.port, user: target.user, password: target.password, database: target.database });
+    const connection = await mysql.createConnection({ host: target.host, port: target.port, user: target.user, password: target.password, database: target.database, ...(target.ssl ? { ssl: target.ssl } : {}) });
     try {
         const { counts, related } = await collect(connection);
         return { counts, related };
@@ -96,7 +96,7 @@ export async function demoFootprint(target) {
 }
 
 export async function unseedDemo(target, { apply = false, includeRelated = false } = {}) {
-    const connection = await mysql.createConnection({ host: target.host, port: target.port, user: target.user, password: target.password, database: target.database });
+    const connection = await mysql.createConnection({ host: target.host, port: target.port, user: target.user, password: target.password, database: target.database, ...(target.ssl ? { ssl: target.ssl } : {}) });
     try {
         await connection.beginTransaction();
         const found = await collect(connection);

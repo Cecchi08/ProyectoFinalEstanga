@@ -1196,12 +1196,14 @@ export function ResourceState({
   loading,
   error,
   empty,
+  emptyMessage,
   retry,
   skeleton,
 }: {
   loading: boolean;
   error: string;
   empty?: boolean;
+  emptyMessage?: string;
   retry(): void;
   skeleton?: "card" | "list" | "table" | boolean;
 }) {
@@ -1316,7 +1318,7 @@ export function ResourceState({
       >
         <Text style={{ color: colors.accent, fontSize: 18, fontWeight: "700" }}>♪</Text>
       </View>
-      <Copy muted>No hay resultados para mostrar.</Copy>
+      <Copy muted>{emptyMessage ?? "No hay resultados para mostrar."}</Copy>
     </View>
   ) : null;
 }

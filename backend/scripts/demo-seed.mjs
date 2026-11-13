@@ -46,11 +46,11 @@ export function demoTarget(source = process.env) {
 }
 
 export function remoteDemoTarget(source = process.env) {
-    // Usa la misma conexión única de backend/.env (MYSQL_PUBLIC_URL o las variables sueltas).
+    // Usa la misma conexión única de backend/.env (MYSQL_PUBLIC_URL).
     const config = databaseConfig(source);
     if (source.DEMO_CONFIRM_HOST !== config.host || source.DEMO_CONFIRM_DATABASE !== config.database)
         throw new Error('Base remota: DEMO_CONFIRM_HOST y DEMO_CONFIRM_DATABASE deben repetir exactamente el host y la base de la conexión.');
-    return { ...config, remote: true };
+    return { ...config, mysqlPublicUrl: source.MYSQL_PUBLIC_URL.trim(), remote: true };
 }
 export const resolveDemoTarget = (source = process.env) => (source.DEMO_TARGET === 'remote' ? remoteDemoTarget(source) : demoTarget(source));
 export function demoPassword(target, source = process.env) {
@@ -63,7 +63,7 @@ export function demoPassword(target, source = process.env) {
 class Outbox { messages = []; enqueue(message) { this.messages.push(message); } }
 
 export async function ensureDatabase(target) {
-    const connection = await mysql.createConnection({ host: target.host, port: target.port, user: target.user, password: target.password });
+    const connection = await mysql.createConnection({ host: target.host, port: target.port, user: target.user, password: target.password, ...(target.ssl ? { ssl: target.ssl } : {}) });
     try {
         if (target.remote) {
             const [tables] = await connection.query("SELECT COUNT(*) AS n FROM information_schema.TABLES WHERE TABLE_SCHEMA = ? AND TABLE_NAME IN ('users', 'concerts', 'orders')", [target.database]);
@@ -90,8 +90,9 @@ const COUNTED = ['users', 'user_roles', 'user_preferences', 'email_verification_
 export async function seedDemo(target = demoTarget(), log = console.log, password = demoPassword(target)) {
     const created = await ensureDatabase(target);
     log(created ? `Base ${target.database} creada desde backups/schema.sql.` : `Base ${target.database} existente: se completa sin borrar nada.`);
-    const env = loadEnv({ NODE_ENV: 'development', DB_HOST: target.host, DB_PORT: String(target.port), DB_USER: target.user, DB_PASSWORD: target.password,
-        DB_NAME: target.database, JWT_ACCESS_SECRET: randomBytes(48).toString('hex'), BCRYPT_ROUNDS: '10', SMTP_HOST: '127.0.0.1', SMTP_FROM: 'demo@venti.example',
+    const mysqlPublicUrl = target.mysqlPublicUrl ?? `mysql://${encodeURIComponent(target.user)}:${encodeURIComponent(target.password)}@${target.host}:${target.port}/${encodeURIComponent(target.database)}`;
+    const env = loadEnv({ NODE_ENV: 'development', MYSQL_PUBLIC_URL: mysqlPublicUrl,
+        JWT_ACCESS_SECRET: randomBytes(48).toString('hex'), BCRYPT_ROUNDS: '10', SMTP_HOST: '127.0.0.1', SMTP_FROM: 'demo@venti.example',
         AUTH_RATE_LIMIT_MAX: '100000' });
     const pool = createPool(env);
     const mailer = new Outbox();

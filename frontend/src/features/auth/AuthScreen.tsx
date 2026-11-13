@@ -66,6 +66,8 @@ export default function AuthScreen({ mode }: { mode: Mode }) {
   const [token, setToken] = useState(params.token ?? "");
   const [registeredSuccess, setRegisteredSuccess] = useState(false);
   const [verifiedSuccess, setVerifiedSuccess] = useState(false);
+  // Proveedor pendiente de confirmación explícita en Venti antes de redirigir (GitHub / Facebook).
+  const [confirmOAuthProvider, setConfirmOAuthProvider] = useState<"github" | "facebook" | null>(null);
 
   const requiresPhone = role === "ORGANIZADOR" || role === "VENUE" || role === "EMPRESA_SERVICIOS";
 
@@ -291,16 +293,75 @@ export default function AuthScreen({ mode }: { mode: Mode }) {
                 <View style={{ gap: 10, paddingTop: 6, borderTopWidth: 1, borderColor: colors.border }}>
                   <Copy muted>O continuá con</Copy>
                   <View style={styles.row}>
-                    {(["google", "github", "facebook"] as const).map((provider) => (
+                    {(
+                      [
+                        { id: "google", label: "Google" },
+                        { id: "github", label: "GitHub" },
+                        { id: "facebook", label: "Facebook" },
+                      ] as const
+                    ).map((provider) => (
                       <Button
-                        key={provider}
-                        title={provider}
+                        key={provider.id}
+                        title={provider.label}
                         secondary
                         disabled={action.busy}
-                        onPress={() => void action.run(() => startOAuth(provider))}
+                        onPress={() => {
+                          if (provider.id === "google") {
+                            // Google recibe prompt=select_account desde el backend y muestra su selector oficial.
+                            setConfirmOAuthProvider(null);
+                            void action.run(() => startOAuth("google"));
+                          } else {
+                            // GitHub y Facebook requieren confirmación explícita en Venti antes de abrir el proveedor.
+                            setConfirmOAuthProvider(provider.id);
+                          }
+                        }}
                       />
                     ))}
                   </View>
+                  {confirmOAuthProvider && (
+                    <View
+                      style={{
+                        padding: 12,
+                        borderRadius: radius.md,
+                        backgroundColor: colors.surfaceAlt,
+                        borderWidth: 1,
+                        borderColor: colors.accentBorder,
+                        gap: 10,
+                      }}
+                    >
+                      <Text style={{ color: colors.text, fontSize: 14, fontWeight: "700" }}>
+                        {confirmOAuthProvider === "github"
+                          ? "Confirmar ingreso con GitHub"
+                          : "Confirmar ingreso con Facebook"}
+                      </Text>
+                      <Copy size="small" muted>
+                        {confirmOAuthProvider === "github"
+                          ? "Vas a autorizar a Venti para acceder a tu perfil básico y email verificado de GitHub. Si ya tenés una sesión activa de GitHub en este dispositivo, GitHub la utilizará automáticamente salvo que cierres sesión en GitHub primero."
+                          : "Vas a continuar hacia Meta/Facebook Login para validar tu identidad y acceder con tu perfil y email. Venti solicitará reautenticación, aunque si hay una única sesión activa en el navegador Facebook no garantiza selector de múltiples cuentas."}
+                      </Copy>
+                      <View style={styles.row}>
+                        <Button
+                          title={
+                            confirmOAuthProvider === "github"
+                              ? "Autorizar con GitHub"
+                              : "Autorizar con Facebook"
+                          }
+                          disabled={action.busy}
+                          onPress={() => {
+                            const selected = confirmOAuthProvider;
+                            setConfirmOAuthProvider(null);
+                            void action.run(() => startOAuth(selected));
+                          }}
+                        />
+                        <Button
+                          title="Cancelar"
+                          secondary
+                          disabled={action.busy}
+                          onPress={() => setConfirmOAuthProvider(null)}
+                        />
+                      </View>
+                    </View>
+                  )}
                 </View>
               </Card>
               <Card variant="subtle" style={{ paddingVertical: 14 }}>

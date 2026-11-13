@@ -582,7 +582,8 @@ export default function Shell() {
                 <ScrollView style={{ flex: 1 }} showsVerticalScrollIndicator={false}>
                   {roleSelector}
                   {/* Se muestran todas las rutas disponibles en el menú lateral */}
-                  {renderMenuList(links, false)}
+                  {/* En móvil las notificaciones ya están en el header con su contador; se omiten del menú hamburguesa para evitar redundancia. */}
+                {renderMenuList(links.filter((link) => link.path !== "/notifications"), false)}
                   {mobileDrawerFooter}
                 </ScrollView>
               </View>

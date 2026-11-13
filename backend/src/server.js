@@ -1,13 +1,13 @@
 import { createApp } from './app.js';
 import { loadEnv } from './config/env.config.js';
-import { createPool, MysqlDatabase } from './config/db.config.js';
+import { closeSharedPool, getSharedPool, MysqlDatabase } from './config/db.config.js';
 import { SmtpMailer } from './services/email.service.js';
 
 if (process.env.VERCEL && !process.env.TRUST_PROXY_HOPS)
     process.env.TRUST_PROXY_HOPS = '1';
 
 const env = loadEnv();
-const pool = createPool(env);
+const pool = getSharedPool(env);
 const database = new MysqlDatabase(pool);
 const mailer = new SmtpMailer(env);
 export const app = createApp({ env, database, mailer });
@@ -18,7 +18,7 @@ async function main() {
         await pool.query('SELECT 1');
     }
     catch (error) {
-        await pool.end();
+        await closeSharedPool();
         const code = error && typeof error === 'object' && 'code' in error ? ` (${String(error.code).slice(0, 40)})` : '';
         throw new Error(`No se pudo conectar con MySQL${code}. Revise host, puerto, usuario, permisos y disponibilidad de la base.`,
             { cause: error });
@@ -33,7 +33,7 @@ async function main() {
         closing = true;
         const deadline = setTimeout(() => process.exit(1), 30000);
         deadline.unref();
-        server.close(() => { void Promise.allSettled([pool.end(), mailer.close()]).then(() => { clearTimeout(deadline); }); });
+        server.close(() => { void Promise.allSettled([closeSharedPool(), mailer.close()]).then(() => { clearTimeout(deadline); }); });
     };
     process.on('SIGINT', shutdown);
     process.on('SIGTERM', shutdown);

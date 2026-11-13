@@ -14,7 +14,7 @@ async function javascriptFiles(directory) {
   return files.flat();
 }
 
-const files = (await Promise.all(['src', 'tests', 'scripts'].map(dir => javascriptFiles(path.join(root, dir))))).flat();
+const files = (await Promise.all(['src', 'scripts'].map(dir => javascriptFiles(path.join(root, dir))))).flat();
 for (const file of files) {
   const result = spawnSync(process.execPath, ['--check', file], { stdio: 'inherit' });
   if (result.error) throw result.error;

@@ -24,6 +24,16 @@ export class OAuthService {
         for (const [key, value] of Object.entries({ client_id: config.clientId, redirect_uri: config.callback,
             response_type: 'code', scope: config.scope, state }))
             url.searchParams.set(key, value);
+        if (provider === 'google') {
+            // Parámetro oficial de Google OAuth 2.0 para mostrar siempre el selector de cuentas.
+            url.searchParams.set('prompt', 'select_account');
+        }
+        else if (provider === 'facebook') {
+            // Parámetro oficial de Meta/Facebook Login para solicitar reautenticación antes de continuar.
+            // Facebook no garantiza selector multi-cuenta si hay una única sesión activa en el navegador.
+            url.searchParams.set('auth_type', 'reauthenticate');
+        }
+        // GitHub OAuth Apps no soporta prompt=select_account ni re-consentimiento forzado; la confirmación explícita se realiza en Venti.
         if (provider !== 'facebook') {
             url.searchParams.set('code_challenge', pkceChallenge(verifier));
             url.searchParams.set('code_challenge_method', 'S256');

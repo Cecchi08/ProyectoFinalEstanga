@@ -1,4 +1,4 @@
-import { memo, useState } from "react";
+import { memo, useCallback, useEffect, useMemo, useState } from "react";
 import { Text, View } from "react-native";
 import { router } from "expo-router";
 import { useAuth } from "../../contexts/AuthContext";
@@ -24,6 +24,7 @@ import {
   useBento,
 } from "../../components/ui";
 import { Select } from "../../components/ui/Select";
+import { useDebouncedValue } from "../../hooks/useDebouncedValue";
 import { useResource } from "../../hooks/useResource";
 import { query } from "../../services/http";
 import type { Concert } from "../../types/api";
@@ -187,6 +188,58 @@ export default function ConcertList({
   const [filters, setFilters] = useState<Record<string, string>>({});
   const [expanded, setExpanded] = useState(false);
   const [invalid, setInvalid] = useState("");
+  // Debounce de 350 ms para ejecutar la búsqueda automática sin disparar una petición por cada tecla.
+  const debouncedDraft = useDebouncedValue(draft, 350);
+
+  // Detecta inmediatamente si hay algún filtro activo para ocultar recomendaciones y priorizar resultados.
+  const hasActiveFilters = useMemo(
+    () =>
+      Object.values(draft).some((v) => v.trim() !== "") ||
+      Object.values(filters).some((v) => v.trim() !== ""),
+    [draft, filters],
+  );
+
+  // Normaliza y valida los filtros antes de enviarlos al backend para evitar parámetros incompletos o inválidos.
+  const commitFilters = useCallback(
+    (source: Record<string, string>, close = false) => {
+      const min = source.min_price?.trim() ?? "";
+      const max = source.max_price?.trim() ?? "";
+      if ([min, max].some((value) => value && !PRICE.test(value))) {
+        setInvalid("Los precios son números con hasta dos decimales, sin signo $.");
+        return;
+      }
+      if (min && max && Number(min) > Number(max)) {
+        setInvalid("El precio mínimo no puede superar al máximo.");
+        return;
+      }
+      if (source.date_from && source.date_to && source.date_from > source.date_to) {
+        setInvalid("La fecha desde no puede ser posterior a la fecha hasta.");
+        return;
+      }
+      setInvalid("");
+      const next: Record<string, string> = {};
+      for (const [key, val] of Object.entries(source)) {
+        const trimmed = val.trim();
+        if (!trimmed) continue;
+        if (key === "date_from") next.date_from = fromArgDateTimeToUtcIso(trimmed, "00:00");
+        else if (key === "date_to") next.date_to = fromArgDateTimeToUtcIso(trimmed, "23:59");
+        else next[key] = trimmed;
+      }
+      // Evita solicitudes duplicadas si el conjunto normalizado de filtros no cambió.
+      setFilters((prev) => {
+        if (query(prev) === query(next)) return prev;
+        setPage(1);
+        return next;
+      });
+      if (close) setExpanded(false);
+    },
+    [],
+  );
+
+  useEffect(() => {
+    commitFilters(debouncedDraft);
+  }, [debouncedDraft, commitFilters]);
+
   const resource = useResource<Concert[]>(
     "/concerts" +
       query({
@@ -201,27 +254,9 @@ export default function ConcertList({
       }),
   );
   const set = (key: string, value: string) =>
-    setDraft({ ...draft, [key]: value });
+    setDraft((prev) => ({ ...prev, [key]: value }));
   // min_price/max_price match concerts with at least one active ticket type inside the range.
-  const apply = (close = false) => {
-    const [min, max] = [draft.min_price?.trim() ?? "", draft.max_price?.trim() ?? ""];
-    if ([min, max].some((value) => value && !PRICE.test(value)))
-      return setInvalid("Los precios son números con hasta dos decimales, sin signo $.");
-    if (min && max && Number(min) > Number(max))
-      return setInvalid("El precio mínimo no puede superar al máximo.");
-    if (draft.date_from && draft.date_to && draft.date_from > draft.date_to)
-      return setInvalid("La fecha desde no puede ser posterior a la fecha hasta.");
-    setInvalid("");
-    setFilters({
-      ...draft,
-      date_from: draft.date_from ? fromArgDateTimeToUtcIso(draft.date_from, "00:00") : "",
-      date_to: draft.date_to ? fromArgDateTimeToUtcIso(draft.date_to, "23:59") : "",
-      min_price: min,
-      max_price: max,
-    });
-    setPage(1);
-    if (close) setExpanded(false);
-  };
+  const apply = (close = false) => commitFilters(draft, close);
   return (
     <Page
       eyebrow={
@@ -378,8 +413,8 @@ export default function ConcertList({
         <Notice message={invalid} error />
       </Card>
 
-      {/* 2. RECOMENDACIONES DE VENTI INMEDIATAMENTE DEBAJO DE LOS FILTROS */}
-      {mode === "discover" && recActive && recs.length > 0 && (
+      {/* 2. RECOMENDACIONES DE VENTI (SOLO SIN FILTROS ACTIVOS) */}
+      {!hasActiveFilters && mode === "discover" && recActive && recs.length > 0 && (
         <View style={{ gap: 12, marginTop: 12, marginBottom: 8 }}>
           <SectionHeader
             title="Recomendados para vos"
@@ -405,7 +440,7 @@ export default function ConcertList({
         </View>
       )}
 
-      {mode === "discover" && recsOff && (
+      {!hasActiveFilters && mode === "discover" && recsOff && (
         <Card variant="featured" style={{ marginTop: 12, marginBottom: 8 }}>
           <View style={styles.between}>
             <View style={{ gap: 2, flex: 1, paddingRight: 8 }}>
@@ -423,18 +458,27 @@ export default function ConcertList({
         </Card>
       )}
 
-      {/* 3. RESTO DE LOS CONCIERTOS DISPONIBLES DEBAJO DE LAS RECOMENDACIONES */}
+      {/* 3. RESULTADOS FILTRADOS O CATÁLOGO COMPLETO SEGÚN ESTADO DE FILTROS */}
       {mode === "discover" && (
         <View style={{ marginTop: 12 }}>
           <SectionHeader
-            title="Todos los conciertos en cartelera"
-            subtitle="Explorá el catálogo completo y encontrá tu próximo show."
+            title={hasActiveFilters ? "Resultados de búsqueda" : "Todos los conciertos en cartelera"}
+            subtitle={
+              hasActiveFilters
+                ? "Mostrando únicamente los conciertos que coinciden con los filtros aplicados."
+                : "Explorá el catálogo completo y encontrá tu próximo show."
+            }
           />
         </View>
       )}
       <ResourceState
         {...resource}
-        empty={resource.result?.data.length === 0}
+        empty={!resource.loading && resource.result?.data.length === 0}
+        emptyMessage={
+          hasActiveFilters
+            ? "No encontramos conciertos que coincidan con los filtros aplicados."
+            : undefined
+        }
         retry={() => void resource.reload()}
         skeleton="card"
       />

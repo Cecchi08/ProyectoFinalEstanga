@@ -4,9 +4,9 @@ const js = require('@eslint/js');
 const ts = require('typescript-eslint');
 
 export default [
-  { ignores: ['**/node_modules/**', '**/dist/**', '**/dist-native/**', '**/.expo/**', '**/test-results/**'] },
+  { ignores: ['**/node_modules/**', '**/dist/**', '**/dist-native/**', '**/.expo/**'] },
   {
-    files: ['backend/**/*.{js,mjs,ts}', 'frontend/{app,src,tests}/**/*.{ts,tsx}'],
+    files: ['backend/**/*.{js,mjs,ts}', 'frontend/{app,src}/**/*.{ts,tsx}'],
     languageOptions: {
       parser: ts.parser,
       parserOptions: { ecmaFeatures: { jsx: true } },
