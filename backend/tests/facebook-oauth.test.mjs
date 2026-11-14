@@ -7,6 +7,7 @@ import { oauthConfig } from '../src/config/oauth.config.js';
 import { OAuthService } from '../src/services/oauth.service.js';
 import { HttpOAuthProviderClient } from '../src/services/oauth-provider.service.js';
 import { OAuthController } from '../src/controllers/oauth.controller.js';
+import { AuthService } from '../src/services/auth.service.js';
 import { oauthCallbackSchema } from '../src/validators/auth.schemas.js';
 
 function baseEnv(overrides = {}) {
@@ -226,6 +227,52 @@ test('OAuthController usa sameSite=none, secure=true, httpOnly=true solo en prod
     assert.equal(clearedCookies[0].name, `venti_oauth_${provider}`);
     assert.equal(clearedCookies[0].opts.sameSite, 'none');
     assert.equal(clearedCookies[0].opts.secure, true);
+  }
+});
+
+test('AuthService vincula automáticamente cuentas existentes por email para Facebook, Google y GitHub sin OAUTH_LINK_REQUIRED', async () => {
+  const env = loadEnv(baseEnv({ FACEBOOK_CONFIG_ID: '987654321098765' }));
+  for (const [provider, emailVerified] of [['facebook', false], ['github', false], ['google', true]]) {
+    const linked = [];
+    const existingUser = {
+      id: 77,
+      email: 'usuario@example.com',
+      first_name: 'Ana',
+      last_name: 'Pérez',
+      is_active: true,
+      email_verified_at: null,
+      token_version: 0,
+    };
+    const fakeRepo = {
+      oauthUser: async () => null,
+      findUserByEmail: async () => existingUser,
+      findUserById: async () => existingUser,
+      markVerified: async (id) => { existingUser.email_verified_at = new Date(); assert.equal(id, 77); },
+      invalidateUserTokens: async () => {},
+      linkOAuth: async (userId, prov, subject) => { linked.push({ userId, prov, subject }); },
+      access: async () => ({ roles: ['COMPRADOR'], permissions: ['tickets.purchase'] }),
+      roles: async () => ['COMPRADOR'],
+      insertToken: async () => {},
+    };
+    const fakeDb = { transaction: async (fn) => fn(fakeRepo), read: async (fn) => fn(fakeRepo) };
+    const fakeJwt = { sign: () => 'fake-jwt-access-token', expiresIn: 900 };
+    const authService = new AuthService(fakeDb, env, fakeJwt, { enqueue: () => {} });
+
+    const userId = await authService.oauthIdentity({
+      provider,
+      subject: `${provider}-sub-77`,
+      email: 'usuario@example.com',
+      emailVerified,
+      firstName: 'Ana',
+      lastName: 'Pérez',
+    });
+    assert.equal(userId, 77);
+    assert.deepEqual(linked, [{ userId: 77, prov: provider, subject: `${provider}-sub-77` }]);
+
+    const session = await authService.oauthSession(userId);
+    assert.equal(session.accessToken, 'fake-jwt-access-token');
+    assert.ok(session.refreshToken);
+    assert.equal(session.user.id, 77);
   }
 });
 

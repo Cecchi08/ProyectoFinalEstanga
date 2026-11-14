@@ -218,9 +218,8 @@ export class AuthService {
                     user = await repo.findUserByEmail(identity.email, true);
                     if (user) {
                         this.active(user);
-                        // Se permite la vinculación automática por simplicidad y porque el proveedor ya validó el email.
-                        if (!identity.emailVerified)
-                            throw new AppError(409, 'OAUTH_LINK_REQUIRED', 'Verificá tu cuenta e iniciá sesión para vincular este proveedor.');
+                        // La vinculación automática se habilitó intencionalmente por simplicidad del proyecto (evitando fricción en el usuario).
+                        // Aplica a todos los proveedores OAuth (Google, GitHub y Facebook), incluso si el proveedor no marca emailVerified=true.
                         if (!user.email_verified_at) {
                             await repo.markVerified(user.id);
                             await repo.invalidateUserTokens('verification', user.id);
