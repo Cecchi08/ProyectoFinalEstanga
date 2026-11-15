@@ -259,18 +259,30 @@ function EstablishmentForm({ establishment, organizations, done }: { establishme
             values={form.organization_id ? [form.organization_id] : []} onChange={(v) => set("organization_id", v[0] ?? "")} />
         )}
         <Codes label="Ciudad" items={cities.result?.data} values={form.city_id ? [form.city_id] : []} onChange={(v) => set("city_id", v[0] ?? "")} />
-        <View style={styles.row}>
-          <Field label="Nombre del establecimiento" required value={form.name ?? ""} onChangeText={(v) => set("name", v)} />
-          <Field label="Dirección" required value={form.address_line ?? ""} onChangeText={(v) => set("address_line", v)} />
+        <View style={styles.formRow}>
+          <View style={styles.grow}>
+            <Field label="Nombre del establecimiento" required value={form.name ?? ""} onChangeText={(v) => set("name", v)} />
+          </View>
+          <View style={styles.grow}>
+            <Field label="Dirección" required value={form.address_line ?? ""} onChangeText={(v) => set("address_line", v)} />
+          </View>
         </View>
         <Field label="Descripción (opcional)" value={form.description ?? ""} onChangeText={(v) => set("description", v)} />
-        <View style={styles.row}>
-          <Field label="Código postal (opcional)" value={form.postal_code ?? ""} onChangeText={(v) => set("postal_code", v)} />
-          <Field label="Teléfono (opcional)" value={form.phone ?? ""} onChangeText={(v) => set("phone", v)} />
+        <View style={styles.formRow}>
+          <View style={styles.grow}>
+            <Field label="Código postal (opcional)" value={form.postal_code ?? ""} onChangeText={(v) => set("postal_code", v)} />
+          </View>
+          <View style={styles.grow}>
+            <Field label="Teléfono (opcional)" value={form.phone ?? ""} onChangeText={(v) => set("phone", v)} />
+          </View>
         </View>
-        <View style={styles.row}>
-          <Field label="Email de contacto (opcional)" value={form.email ?? ""} onChangeText={(v) => set("email", v)} />
-          <Field label="Sitio web (opcional)" value={form.website ?? ""} onChangeText={(v) => set("website", v)} />
+        <View style={styles.formRow}>
+          <View style={styles.grow}>
+            <Field label="Email de contacto (opcional)" value={form.email ?? ""} onChangeText={(v) => set("email", v)} />
+          </View>
+          <View style={styles.grow}>
+            <Field label="Sitio web (opcional)" value={form.website ?? ""} onChangeText={(v) => set("website", v)} />
+          </View>
         </View>
         <ActionFeedback action={action} />
         <View style={styles.row}>
@@ -877,18 +889,30 @@ function VenueForm({ establishmentId, venueId, done }: { establishmentId: string
         <SectionHeader title={venueId ? `Editar ${venue?.name ?? "espacio"}` : "Nuevo espacio"} />
         <ResourceState {...current} retry={() => void current.reload()} />
         <Codes label="Tipo de espacio" items={catalogs.result?.data.venue_types} values={type} onChange={setType} />
-        <View style={styles.row}>
-          <Field label="Nombre del espacio" required value={form.name ?? ""} onChangeText={(v) => set("name", v)} />
-          <Field label="Precio por hora" required value={form.price_per_hour ?? ""} onChangeText={(v) => set("price_per_hour", v)} />
+        <View style={styles.formRow}>
+          <View style={styles.grow}>
+            <Field label="Nombre del espacio" required value={form.name ?? ""} onChangeText={(v) => set("name", v)} />
+          </View>
+          <View style={styles.grow}>
+            <Field label="Precio por hora" required value={form.price_per_hour ?? ""} onChangeText={(v) => set("price_per_hour", v)} />
+          </View>
         </View>
         <Field label="Descripción (opcional)" value={form.description ?? ""} onChangeText={(v) => set("description", v)} />
-        <View style={styles.row}>
-          <Field label="Capacidad de pie (opcional)" value={form.capacity_standing ?? ""} onChangeText={(v) => set("capacity_standing", v)} />
-          <Field label="Capacidad sentados (opcional)" value={form.capacity_seated ?? ""} onChangeText={(v) => set("capacity_seated", v)} />
+        <View style={styles.formRow}>
+          <View style={styles.grow}>
+            <Field label="Capacidad de pie (opcional)" value={form.capacity_standing ?? ""} onChangeText={(v) => set("capacity_standing", v)} />
+          </View>
+          <View style={styles.grow}>
+            <Field label="Capacidad sentados (opcional)" value={form.capacity_seated ?? ""} onChangeText={(v) => set("capacity_seated", v)} />
+          </View>
         </View>
-        <View style={styles.row}>
-          <Field label="Superficie m² (opcional)" value={form.area_m2 ?? ""} onChangeText={(v) => set("area_m2", v)} />
-          <Field label="Reserva mínima (minutos)" required value={form.min_booking_minutes ?? ""} onChangeText={(v) => set("min_booking_minutes", v)} />
+        <View style={styles.formRow}>
+          <View style={styles.grow}>
+            <Field label="Superficie m² (opcional)" value={form.area_m2 ?? ""} onChangeText={(v) => set("area_m2", v)} />
+          </View>
+          <View style={styles.grow}>
+            <Field label="Reserva mínima (minutos)" required value={form.min_booking_minutes ?? ""} onChangeText={(v) => set("min_booking_minutes", v)} />
+          </View>
         </View>
         <Copy muted>La reserva temporal dura 15 minutos hasta el pago, igual para todos los espacios.</Copy>
         <Codes label="Comodidades" multiple items={catalogs.result?.data.amenities} values={amenities} onChange={setAmenities} />

@@ -260,8 +260,8 @@ export default function PromotionsAdminScreen() {
           />
           <FormScope form={createForm}>
             <View style={{ gap: 10 }}>
-              <View style={styles.row}>
-                <View style={{ flex: 1, minWidth: 150 }}>
+              <View style={styles.formRow}>
+                <View style={{ flexGrow: 1, flexShrink: 1, flexBasis: 150, minWidth: 0 }}>
                   <Field
                     label="Código"
                     required
@@ -271,8 +271,8 @@ export default function PromotionsAdminScreen() {
                     onChangeText={(v) => setFormData({ ...formData, code: v.toUpperCase() })}
                   />
                 </View>
-                <View style={{ flex: 1, minWidth: 150 }}>
-                  <Copy size="label" muted style={{ marginBottom: 4 }}>Tipo de Descuento</Copy>
+                <View style={{ gap: 6, flexGrow: 1, flexShrink: 1, flexBasis: 200, minWidth: 0 }}>
+                  <Copy size="label" muted>Tipo de Descuento</Copy>
                   <View style={styles.row}>
                     <Button
                       title="Porcentaje (%)"
@@ -286,7 +286,7 @@ export default function PromotionsAdminScreen() {
                     />
                   </View>
                 </View>
-                <View style={{ flex: 1, minWidth: 120 }}>
+                <View style={{ flexGrow: 1, flexShrink: 1, flexBasis: 130, minWidth: 0 }}>
                   <Field
                     label={formData.discountType === "PERCENTAGE" ? "Porcentaje (%)" : "Importe ($)"}
                     required
@@ -305,8 +305,8 @@ export default function PromotionsAdminScreen() {
                 onChangeText={(v) => setFormData({ ...formData, description: v })}
               />
 
-              <View style={styles.row}>
-                <View style={{ flex: 1, minWidth: 140 }}>
+              <View style={styles.formRow}>
+                <View style={{ flexGrow: 1, flexShrink: 1, flexBasis: 140, minWidth: 0 }}>
                   <Field
                     label="Compra mínima ($)"
                     placeholder="0.00 para sin mínimo"
@@ -332,8 +332,8 @@ export default function PromotionsAdminScreen() {
                 </View>
               </View>
 
-              <View style={styles.row}>
-                <View style={{ flex: 1, minWidth: 140 }}>
+              <View style={styles.formRow}>
+                <View style={{ flexGrow: 1, flexShrink: 1, flexBasis: 140, minWidth: 0 }}>
                   <Field
                     label="Válido desde (AAAA-MM-DD)"
                     required
@@ -378,8 +378,8 @@ export default function PromotionsAdminScreen() {
                 value={formData.description}
                 onChangeText={(v) => setFormData({ ...formData, description: v })}
               />
-              <View style={styles.row}>
-                <View style={{ flex: 1, minWidth: 140 }}>
+              <View style={styles.formRow}>
+                <View style={{ flexGrow: 1, flexShrink: 1, flexBasis: 140, minWidth: 0 }}>
                   <Field
                     label="Límite máx. usos"
                     placeholder="Vacío para ilimitado"

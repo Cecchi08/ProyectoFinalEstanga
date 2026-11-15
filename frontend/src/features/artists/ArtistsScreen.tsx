@@ -397,20 +397,22 @@ function ArtistPitchToVenueForm({
           onChangeText={(v) => setForm({ ...form, event_name: v })}
           placeholder="Ej. Presentación de álbum en Mar del Plata"
         />
-        <View style={styles.row}>
+        <View style={styles.formRow}>
           <DateTimeField
             label="Fecha tentativa (opcional)"
             mode="date"
             value={form.event_date ?? ""}
             onChange={(v) => setForm({ ...form, event_date: v })}
           />
-          <Field
-            label="Presupuesto / Borderaux estimado (ARS, opcional)"
-            keyboardType="decimal-pad"
-            value={form.offered_budget ?? ""}
-            onChangeText={(v) => setForm({ ...form, offered_budget: v })}
-            placeholder="900000"
-          />
+          <View style={styles.grow}>
+            <Field
+              label="Presupuesto / Borderaux estimado (ARS, opcional)"
+              keyboardType="decimal-pad"
+              value={form.offered_budget ?? ""}
+              onChangeText={(v) => setForm({ ...form, offered_budget: v })}
+              placeholder="900000"
+            />
+          </View>
         </View>
         <Field
           label="Detalle de la propuesta, requerimiento técnico y formato"

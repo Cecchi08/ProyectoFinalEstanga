@@ -178,9 +178,13 @@ function OfferingForm({ providerId, offering, done }: { providerId: string; offe
           onChange={(v) => set("category_code", v[0] ?? "")} />
         <Field label="Nombre del servicio" required value={form.name ?? ""} onChangeText={(v) => set("name", v)} />
         <Field label="Descripción y alcance" multiline value={form.description ?? ""} onChangeText={(v) => set("description", v)} />
-        <View style={styles.row}>
-          <Field label="Equipamiento incluido (opcional)" multiline value={form.equipment ?? ""} onChangeText={(v) => set("equipment", v)} />
-          <Field label="Condiciones operativas (opcional)" multiline value={form.conditions ?? ""} onChangeText={(v) => set("conditions", v)} />
+        <View style={styles.formRow}>
+          <View style={styles.grow}>
+            <Field label="Equipamiento incluido (opcional)" multiline value={form.equipment ?? ""} onChangeText={(v) => set("equipment", v)} />
+          </View>
+          <View style={styles.grow}>
+            <Field label="Condiciones operativas (opcional)" multiline value={form.conditions ?? ""} onChangeText={(v) => set("conditions", v)} />
+          </View>
         </View>
         <Field label="URL de imagen del servicio (opcional)" value={form.image_url ?? ""} onChangeText={(v) => set("image_url", v)} />
         <View style={styles.row}>

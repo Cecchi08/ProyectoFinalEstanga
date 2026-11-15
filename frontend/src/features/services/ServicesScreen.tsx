@@ -158,10 +158,12 @@ export default function ServicesScreen() {
         <Field label="Buscar" value={draft.q ?? ""} onChangeText={(v) => set("q", v)} onSubmitEditing={apply} />
         <Codes label="Categoría" items={categories.result?.data} values={draft.category ? [draft.category] : []}
           onChange={(v) => set("category", v[0] ?? "")} />
-        <View style={styles.row}>
+        <View style={[styles.formRow, { alignItems: tab === "offerings" ? "flex-end" : "center" }]}>
           <Select label="Ciudad" path="/cities" values={draft.city_id ? [draft.city_id] : []} onChange={(v) => set("city_id", v[0] ?? "")} />
           {tab === "offerings" ? (
-            <Field label="Precio máximo (opcional)" keyboardType="decimal-pad" value={draft.max_price ?? ""} onChangeText={(v) => set("max_price", v)} />
+            <View style={{ flexGrow: 1, flexShrink: 1, flexBasis: 180, minWidth: 0 }}>
+              <Field label="Precio máximo (opcional)" keyboardType="decimal-pad" value={draft.max_price ?? ""} onChangeText={(v) => set("max_price", v)} />
+            </View>
           ) : (
             <Button title={`${draft.verified === "true" ? "✓ " : ""}Solo empresas verificadas`} secondary={draft.verified !== "true"}
               onPress={() => set("verified", draft.verified === "true" ? "" : "true")} />
@@ -307,7 +309,7 @@ function QuoteRequest({ offering }: { offering: ServiceOffering }) {
       <FormScope form={validation}>
         <SectionHeader title="Pedir cotización" subtitle="Enviá los requerimientos de tu evento a la empresa" />
         <Field label="Nombre del evento" required value={form.event_name ?? ""} onChangeText={(v) => set("event_name", v)} />
-        <View style={styles.row}>
+        <View style={styles.formRow}>
           <DateTimeField label="Fecha del evento" mode="date" required value={form.date ?? ""} onChange={(v) => set("date", v)} />
           <DateTimeField label="Horario de inicio" mode="time" required defaultTime="20:00" value={form.start ?? ""} onChange={(v) => set("start", v)} />
           <DateTimeField label="Horario de fin" mode="time" required defaultTime="23:00" value={form.end ?? ""} onChange={(v) => set("end", v)} />

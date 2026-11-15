@@ -631,9 +631,13 @@ export default function AuthScreen({ mode }: { mode: Mode }) {
                           </Copy>
                           <Copy size="small">{ROLE_GUIDES[role].allows}</Copy>
                         </View>
-                        <View style={styles.row}>
-                          <Field label="Nombre" required value={first} onChangeText={setFirst} autoComplete="given-name" />
-                          <Field label="Apellido" required value={last} onChangeText={setLast} autoComplete="family-name" />
+                        <View style={styles.formRow}>
+                          <View style={styles.grow}>
+                            <Field label="Nombre" required value={first} onChangeText={setFirst} autoComplete="given-name" />
+                          </View>
+                          <View style={styles.grow}>
+                            <Field label="Apellido" required value={last} onChangeText={setLast} autoComplete="family-name" />
+                          </View>
                         </View>
                         <Field
                           label="Teléfono de contacto"

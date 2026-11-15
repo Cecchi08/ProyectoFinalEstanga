@@ -124,6 +124,14 @@ const buildStyles = () => ({
     minWidth: 0,
     maxWidth: "100%",
   },
+  formRow: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 10,
+    alignItems: "flex-start",
+    minWidth: 0,
+    maxWidth: "100%",
+  },
   between: {
     flexDirection: "row",
     flexWrap: "wrap",
@@ -182,7 +190,7 @@ const buildStyles = () => ({
     paddingHorizontal: 14,
     paddingVertical: 11,
     fontSize: 15,
-    minHeight: 46,
+    minHeight: 48,
     minWidth: 0,
     maxWidth: "100%",
   },
@@ -908,8 +916,9 @@ export function Field({
   required = false,
   rules,
   error,
+  action,
   ...props
-}: TextInputProps & { label: string; required?: boolean; rules?: Rule[]; error?: string }) {
+}: TextInputProps & { label: string; required?: boolean; rules?: Rule[]; error?: string; action?: ReactNode }) {
   const form = useContext(FormContext);
   const id = useId();
   const [focused, setFocused] = useState(false);
@@ -922,62 +931,78 @@ export function Field({
   useEffect(() => form?.register(id, () => check.current()), [form, id]);
   const message = error ?? (touched || form?.submitted ? check.current() : null);
   const errorId = `${id}-error`;
+  const inputBox = (
+    <View
+      style={
+        action
+          ? { position: "relative", flexGrow: 1, flexShrink: 1, flexBasis: 180, minWidth: 0, justifyContent: "center" }
+          : { position: "relative", width: "100%", justifyContent: "center" }
+      }
+    >
+      <TextInput
+        accessibilityLabel={label}
+        aria-required={required || undefined}
+        aria-invalid={message ? true : undefined}
+        aria-describedby={message ? errorId : undefined}
+        placeholderTextColor={colors.muted}
+        selectionColor={colors.accent}
+        autoCapitalize="none"
+        {...props}
+        secureTextEntry={isPassword ? !showPassword : props.secureTextEntry}
+        onFocus={(event) => {
+          setFocused(true);
+          props.onFocus?.(event);
+        }}
+        onBlur={(event) => {
+          setFocused(false);
+          afterRelease(() => setTouched(true));
+          props.onBlur?.(event);
+        }}
+        style={[
+          styles.input,
+          isPassword ? { paddingRight: 44 } : null,
+          props.multiline ? { minHeight: 84, textAlignVertical: "top" } : null,
+          message ? { borderColor: colors.dangerBorder } : null,
+          focused && { borderColor: message ? colors.dangerBorder : colors.focus, boxShadow: shadows.focus },
+          props.style,
+        ]}
+      />
+      {isPassword && (
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel={showPassword ? "Ocultar contraseña" : "Mostrar contraseña"}
+          onPress={() => setShowPassword((prev) => !prev)}
+          hitSlop={8}
+          style={({ pressed }) => ({
+            position: "absolute",
+            right: 6,
+            width: 36,
+            height: 36,
+            alignItems: "center",
+            justifyContent: "center",
+            borderRadius: radius.sm,
+            backgroundColor: pressed ? colors.surfaceHover : "transparent",
+          })}
+        >
+          <PasswordEyeIcon off={!showPassword} color={showPassword ? colors.accent : colors.muted} />
+        </Pressable>
+      )}
+    </View>
+  );
   return (
     <View style={{ gap: 6, flexShrink: 1, minWidth: 0, maxWidth: "100%" }}>
       <Text style={[styles.label, focused && { color: colors.accentText }, message ? { color: colors.dangerText } : null]}>
         {label}
         {required ? <Text aria-hidden style={{ color: colors.accentText }}> *</Text> : null}
       </Text>
-      <View style={{ position: "relative", width: "100%", justifyContent: "center" }}>
-        <TextInput
-          accessibilityLabel={label}
-          aria-required={required || undefined}
-          aria-invalid={message ? true : undefined}
-          aria-describedby={message ? errorId : undefined}
-          placeholderTextColor={colors.muted}
-          selectionColor={colors.accent}
-          autoCapitalize="none"
-          {...props}
-          secureTextEntry={isPassword ? !showPassword : props.secureTextEntry}
-          onFocus={(event) => {
-            setFocused(true);
-            props.onFocus?.(event);
-          }}
-          onBlur={(event) => {
-            setFocused(false);
-            afterRelease(() => setTouched(true));
-            props.onBlur?.(event);
-          }}
-          style={[
-            styles.input,
-            isPassword ? { paddingRight: 44 } : null,
-            props.multiline ? { minHeight: 84, textAlignVertical: "top" } : null,
-            message ? { borderColor: colors.dangerBorder } : null,
-            focused && { borderColor: message ? colors.dangerBorder : colors.focus, boxShadow: shadows.focus },
-            props.style,
-          ]}
-        />
-        {isPassword && (
-          <Pressable
-            accessibilityRole="button"
-            accessibilityLabel={showPassword ? "Ocultar contraseña" : "Mostrar contraseña"}
-            onPress={() => setShowPassword((prev) => !prev)}
-            hitSlop={8}
-            style={({ pressed }) => ({
-              position: "absolute",
-              right: 6,
-              width: 36,
-              height: 36,
-              alignItems: "center",
-              justifyContent: "center",
-              borderRadius: radius.sm,
-              backgroundColor: pressed ? colors.surfaceHover : "transparent",
-            })}
-          >
-            <PasswordEyeIcon off={!showPassword} color={showPassword ? colors.accent : colors.muted} />
-          </Pressable>
-        )}
-      </View>
+      {action ? (
+        <View style={{ flexDirection: "row", flexWrap: "wrap", alignItems: "center", gap: 10, width: "100%", minWidth: 0 }}>
+          {inputBox}
+          {action}
+        </View>
+      ) : (
+        inputBox
+      )}
       {message ? (
         <Text nativeID={errorId} accessibilityLiveRegion="polite" style={{ color: colors.dangerText, ...type.small }}>
           {message}

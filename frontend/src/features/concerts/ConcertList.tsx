@@ -338,17 +338,21 @@ export default function ConcertList({
               borderColor: colors.border,
             }}
           >
-            <View style={styles.row}>
-              <Field
-                label="Nombre del concierto"
-                value={draft.name ?? ""}
-                onChangeText={(v) => set("name", v)}
-              />
-              <Field
-                label="Artista"
-                value={draft.artist ?? ""}
-                onChangeText={(v) => set("artist", v)}
-              />
+            <View style={styles.formRow}>
+              <View style={styles.grow}>
+                <Field
+                  label="Nombre del concierto"
+                  value={draft.name ?? ""}
+                  onChangeText={(v) => set("name", v)}
+                />
+              </View>
+              <View style={styles.grow}>
+                <Field
+                  label="Artista"
+                  value={draft.artist ?? ""}
+                  onChangeText={(v) => set("artist", v)}
+                />
+              </View>
             </View>
             <View style={styles.row}>
               {[
@@ -365,7 +369,7 @@ export default function ConcertList({
                 />
               ))}
             </View>
-            <View style={styles.row}>
+            <View style={styles.formRow}>
               <DateTimeField
                 label="Fecha desde"
                 mode="date"
@@ -379,19 +383,23 @@ export default function ConcertList({
                 onChange={(v) => set("date_to", v)}
               />
             </View>
-            <View style={styles.row}>
-              <Field
-                label="Precio mínimo"
-                keyboardType="decimal-pad"
-                value={draft.min_price ?? ""}
-                onChangeText={(v) => set("min_price", v)}
-              />
-              <Field
-                label="Precio máximo"
-                keyboardType="decimal-pad"
-                value={draft.max_price ?? ""}
-                onChangeText={(v) => set("max_price", v)}
-              />
+            <View style={styles.formRow}>
+              <View style={styles.grow}>
+                <Field
+                  label="Precio mínimo"
+                  keyboardType="decimal-pad"
+                  value={draft.min_price ?? ""}
+                  onChangeText={(v) => set("min_price", v)}
+                />
+              </View>
+              <View style={styles.grow}>
+                <Field
+                  label="Precio máximo"
+                  keyboardType="decimal-pad"
+                  value={draft.max_price ?? ""}
+                  onChangeText={(v) => set("max_price", v)}
+                />
+              </View>
             </View>
             {mode !== "discover" && (
               <View style={styles.row}>

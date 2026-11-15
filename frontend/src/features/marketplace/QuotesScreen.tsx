@@ -231,19 +231,25 @@ export function QuoteScreen() {
                 <Card>
                   <SectionHeader title="Responder con un presupuesto" />
                   {lines.map((line, index) => (
-                    <View key={index} style={styles.row}>
+                    <View key={index} style={styles.formRow}>
                       {(["description", "quantity", "unit_price"] as const).map((key) => (
-                        <Field key={key} label={`${{ description: "Ítem", quantity: "Cantidad", unit_price: "Precio unitario" }[key]} ${index + 1}`}
-                          value={line[key]} onChangeText={(v) => setLines(lines.map((current, i) => (i === index ? { ...current, [key]: v } : current)))} />
+                        <View key={key} style={styles.grow}>
+                          <Field label={`${{ description: "Ítem", quantity: "Cantidad", unit_price: "Precio unitario" }[key]} ${index + 1}`}
+                            value={line[key]} onChangeText={(v) => setLines(lines.map((current, i) => (i === index ? { ...current, [key]: v } : current)))} />
+                        </View>
                       ))}
                     </View>
                   ))}
                   <Button title="Agregar ítem" secondary onPress={() => setLines([...lines, { description: "", quantity: "1", unit_price: "" }])} />
-                  <View style={styles.row}>
-                    <Field label="Cargos" keyboardType="decimal-pad" value={form.fees ?? ""} onChangeText={(v) => set("fees", v)} />
-                    <Field label="Descuento" keyboardType="decimal-pad" value={form.discount ?? ""} onChangeText={(v) => set("discount", v)} />
+                  <View style={styles.formRow}>
+                    <View style={styles.grow}>
+                      <Field label="Cargos" keyboardType="decimal-pad" value={form.fees ?? ""} onChangeText={(v) => set("fees", v)} />
+                    </View>
+                    <View style={styles.grow}>
+                      <Field label="Descuento" keyboardType="decimal-pad" value={form.discount ?? ""} onChangeText={(v) => set("discount", v)} />
+                    </View>
                   </View>
-                  <View style={styles.row}>
+                  <View style={styles.formRow}>
                     <DateTimeField label="Válido hasta" mode="date" required value={form.valid_date ?? ""} onChange={(v) => set("valid_date", v)} />
                     <DateTimeField label="Hora límite (opcional)" mode="time" defaultTime="23:59" value={form.valid_time ?? ""} onChange={(v) => set("valid_time", v)} />
                   </View>

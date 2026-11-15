@@ -102,21 +102,25 @@ export default function AccountDetailsScreen() {
                 title="Editar datos de contacto"
                 subtitle="Completá tus nombres y un teléfono para coordinar reservas o compras."
               />
-              <View style={styles.row}>
-                <Field
-                  label="Nombre"
-                  required
-                  value={firstName}
-                  onChangeText={setFirstName}
-                  autoComplete="given-name"
-                />
-                <Field
-                  label="Apellido"
-                  required
-                  value={lastName}
-                  onChangeText={setLastName}
-                  autoComplete="family-name"
-                />
+              <View style={styles.formRow}>
+                <View style={styles.grow}>
+                  <Field
+                    label="Nombre"
+                    required
+                    value={firstName}
+                    onChangeText={setFirstName}
+                    autoComplete="given-name"
+                  />
+                </View>
+                <View style={styles.grow}>
+                  <Field
+                    label="Apellido"
+                    required
+                    value={lastName}
+                    onChangeText={setLastName}
+                    autoComplete="family-name"
+                  />
+                </View>
               </View>
               <Field
                 label="Teléfono"

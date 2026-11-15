@@ -47,7 +47,7 @@ export default function StatisticsScreen({ global = false }: { global?: boolean 
       }
     >
       <Card>
-        <View style={styles.row}>
+        <View style={[styles.formRow, { alignItems: "flex-end" }]}>
           <DateTimeField
             label="Fecha desde"
             mode="date"

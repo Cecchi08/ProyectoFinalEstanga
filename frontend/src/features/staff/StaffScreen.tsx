@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { Platform, Pressable, Text, View } from "react-native";
+import { Pressable, Text, View } from "react-native";
 import { CameraView, useCameraPermissions } from "expo-camera";
 import { api } from "../../services/api";
 import { ApiError } from "../../services/http";
@@ -8,7 +8,6 @@ import {
   Button,
   Card,
   Copy,
-  Field,
   Notice,
   Page,
   Pager,
@@ -195,7 +194,6 @@ function Scanner({
   concert: string;
   onValidated(): void;
 }) {
-  const [token, setToken] = useState("");
   const [permission, requestPermission] = useCameraPermissions();
   const [camera, setCamera] = useState(false);
   const [result, setResult] = useState("");
@@ -210,8 +208,31 @@ function Scanner({
     };
   }, []);
 
+  const openScanner = async () => {
+    if (busy || locked.current || !concert.trim()) return;
+    setResult("");
+    setValid(false);
+    try {
+      const granted =
+        permission?.granted || (await requestPermission()).granted;
+      if (granted) {
+        setCamera(true);
+      } else {
+        setResult(
+          "Permiso de cámara denegado. Habilitá el acceso a la cámara en tu dispositivo para escanear códigos QR.",
+        );
+      }
+    } catch {
+      setResult(
+        "No se pudo abrir la cámara. Verificá los permisos o que no esté en uso por otra aplicación.",
+      );
+    }
+  };
+
   const scan = async (value: string) => {
     if (locked.current) return;
+    const qrToken = value.trim();
+    if (!qrToken) return;
     locked.current = true;
     setBusy(true);
     setCamera(false);
@@ -222,7 +243,7 @@ function Scanner({
         "/tickets/validate",
         {
           method: "POST",
-          body: { concertId: concert.trim(), qrToken: value.trim() },
+          body: { concertId: concert.trim(), qrToken },
         },
       );
       setValid(data.result === "VALID");
@@ -240,51 +261,23 @@ function Scanner({
   const next = () => {
     locked.current = false;
     setResult("");
-    setToken("");
     setValid(false);
   };
   return (
     <Card variant="featured">
-      <SectionHeader title="Escáner de acceso" subtitle="Validación instantánea de tokens QR" />
-      <Field
-        label="Token QR"
-        value={token}
-        editable={!busy}
-        onChangeText={setToken}
-        autoCorrect={false}
-        onSubmitEditing={() => void scan(token)}
+      <SectionHeader
+        title="Escáner QR de acceso"
+        subtitle="Apuntá la cámara al código QR de la entrada para validar el ingreso."
       />
-      <View style={styles.row}>
-        <Button
-          title={busy ? "Validando…" : "Validar entrada"}
-          disabled={busy || locked.current || !concert.trim() || !token.trim()}
-          onPress={() => void scan(token)}
-        />
-        {Platform.OS !== "web" && !camera && (
+      {!camera && !result && (
+        <View style={styles.row}>
           <Button
-            title="Escanear con cámara"
-            secondary
+            title={busy ? "Validando entrada..." : "Escanear código QR"}
             disabled={busy || locked.current || !concert.trim()}
-            onPress={() => {
-              void (async () => {
-                try {
-                  const granted =
-                    permission?.granted || (await requestPermission()).granted;
-                  if (granted) setCamera(true);
-                  else
-                    setResult(
-                      "Permiso de cámara denegado. Podés ingresar el token manualmente.",
-                    );
-                } catch {
-                  setResult(
-                    "No se pudo abrir la cámara. Ingresá el token manualmente.",
-                  );
-                }
-              })();
-            }}
+            onPress={() => void openScanner()}
           />
-        )}
-      </View>
+        </View>
+      )}
       {camera && (
         <View style={{ gap: 10 }}>
           <View style={{ height: 320, borderRadius: 12, overflow: "hidden", position: "relative" }}>
@@ -295,9 +288,7 @@ function Scanner({
               onBarcodeScanned={(data) => void scan(data.data)}
               onMountError={() => {
                 setCamera(false);
-                setResult(
-                  "Cámara no disponible. Ingresá el token manualmente.",
-                );
+                setResult("La cámara no está disponible en este dispositivo.");
               }}
             />
             {/* Botón flotante visible sobre el visor para cerrar y liberar la cámara */}
@@ -333,11 +324,11 @@ function Scanner({
         </View>
       )}
       <Notice message={result} error={!valid} />
-      {result && <Button title="Siguiente entrada" onPress={next} />}
-      <Copy muted>
-        En escritorio podés pegar el token o usar un lector QR USB que escriba
-        el código y presione Enter.
-      </Copy>
+      {result && (
+        <View style={styles.row}>
+          <Button title="Escanear siguiente entrada" onPress={next} />
+        </View>
+      )}
     </Card>
   );
 }

@@ -304,18 +304,22 @@ export default function ConcertEditor() {
         {form.venue_id && !form.reservation_id && (
           <Copy muted>Para publicar en un espacio del marketplace hace falta una reserva confirmada que cubra la fecha: elegila arriba.</Copy>
         )}
-        <View style={styles.row}>
-          <Field
-            label="Lugar"
-            placeholder={form.venue_id || form.reservation_id ? "Se toma del espacio si lo dejás vacío" : "Nombre de la sala o predio"}
-            value={form.venue_name ?? ""}
-            onChangeText={(v) => set("venue_name", v)}
-          />
-          <Field
-            label="Dirección (opcional)"
-            value={form.address_line ?? ""}
-            onChangeText={(v) => set("address_line", v)}
-          />
+        <View style={styles.formRow}>
+          <View style={styles.grow}>
+            <Field
+              label="Lugar"
+              placeholder={form.venue_id || form.reservation_id ? "Se toma del espacio si lo dejás vacío" : "Nombre de la sala o predio"}
+              value={form.venue_name ?? ""}
+              onChangeText={(v) => set("venue_name", v)}
+            />
+          </View>
+          <View style={styles.grow}>
+            <Field
+              label="Dirección (opcional)"
+              value={form.address_line ?? ""}
+              onChangeText={(v) => set("address_line", v)}
+            />
+          </View>
         </View>
         <View style={styles.row}>
           <Select

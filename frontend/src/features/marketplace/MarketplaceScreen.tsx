@@ -170,9 +170,13 @@ export default function MarketplaceScreen() {
         <Codes label="Ciudad" items={cities.result?.data} values={draft.city_id ? [draft.city_id] : []} onChange={(v) => set("city_id", v[0] ?? "")} />
         <Codes label="Tipo de espacio" items={catalogs.result?.data.venue_types} values={types} onChange={setTypes} />
         <Codes label="Comodidades (todas)" multiple items={catalogs.result?.data.amenities} values={amenities} onChange={setAmenities} />
-        <View style={styles.row}>
-          <Field label="Capacidad mínima" keyboardType="number-pad" value={draft.min_capacity ?? ""} onChangeText={(v) => set("min_capacity", v)} />
-          <Field label="Precio máximo por hora" keyboardType="decimal-pad" value={draft.max_price ?? ""} onChangeText={(v) => set("max_price", v)} />
+        <View style={styles.formRow}>
+          <View style={styles.grow}>
+            <Field label="Capacidad mínima" keyboardType="number-pad" value={draft.min_capacity ?? ""} onChangeText={(v) => set("min_capacity", v)} />
+          </View>
+          <View style={styles.grow}>
+            <Field label="Precio máximo por hora" keyboardType="decimal-pad" value={draft.max_price ?? ""} onChangeText={(v) => set("max_price", v)} />
+          </View>
         </View>
         <View style={{ gap: 8, paddingTop: 8, borderTopWidth: 1, borderColor: colors.border }}>
           <Copy muted>Libre en una franja (hora de Argentina, opcional)</Copy>

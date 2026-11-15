@@ -460,23 +460,24 @@ export default function ConcertDetail() {
                         </View>
                       ) : (
                         <View style={{ gap: 8 }}>
-                          <View style={styles.row}>
-                            <View style={{ flex: 1, minWidth: 180 }}>
-                              <Field
-                                label="Código de descuento"
-                                placeholder="Ej: VENTI10, PROMO20"
-                                value={promoCodeInput}
-                                onChangeText={setPromoCodeInput}
-                                autoCapitalize="characters"
+                          <Field
+                            label="Código de descuento"
+                            placeholder="Ej: VENTI10, PROMO20"
+                            value={promoCodeInput}
+                            onChangeText={setPromoCodeInput}
+                            autoCapitalize="characters"
+                            onSubmitEditing={() => {
+                              if (!promoLoading && promoCodeInput.trim()) void applyPromo();
+                            }}
+                            action={
+                              <Button
+                                title={promoLoading ? "Aplicando..." : "Aplicar"}
+                                secondary
+                                disabled={promoLoading || !promoCodeInput.trim()}
+                                onPress={() => void applyPromo()}
                               />
-                            </View>
-                            <Button
-                              title={promoLoading ? "Aplicando..." : "Aplicar"}
-                              secondary
-                              disabled={promoLoading || !promoCodeInput.trim()}
-                              onPress={() => void applyPromo()}
-                            />
-                          </View>
+                            }
+                          />
                           {promoError ? (
                             <Copy size="small" color={colors.dangerText}>{promoError}</Copy>
                           ) : null}
@@ -496,8 +497,8 @@ export default function ConcertDetail() {
                       value={cardNumber}
                       onChangeText={(v) => setCardNumber(formatCardNumber(v))}
                     />
-                    <View style={styles.row}>
-                      <View style={{ flex: 1, minWidth: 140 }}>
+                    <View style={styles.formRow}>
+                      <View style={{ flexGrow: 1, flexShrink: 1, flexBasis: 160, minWidth: 0 }}>
                         <Field
                           label="Fecha de vencimiento (MM/AA)"
                           keyboardType="number-pad"
@@ -506,7 +507,7 @@ export default function ConcertDetail() {
                           onChangeText={(v) => setExpiry(formatCardExpiry(v))}
                         />
                       </View>
-                      <View style={{ flex: 1, minWidth: 120 }}>
+                      <View style={{ flexGrow: 1, flexShrink: 1, flexBasis: 140, minWidth: 0 }}>
                         <Field
                           label="Código de seguridad (CVV)"
                           keyboardType="number-pad"

@@ -286,8 +286,8 @@ export function PurchaseDetail() {
                     value={cardNumber}
                     onChangeText={(v) => setCardNumber(formatCardNumber(v))}
                   />
-                  <View style={styles.row}>
-                    <View style={{ flex: 1, minWidth: 140 }}>
+                  <View style={styles.formRow}>
+                    <View style={{ flexGrow: 1, flexShrink: 1, flexBasis: 160, minWidth: 0 }}>
                       <Field
                         label="Fecha de vencimiento (MM/AA)"
                         keyboardType="number-pad"
@@ -296,7 +296,7 @@ export function PurchaseDetail() {
                         onChangeText={(v) => setExpiry(formatCardExpiry(v))}
                       />
                     </View>
-                    <View style={{ flex: 1, minWidth: 120 }}>
+                    <View style={{ flexGrow: 1, flexShrink: 1, flexBasis: 140, minWidth: 0 }}>
                       <Field
                         label="Código de seguridad (CVV)"
                         keyboardType="number-pad"
