@@ -23,12 +23,11 @@ export default function NotificationsScreen() {
   // Marca una notificación puntual o todas como leídas y actualiza el contador global.
   const read = (id?: string) => action.run(async () => {
     await api.request(id ? `/notifications/${id}/read` : '/notifications/read-all', { method: 'POST' });
-    await Promise.all([resource.reload(), badge.reload()]);
   });
   // Cada notificación navega al recurso que anuncia; la pantalla destino vuelve a consultar a la API
   // para validar permisos en servidor y mostrar el estado actual. Al abrirla también se marca como leída.
   const open = (item: Notification, path: string) => {
-    if (!item.read_at) void api.request(`/notifications/${item.id}/read`, { method: 'POST' }).then(() => badge.reload()).catch(() => undefined);
+    if (!item.read_at) void api.request(`/notifications/${item.id}/read`, { method: 'POST' }).catch(() => undefined);
     router.push(path);
   };
   // Resuelve la ruta de destino según el tipo de notificación.

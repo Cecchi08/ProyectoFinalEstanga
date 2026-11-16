@@ -137,7 +137,6 @@ export default function AdminScreen() {
               done={async () => {
                 setSelected(undefined);
                 invalidateCatalogCache();
-                await resource.reload();
               }}
             />
           )}

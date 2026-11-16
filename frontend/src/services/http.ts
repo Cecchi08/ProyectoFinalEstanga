@@ -55,6 +55,12 @@ export class HttpClient {
   onSession: (session: Session | null) => void = () => {};
   // Un 403 puede indicar que un perfil fue revocado desde que se leyó /auth/me: la app recarga sus permisos.
   onForbidden: () => void = () => {};
+  // Notifica cada respuesta exitosa para mantener sincronizado el store reactivo de estado local.
+  onSuccess: (
+    path: string,
+    options: { method?: string; body?: unknown },
+    payload: Envelope<unknown>,
+  ) => void = () => {};
   constructor(
     readonly base: string,
     private storage: TokenStorage,
@@ -184,7 +190,11 @@ export class HttpClient {
       return this.request(path, options, false);
     }
     // Respuestas 204 sin cuerpo devuelven sobre vacío exitoso.
-    if (response.status === 204) return { success: true, data: undefined as T };
+    if (response.status === 204) {
+      const emptyEnvelope: Envelope<T> = { success: true, data: undefined as T };
+      this.onSuccess(path, options, emptyEnvelope as Envelope<unknown>);
+      return emptyEnvelope;
+    }
     let payload: unknown;
     try {
       payload = await response.json();
@@ -212,7 +222,9 @@ export class HttpClient {
     // Verifica la estructura estándar { success: true, data } del backend.
     if (!record(payload) || payload.success !== true || !("data" in payload) || payload.data === null)
       throw new ApiError("INVALID_RESPONSE", "Respuesta inesperada del servidor. Intentá nuevamente.", response.status);
-    return payload as unknown as Envelope<T>;
+    const envelope = payload as unknown as Envelope<T>;
+    this.onSuccess(path, options, envelope as Envelope<unknown>);
+    return envelope;
   }
 }
 // Normaliza la URL base de la API y evita usar por error la URL del propio frontend en Vercel/local.

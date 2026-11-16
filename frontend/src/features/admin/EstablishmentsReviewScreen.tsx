@@ -23,7 +23,6 @@ export default function EstablishmentsReviewScreen() {
         method: "POST",
         body: approve ? {} : { reason },
       });
-      await resource.reload();
       action.setMessage(approve ? `${item.name} aprobado y publicado.` : `${item.name} rechazado: vuelve a borrador con el motivo.`);
     });
   return (

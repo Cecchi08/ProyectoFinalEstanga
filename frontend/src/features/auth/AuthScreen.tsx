@@ -47,6 +47,27 @@ const titles: Record<Mode, string> = {
   "oauth-callback": "Conectando tu cuenta",
 };
 
+// Registro en memoria por token para evitar doble validación en StrictMode o re-montajes.
+const verifyRequests = new Map<string, Promise<string>>();
+
+function verifyEmailTokenOnce(token: string): Promise<string> {
+  const existing = verifyRequests.get(token);
+  if (existing) return existing;
+  const req = api
+    .request<{ message?: string }>("/auth/verify-email", {
+      method: "POST",
+      body: { token },
+      auth: false,
+    })
+    .then(({ data }) => data.message ?? "¡Tu correo electrónico ha sido validado exitosamente!")
+    .catch((err) => {
+      verifyRequests.delete(token);
+      throw err;
+    });
+  verifyRequests.set(token, req);
+  return req;
+}
+
 export default function AuthScreen({ mode }: { mode: Mode }) {
   const auth = useAuth();
   const action = useAction();
@@ -85,25 +106,27 @@ export default function AuthScreen({ mode }: { mode: Mode }) {
     }
     if (value) {
       setToken(value);
-      if (Platform.OS === "web" && typeof window !== "undefined" && mode === "verify-email") {
-        window.history.replaceState(null, "", window.location.pathname);
-      }
     }
   }, [url, params.token, mode]);
 
-  // Si se abre la pantalla con un token de validación en la URL, se ejecuta automáticamente la validación segura.
+  // Si se abre la pantalla con un token de validación en la URL, se ejecuta automáticamente la validación una sola vez.
   useEffect(() => {
-    if (mode === "verify-email" && token && !verifiedSuccess) {
-      void action.run(async () => {
-        const { data } = await api.request<{ message?: string }>("/auth/verify-email", {
-          method: "POST",
-          body: { token: token.trim() },
-          auth: false,
-        });
-        setVerifiedSuccess(true);
-        action.setMessage(data.message ?? "¡Tu correo electrónico ha sido validado exitosamente!");
-      });
-    }
+    const cleanToken = token.trim();
+    if (mode !== "verify-email" || !cleanToken || verifiedSuccess) return;
+    let active = true;
+    void action.run(async () => {
+      const message = await verifyEmailTokenOnce(cleanToken);
+      if (!active) return;
+      setVerifiedSuccess(true);
+      action.setMessage(message);
+      // Limpia el token de la barra de direcciones recién después de confirmar la validación.
+      if (Platform.OS === "web" && typeof window !== "undefined") {
+        window.history.replaceState(null, "", window.location.pathname);
+      }
+    });
+    return () => {
+      active = false;
+    };
   }, [mode, token, verifiedSuccess]);
 
   // Manejo del intercambio de credenciales OAuth de terceros.
@@ -378,7 +401,7 @@ export default function AuthScreen({ mode }: { mode: Mode }) {
             {!desktop && roleInfo}
           </>
         ) : mode === "verify-email" ? (
-          // Vista especializada para validación de correo sin entrada manual de token
+          // Vista especializada para validación de correo: al venir desde el enlace del mail muestra el resultado directo sin pedir email.
           <View
             style={{
               flexGrow: 1,
@@ -392,11 +415,15 @@ export default function AuthScreen({ mode }: { mode: Mode }) {
           >
             <Card variant="featured" style={{ gap: 16 }}>
               <View style={{ gap: 6 }}>
-                <Text style={styles.heading}>Validación de correo electrónico</Text>
+                <Text style={styles.heading}>
+                  {verifiedSuccess ? "¡Correo validado correctamente!" : "Validación de correo electrónico"}
+                </Text>
                 <Copy muted>
                   {verifiedSuccess
-                    ? "Tu dirección de correo fue confirmada correctamente."
-                    : "Confirmá tu dirección de email para activar tu cuenta de Venti."}
+                    ? "Tu dirección de correo fue confirmada correctamente. Tu cuenta ya está activa y lista para usar."
+                    : token
+                      ? "Estamos verificando el enlace de validación de tu cuenta..."
+                      : "Confirmá tu dirección de email para activar tu cuenta de Venti."}
                 </Copy>
               </View>
 
@@ -418,28 +445,36 @@ export default function AuthScreen({ mode }: { mode: Mode }) {
                     Estado de validación
                   </Text>
                   <Text style={{ color: verifiedSuccess ? colors.successText : colors.text, fontSize: 14, fontWeight: "700" }}>
-                    {verifiedSuccess ? "✓ Correo validado" : "⏳ Pendiente de validación"}
+                    {verifiedSuccess
+                      ? "✓ Correo validado correctamente"
+                      : action.busy
+                        ? "⏳ Validando enlace..."
+                        : action.error
+                          ? "✕ No se pudo validar el enlace"
+                          : "⏳ Pendiente de validación"}
                   </Text>
                 </View>
               </View>
 
-              {/* Información sobre el correo destinatario */}
-              <View style={{ gap: 10 }}>
-                <Field
-                  label="Correo electrónico"
-                  required
-                  value={email}
-                  onChangeText={setEmail}
-                  keyboardType="email-address"
-                  autoComplete="email"
-                  editable={!verifiedSuccess && !resendAction.busy}
-                />
-                <Copy muted size="small">
-                  {verifiedSuccess
-                    ? "Tu cuenta ya se encuentra activa. Podés iniciar sesión con normalidad."
-                    : "Te enviamos un enlace de validación a esta casilla. Hacé clic en el enlace para activar tu cuenta."}
-                </Copy>
-              </View>
+              {/* Solo se solicita el email si no vino un token en la URL o si la validación falló y necesita reenvío */}
+              {!verifiedSuccess && (!token || Boolean(action.error)) && (
+                <View style={{ gap: 10 }}>
+                  <Field
+                    label="Correo electrónico"
+                    required
+                    value={email}
+                    onChangeText={setEmail}
+                    keyboardType="email-address"
+                    autoComplete="email"
+                    editable={!resendAction.busy}
+                  />
+                  <Copy muted size="small">
+                    {action.error
+                      ? "El enlace puede haber vencido o ya haberse utilizado. Ingresá tu correo para solicitar uno nuevo."
+                      : "Ingresá tu casilla para reenviar el enlace de validación y activar tu cuenta."}
+                  </Copy>
+                </View>
+              )}
 
               {/* Mensajes de retroalimentación de la acción */}
               <ActionFeedback action={action} />
@@ -448,16 +483,16 @@ export default function AuthScreen({ mode }: { mode: Mode }) {
               {/* Acciones principales */}
               {verifiedSuccess ? (
                 <Button
-                  title="Iniciar sesión"
+                  title="Ir a iniciar sesión"
                   onPress={() => router.replace("/login")}
                 />
-              ) : (
+              ) : !token || Boolean(action.error) ? (
                 <Button
                   title="Reenviar correo de validación"
                   disabled={resendAction.busy}
                   onPress={handleResendVerification}
                 />
-              )}
+              ) : null}
             </Card>
 
             <Card variant="subtle" style={{ paddingVertical: 14 }}>

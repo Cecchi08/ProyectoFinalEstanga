@@ -10,6 +10,7 @@ import {
 import { AppState } from "react-native";
 import { invalidateCatalogCache } from "../hooks/useResource";
 import { api } from "../services/api";
+import { clearResourceStore } from "../services/resourceStore";
 import type { Access, Me, Permission, Role, Session, User } from "../types/api";
 import { can as allows, resolveActiveRole } from "../types/api";
 interface Auth {
@@ -159,9 +160,10 @@ export function AuthProvider({ children }: PropsWithChildren) {
         },
         // Acepta una sesión ya emitida (por ejemplo, tras OAuth o registro).
         accept: (session) => api.accept(session),
-        // Limpia caché de catálogos y revoca/elimina la sesión local.
+        // Limpia caché de catálogos, store reactivo y revoca/elimina la sesión local.
         logout: async () => {
           invalidateCatalogCache();
+          clearResourceStore();
           await api.logout();
         },
       }}

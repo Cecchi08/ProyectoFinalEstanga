@@ -132,7 +132,6 @@ export default function StaffScreen() {
             <Scanner
               key={selected.id}
               concert={selected.id}
-              onValidated={() => void attendees.reload()}
             />
           </View>
 
@@ -196,10 +195,8 @@ export default function StaffScreen() {
 // Subcomponente encargado exclusivamente del escaneo de códigos QR por cámara.
 function Scanner({
   concert,
-  onValidated,
 }: {
   concert: string;
-  onValidated(): void;
 }) {
   // Estado de permisos de cámara del dispositivo/navegador.
   const [permission, requestPermission] = useCameraPermissions();
@@ -263,11 +260,10 @@ function Scanner({
       );
       setValid(data.result === "VALID");
       setResult(scanMessage(data.result));
-      // Notifica en tiempo real al resto de vistas abiertas y refresca asistentes.
+      // Notifica en tiempo real al resto de vistas abiertas (el store ya actualiza la lista de asistentes).
       if (data.result === "VALID") {
         notifyTicketValidated();
       }
-      onValidated();
     } catch (e) {
       setResult(scanMessage(e instanceof ApiError ? e.code : "ERROR"));
     } finally {

@@ -1,5 +1,13 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { api } from "../services/api";
+import {
+  consumeSyncFlag,
+  getResourceSnapshot,
+  hasFreshSnapshot,
+  setResourceSnapshot,
+  subscribeResourcePath,
+  subscribeSilentSync,
+} from "../services/resourceStore";
 import type { Envelope } from "../types/api";
 
 // Endpoints de catálogos estáticos/semiestáticos elegibles para caché en memoria.
@@ -36,88 +44,134 @@ export function invalidateCatalogCache(): void {
   catalogCache.clear();
 }
 
-// Hook genérico de lectura GET con manejo de loading, error, caché de catálogos y cancelación por secuencia.
+function initialSnapshot<T>(path: string | null): Envelope<T> | null {
+  if (!path) return null;
+  const reactive = getResourceSnapshot<T>(path);
+  if (reactive) return reactive;
+  if (isCatalogEndpoint(path)) {
+    const cached = catalogCache.get(path);
+    if (cached && Date.now() - cached.timestamp < CATALOG_CACHE_TTL_MS) {
+      return cached.envelope as Envelope<T>;
+    }
+  }
+  return null;
+}
+
+// Hook reactivo de lectura: sincroniza estado local vía useState con el store global sin mostrar
+// animaciones de recarga cuando ya existen datos o cuando una mutación actualiza la vista.
 export function useResource<T>(path: string | null) {
-  // Inicializa con datos cacheados si el catálogo sigue vigente.
-  const [result, setResult] = useState<Envelope<T> | null>(() => {
-    if (path && isCatalogEndpoint(path)) {
-      const cached = catalogCache.get(path);
-      if (cached && Date.now() - cached.timestamp < CATALOG_CACHE_TTL_MS) {
-        return cached.envelope as Envelope<T>;
-      }
-    }
-    return null;
-  });
-  // Evita mostrar spinner si ya hay caché válida disponible.
-  const [loading, setLoading] = useState<boolean>(() => {
-    if (!path) return false;
-    if (isCatalogEndpoint(path)) {
-      const cached = catalogCache.get(path);
-      if (cached && Date.now() - cached.timestamp < CATALOG_CACHE_TTL_MS) {
-        return false;
-      }
-    }
-    return true;
-  });
+  const [result, setResult] = useState<Envelope<T> | null>(() => initialSnapshot<T>(path));
+  // Solo muestra estado de carga en el primer montaje frío sin instantánea previa en memoria.
+  const [loading, setLoading] = useState<boolean>(() => Boolean(path && !initialSnapshot<T>(path)));
   const [error, setError] = useState("");
-  // Contador incremental para descartar respuestas de requests obsoletos.
   const sequence = useRef(0);
+  const resultRef = useRef(result);
+  resultRef.current = result;
 
-  // Ejecuta o recarga la consulta al backend (opcionalmente omitiendo la caché).
-  const reload = useCallback(async (options?: { bypassCache?: boolean }) => {
-    const request = ++sequence.current;
-    // Si la ruta es null, limpia el estado sin consultar a la API.
-    if (!path) {
-      setLoading(false);
-      setResult(null);
-      setError("");
-      return;
-    }
-
-    const isCatalog = isCatalogEndpoint(path);
-    const bypass = options?.bypassCache ?? false;
-
-    // Responde desde caché si aplica y no expiró.
-    if (isCatalog && !bypass) {
-      const cached = catalogCache.get(path);
-      if (cached && Date.now() - cached.timestamp < CATALOG_CACHE_TTL_MS) {
-        setResult(cached.envelope as Envelope<T>);
+  // Ejecuta la carga inicial o sincroniza manualmente; si ya hay datos visibles nunca activa loading.
+  const reload = useCallback(
+    async (options?: { bypassCache?: boolean; silent?: boolean }) => {
+      const request = ++sequence.current;
+      if (!path) {
         setLoading(false);
+        setResult(null);
         setError("");
         return;
       }
-    }
 
-    setLoading(true);
-    setError("");
-    try {
-      const data = await api.request<T>(path);
-      // Solo aplica el resultado si sigue siendo la petición más reciente.
-      if (request === sequence.current) {
-        setResult(data);
-        if (isCatalog) {
-          catalogCache.set(path, {
-            envelope: data as Envelope<unknown>,
-            timestamp: Date.now(),
-          });
+      const isCatalog = isCatalogEndpoint(path);
+      const bypass = options?.bypassCache ?? false;
+      const silent = options?.silent ?? false;
+
+      if (isCatalog && !bypass) {
+        const cached = catalogCache.get(path);
+        if (cached && Date.now() - cached.timestamp < CATALOG_CACHE_TTL_MS) {
+          setResult(cached.envelope as Envelope<T>);
+          setResourceSnapshot(path, cached.envelope as Envelope<T>);
+          setLoading(false);
+          setError("");
+          return;
         }
       }
-    } catch (e) {
-      if (request === sequence.current) {
-        setError(e instanceof Error ? e.message : "Error inesperado.");
-      }
-    } finally {
-      if (request === sequence.current) setLoading(false);
-    }
-  }, [path]);
 
-  // Dispara la carga inicial o cuando cambia la ruta, e invalida al desmontar.
+      // Nunca muestra spinner ni skeleton cuando ya hay datos renderizados o es sincronización silenciosa.
+      const hasVisibleData = resultRef.current !== null || getResourceSnapshot<T>(path) !== null;
+      if (!silent && !hasVisibleData) {
+        setLoading(true);
+      }
+      setError("");
+      try {
+        const data = await api.request<T>(path);
+        if (request === sequence.current) {
+          setResult(data);
+          setResourceSnapshot(path, data);
+          if (isCatalog) {
+            catalogCache.set(path, {
+              envelope: data as Envelope<unknown>,
+              timestamp: Date.now(),
+            });
+          }
+        }
+      } catch (e) {
+        if (request === sequence.current) {
+          setError(e instanceof Error ? e.message : "Error inesperado.");
+        }
+      } finally {
+        if (request === sequence.current) setLoading(false);
+      }
+    },
+    [path],
+  );
+
+  // Al cambiar la ruta o montar: adopta al instante el estado del store reactivo sin refetch innecesario.
   useEffect(() => {
+    const snap = initialSnapshot<T>(path);
+    setResult(snap);
+    setError("");
+    if (!path) {
+      setLoading(false);
+      return;
+    }
+    if (snap && hasFreshSnapshot(path)) {
+      setLoading(false);
+      return;
+    }
+    if (snap && consumeSyncFlag(path)) {
+      setLoading(false);
+      void reload({ silent: true, bypassCache: true });
+      return;
+    }
+    if (snap) {
+      setLoading(false);
+      return;
+    }
     void reload();
     return () => {
       sequence.current++;
     };
-  }, [reload]);
+  }, [path, reload]);
+
+  // Suscripción reactiva: cualquier mutación sobre esta ruta actualiza useState automáticamente y re-renderiza.
+  useEffect(() => {
+    if (!path) return;
+    return subscribeResourcePath(path, () => {
+      const next = getResourceSnapshot<T>(path);
+      setResult(next);
+      setLoading(false);
+      setError("");
+    });
+  }, [path]);
+
+  // Sincronización silenciosa automática para vistas derivadas marcadas tras compras o cambios de permisos.
+  useEffect(() => {
+    if (!path) return;
+    const base = path.split("?")[0];
+    return subscribeSilentSync((prefix) => {
+      if (base.startsWith(prefix) && consumeSyncFlag(path)) {
+        void reload({ silent: true, bypassCache: true });
+      }
+    });
+  }, [path, reload]);
 
   return { result, loading, error, reload };
 }

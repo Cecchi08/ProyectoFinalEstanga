@@ -147,7 +147,6 @@ export default function PromotionsAdminScreen() {
       setIsCreating(false);
       setFormData(defaultForm);
       action.setMessage("Promoción creada con éxito.");
-      await resource.reload();
     });
 
   // Actualización de cupón existente.
@@ -170,7 +169,6 @@ export default function PromotionsAdminScreen() {
       editForm.reset();
       setEditingPromo(null);
       action.setMessage("Promoción actualizada con éxito.");
-      await resource.reload();
     });
 
   // Alternar estado activo / inactivo.
@@ -182,7 +180,6 @@ export default function PromotionsAdminScreen() {
         body: { status: nextStatus },
       });
       action.setMessage(`Promoción ${nextStatus === "ACTIVE" ? "activada" : "desactivada"}.`);
-      await resource.reload();
     });
 
   // Eliminación o desactivación de cupón.
@@ -191,7 +188,6 @@ export default function PromotionsAdminScreen() {
       const res = await api.request<{ deleted: boolean; deactivated: boolean }>(`/admin/promotions/${promo.id}/delete`, {
         method: "POST",
       });
-      await resource.reload();
       action.setMessage(
         res.data?.deleted
           ? "Promoción eliminada definitivamente."

@@ -32,7 +32,6 @@ export function PreferencesProvider({ children }: PropsWithChildren) {
         reload: resource.reload,
         setNotificationsEnabled: (enabled) => action.run(async () => {
           await api.request<Preferences>("/preferences/update", { method: "POST", body: { notifications_enabled: enabled } });
-          await resource.reload();
         }),
         setEnabled: (enabled) =>
           action.run(async () => {
@@ -40,7 +39,6 @@ export function PreferencesProvider({ children }: PropsWithChildren) {
               method: "POST",
               body: { recommendations_enabled: enabled },
             });
-            await resource.reload();
           }),
       }}
     >

@@ -52,7 +52,6 @@ export default function AccountDetailsScreen() {
           phone: phone.trim() ? phone.trim() : null,
         },
       });
-      await resource.reload();
       saveAction.setMessage("Datos personales guardados correctamente.");
     });
 

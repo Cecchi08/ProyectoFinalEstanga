@@ -158,8 +158,9 @@ export function PurchaseDetail() {
         setCancel(false);
         setNotice(data.notice ?? "");
         await notifications.reload();
-      } finally {
-        await resource.reload();
+      } catch (err) {
+        await resource.reload({ silent: true });
+        throw err;
       }
       action.setMessage("¡Compra realizada con éxito! Tus entradas y códigos QR ya están disponibles.");
     });
@@ -177,8 +178,9 @@ export function PurchaseDetail() {
         setCancel(false);
         setNotice(data.notice ?? "");
         await notifications.reload();
-      } finally {
-        await resource.reload();
+      } catch (err) {
+        await resource.reload({ silent: true });
+        throw err;
       }
       action.setMessage("Compra cancelada.");
     });

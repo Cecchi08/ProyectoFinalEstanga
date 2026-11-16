@@ -25,7 +25,6 @@ export default function OrganizationsScreen() {
   const verify = (organization: AdminOrganization, verified: boolean) =>
     action.run(async () => {
       await api.request(`/services/providers/${organization.id}/${verified ? "verify" : "unverify"}`, { method: "POST", body: {} });
-      await resource.reload();
       action.setMessage(verified ? `${organization.name} verificada.` : `Se quitó la verificación de ${organization.name}.`);
     });
   return (

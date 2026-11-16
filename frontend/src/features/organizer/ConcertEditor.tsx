@@ -154,7 +154,6 @@ export default function ConcertEditor() {
       );
       if (!editing) router.replace(`/organizer/${data.id}`);
       else {
-        await resource.reload();
         action.setMessage("Concierto guardado.");
       }
     });
@@ -170,7 +169,6 @@ export default function ConcertEditor() {
       setConfirm("");
       if (operation === "delete") router.replace("/organizer");
       else {
-        await resource.reload();
         action.setMessage("Estado actualizado.");
       }
     });
@@ -354,11 +352,10 @@ export default function ConcertEditor() {
           concertId={concert.id}
           ticket={type}
           mutable={mutable}
-          reload={resource.reload}
         />
       ))}
       {mutable && (
-        <TicketEditor concertId={concert.id} reload={resource.reload} />
+        <TicketEditor concertId={concert.id} />
       )}
     </View>
   ) : null;
@@ -587,12 +584,10 @@ function TicketEditor({
   concertId,
   ticket,
   mutable = true,
-  reload,
 }: {
   concertId: string;
   ticket?: TicketType;
   mutable?: boolean;
-  reload(): Promise<void>;
 }) {
   const [open, setOpen] = useState(false);
   const [confirm, setConfirm] = useState(false);
@@ -706,7 +701,6 @@ function TicketEditor({
                       },
                     );
                     setOpen(false);
-                    await reload();
                     action.setMessage("Entrada guardada.");
                   })
                 }
@@ -725,7 +719,6 @@ function TicketEditor({
                           await api.request(`/ticket-types/${ticket.id}/delete`, {
                             method: "POST",
                           });
-                          await reload();
                         })
                       : setConfirm(true)
                   }
@@ -762,7 +755,6 @@ function StaffPanel({ concertId, mutable }: { concertId: string; mutable: boolea
             onPress={() =>
               void action.run(async () => {
                 await api.request(`/concerts/${concertId}/staff/${member.user_id}/delete`, { method: "POST" });
-                await staff.reload();
               })
             }
           />
@@ -780,7 +772,6 @@ function StaffPanel({ concertId, mutable }: { concertId: string; mutable: boolea
                 validation.assertValid();
                 await api.request(`/concerts/${concertId}/staff/add`, { method: "POST", body: { email } });
                 setEmail("");
-                await staff.reload();
                 action.setMessage("Staff asignado.");
               })
             }

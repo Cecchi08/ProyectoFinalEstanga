@@ -55,7 +55,6 @@ export default function ProfilesScreen() {
       );
       auth.applyAccess(data);
       auth.setActiveRole(role);
-      await resource.reload();
       action.setMessage(
         data.changed
           ? `Perfil ${ROLE_LABELS[role]} activado.`
@@ -71,7 +70,6 @@ export default function ProfilesScreen() {
         body: reason ? { role, reason } : { role },
       });
       setReasons((current) => ({ ...current, [role]: "" }));
-      await resource.reload();
       action.setMessage(
         `Solicitud de ${ROLE_LABELS[role]} enviada. Un administrador la revisará.`,
       );

@@ -3,6 +3,7 @@ import { createContext, useContext, useEffect, useState, useCallback, useRef, ty
 import { AppState, Text, View } from 'react-native';
 import { usePathname } from 'expo-router';
 import { api } from '../services/api';
+import { subscribeUnreadCount } from '../services/resourceStore';
 import type { Notifications } from '../types/api';
 import { colors } from '../components/ui';
 
@@ -27,9 +28,13 @@ export function NotificationsProvider({ children }: PropsWithChildren) {
   useEffect(() => { void reload(); }, [path, reload]);
   // Sondeo periódico cada 60s mientras la app está activa y al regresar del segundo plano.
   useEffect(() => {
+    const unsubUnread = subscribeUnreadCount((nextUnread) => {
+      sequence.current++;
+      setUnread(nextUnread);
+    });
     const timer = setInterval(() => { if (AppState.currentState === 'active') void reload(); }, 60000);
     const listener = AppState.addEventListener('change', state => { if (state === 'active') void reload(); });
-    return () => { sequence.current++; clearInterval(timer); listener.remove(); };
+    return () => { sequence.current++; unsubUnread(); clearInterval(timer); listener.remove(); };
   }, [reload]);
   return <Context.Provider value={{ unread, reload }}>{children}</Context.Provider>;
 }
