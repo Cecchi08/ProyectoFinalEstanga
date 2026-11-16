@@ -9,7 +9,7 @@ const when = z.iso.datetime({ offset: true }).transform(value => new Date(value)
     .refine(value => value.getUTCFullYear() >= 2000 && value.getUTCFullYear() <= 9999, 'Fecha fuera de rango.');
 const code = z.string().trim().regex(/^[A-Z_]{1,40}$/);
 
-// A service company is an organization (same fields) plus its commercial profile.
+// Una empresa de servicios es una organización (mismos campos) más su perfil comercial.
 const providerFields = {
     description: text(16000),
     city_id: cityIdSchema.nullable().optional(),
@@ -26,7 +26,7 @@ const offeringFields = {
     category_code: code, name: nameSchema(150), image_url: imageSchema, description: text(16000), equipment: text(16000), conditions: text(16000),
     pricing_unit: pricing.default('QUOTE'), base_price: money.nullable().optional(),
 };
-// Without a list price the offering works only through quotes (pricing_unit QUOTE).
+// Sin precio de lista, el servicio funciona únicamente mediante presupuestos (pricing_unit QUOTE).
 const priced = (value: { pricing_unit?: string; base_price?: number | null }) => value.pricing_unit === undefined || value.pricing_unit === 'QUOTE' || value.base_price != null;
 export const offeringSchema = z.strictObject(offeringFields).refine(priced, 'Indicar base_price o usar pricing_unit QUOTE.');
 export const offeringPatchSchema = z.strictObject({ ...offeringFields, pricing_unit: pricing.optional() }).partial()
@@ -60,7 +60,7 @@ export const offeringQuerySchema = pageSchema.extend({
     q: nameSchema(150).optional(), city_id: idSchema.optional(), category: code.optional(), provider_id: idSchema.optional(),
     max_price: z.coerce.number().min(0).max(9999999999.99).optional(),
 }).strict();
-// Like venue availability: a calendar day in Argentina, or an exact window (then `available` is returned); at most 31 days.
+// Igual que la disponibilidad de espacios: un día calendario en Argentina o una franja exacta (devuelve `available`); máximo 31 días.
 export const serviceAvailabilitySchema = z.strictObject({ date: z.iso.date().optional(), from: when.optional(), to: when.optional() })
     .refine(q => q.date ? !q.from && !q.to : q.from && q.to, 'Enviar date, o from y to.')
     .transform(q => {

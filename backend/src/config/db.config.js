@@ -97,7 +97,7 @@ export class MysqlDatabase {
             throw connError;
         }
         try {
-            // timezone:'Z' controls conversion only; the server session must also use UTC.
+            // timezone:'Z' solo controla la conversión en el cliente; la sesión MySQL también debe usar UTC.
             console.info('[DB_STAGE:setTimeZone]');
             await connection.query("SET time_zone = '+00:00'");
             if (transaction) {

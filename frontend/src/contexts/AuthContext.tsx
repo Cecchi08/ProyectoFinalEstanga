@@ -20,15 +20,15 @@ interface Auth {
   permissions: Permission[];
   loading: boolean;
   error: string;
-  // GET /auth/me: login and refresh return the profiles but not the permissions,
-  // so screens wait for this before deciding what to show.
+  // GET /auth/me: login y refresh devuelven perfiles pero no permisos,
+  // por lo que las pantallas esperan esta carga antes de decidir qué mostrar.
   accessLoading: boolean;
   accessError: string;
   can(...codes: Permission[]): boolean;
   reloadAccess(): Promise<void>;
-  // Replaces the known profiles and permissions with what a write already returned
-  // (POST /me/profiles answers with the rebuilt access).
-  applyAccess(access: Access): void;
+  // Reemplaza los perfiles y permisos conocidos con la respuesta directa de una escritura
+  // (POST /me/profiles devuelve el acceso reconstruido).
+  applyAccess: (access: Access) => void;
   login(email: string, password: string): Promise<void>;
   accept(session: Session): Promise<void>;
   logout(): Promise<void>;
@@ -44,9 +44,9 @@ export function AuthProvider({ children }: PropsWithChildren) {
   const [preferredRole, setPreferredRole] = useState<Role | null>(null);
   const sequence = useRef(0);
   const userId = session?.user.id ?? null;
-  // silent: refresh in the background without unmounting guarded screens; a failure keeps the known access.
+  // silent: refresca permisos en segundo plano sin desmontar pantallas protegidas; si falla conserva los actuales.
   const loadAccess = useCallback(async (silent = false) => {
-    // A silent reload does not supersede a visible one in flight; both stop applying once the user changes.
+    // Una recarga silenciosa no pisa una visible en curso; ambas dejan de aplicarse si cambia el usuario.
     const request = silent ? sequence.current : ++sequence.current;
     if (!userId) {
       setAccess(null);
@@ -96,9 +96,8 @@ export function AuthProvider({ children }: PropsWithChildren) {
       sequence.current++;
     };
   }, [loadAccess]);
-  // Profiles change on the server (an ADMIN grants or revokes one): permissions are read again when the
-  // app comes back to the foreground, after a 403 and every minute while it is in use (a granted profile
-  // never produces a 403), at most once every few seconds.
+  // Los perfiles pueden cambiar en el servidor (un ADMIN otorga o revoca uno): se vuelven a leer al volver
+  // al primer plano, tras un 403 y cada minuto mientras la app esté activa (con un mínimo de 5s entre lecturas).
   const lastReload = useRef(0);
   useEffect(() => {
     if (!userId) return;
@@ -138,14 +137,17 @@ export function AuthProvider({ children }: PropsWithChildren) {
         error,
         accessLoading,
         accessError,
+        // Evalúa si el usuario posee alguno de los códigos de permiso indicados.
         can: (...codes) => allows(permissions, codes),
         reloadAccess: () => loadAccess(),
+        // Actualiza roles y permisos en memoria tras una escritura sin reconsultar /auth/me.
         applyAccess: (next) => {
           sequence.current++;
           setAccess({ roles: next.roles, permissions: next.permissions ?? [] });
           setAccessError("");
           setAccessLoading(false);
         },
+        // Autentica con email/contraseña y persiste la sesión devuelta por el backend.
         login: async (email, password) => {
           const result = await api.request<Session>("/auth/login", {
             method: "POST",
@@ -155,7 +157,9 @@ export function AuthProvider({ children }: PropsWithChildren) {
           await api.accept(result.data);
           setError("");
         },
+        // Acepta una sesión ya emitida (por ejemplo, tras OAuth o registro).
         accept: (session) => api.accept(session),
+        // Limpia caché de catálogos y revoca/elimina la sesión local.
         logout: async () => {
           invalidateCatalogCache();
           await api.logout();

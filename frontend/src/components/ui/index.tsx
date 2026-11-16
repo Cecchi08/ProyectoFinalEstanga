@@ -74,7 +74,7 @@ const buildStyles = () => ({
     flexGrow: 1,
     paddingHorizontal: 24,
     paddingTop: 26,
-    // Room below the last control so the floating "Volver arriba" never covers it.
+    // Espacio debajo del último control para que el botón flotante "Volver arriba" nunca lo tape.
     paddingBottom: 96,
     gap: 20,
     width: "100%",
@@ -198,7 +198,7 @@ const buildStyles = () => ({
 
 export const styles = StyleSheet.create(buildStyles());
 
-// Spread on every <Switch> so toggles use the brand instead of the platform default.
+// Se aplica en cada <Switch> para usar los colores de marca en lugar del estilo por defecto de la plataforma.
 const buildSwitchColors = () => ({
   trackColor: { false: colors.borderStrong, true: colors.accentBorder },
   thumbColor: colors.primary,
@@ -206,7 +206,7 @@ const buildSwitchColors = () => ({
 });
 export const switchColors = buildSwitchColors();
 
-// iOS/Android: a theme change refills the tokens; these shared objects are rebuilt from them.
+// iOS/Android: al cambiar de tema se rellenan los tokens; estos objetos compartidos se reconstruyen desde ellos.
 onNativePalette(() => {
   Object.assign(styles, StyleSheet.create(buildStyles()));
   Object.assign(switchColors, buildSwitchColors());
@@ -258,7 +258,7 @@ export function Page({
   const { compact, mobile } = useBento();
   const backToTop = () => {
     scroller.current?.scrollTo({ y: 0, animated: !reduceMotion });
-    // The button disappears at the top: move focus to the page title instead of losing it.
+    // El botón desaparece arriba: mueve el foco al título de la página en lugar de perderlo.
     if (Platform.OS === "web" && header.current) {
       const node = header.current as unknown as Focusable;
       node.setAttribute("tabindex", "-1");
@@ -438,7 +438,7 @@ export function StatTile({
   );
 }
 
-// Curated architectural musical cover: displays the real photo when present, or a sleek stage/studio graphic when absent.
+// Portada musical curada: muestra la foto real cuando existe, o una ilustración de escenario/estudio si falta.
 const hashSeed = (text: string) => {
   let h = 0;
   for (let i = 0; i < text.length; i++) h = (h * 31 + text.charCodeAt(i)) | 0;
@@ -830,7 +830,7 @@ export function ThemeToggle({ compact = false }: { compact?: boolean } = {}) {
   );
 }
 
-// A form registers its fields so a submit can check them all before calling the API.
+// Un formulario registra sus campos para poder validarlos todos juntos antes de llamar a la API.
 type FormApi = { submitted: boolean; register(id: string, check: () => string | null): () => void };
 const FormContext = createContext<FormApi | null>(null);
 
@@ -849,7 +849,7 @@ export function useForm() {
   );
   return {
     api,
-    // Called first inside action.run: throws so the request is never sent with invalid fields.
+    // Se llama primero dentro de action.run: lanza error para no enviar peticiones con campos inválidos.
     assertValid() {
       setSubmitted(true);
       const invalid = [...validators.current.values()].map((check) => check()).filter(Boolean).length;
@@ -872,8 +872,8 @@ export function useFormRegistration(id: string, check: () => string | null): boo
   return Boolean(form?.submitted);
 }
 
-// A blur caused by pressing a button must not show its error (and move the layout) before that click lands:
-// while a pointer is down on the web, the blur error waits for the release.
+// Un blur provocado al tocar un botón no debe mostrar su error (ni mover el layout) antes de que entre el clic:
+// mientras el puntero está presionado en web, el error del blur espera a que se suelte.
 let pointerDown = false;
 if (Platform.OS === "web" && typeof document !== "undefined") {
   document.addEventListener("pointerdown", () => { pointerDown = true; }, true);
@@ -1584,8 +1584,8 @@ export function QuantityStepper({
   );
 }
 
-// Re-synchronizes resource state with the backend when the app returns to foreground,
-// window regains focus, or network reconnects.
+// Resincroniza el estado del recurso con el backend cuando la app vuelve al primer plano,
+// la ventana recupera el foco o se restablece la conexión de red.
 export function useHoldSync(enabled: boolean, onSync: () => void) {
   const syncRef = useRef(onSync);
   syncRef.current = onSync;
@@ -1610,8 +1610,8 @@ export function useHoldSync(enabled: boolean, onSync: () => void) {
   }, [enabled]);
 }
 
-// Informative, approximate HOLD countdown indicator.
-// Never pauses, extends, or modifies the HOLD on the client; the backend remains the sole authority.
+// Indicador visual aproximado del tiempo restante de reserva temporal (HOLD).
+// Nunca pausa, extiende ni modifica el HOLD en el cliente; el backend es la única autoridad.
 export function HoldIndicator({
   expiresAt,
   active = true,

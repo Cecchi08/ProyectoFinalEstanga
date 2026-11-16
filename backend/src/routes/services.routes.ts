@@ -10,8 +10,8 @@ import { offeringPatchSchema, offeringSchema, providerPatchSchema, providerSchem
     from '../validators/services.schemas.ts';
 import type { Database } from '../types/management.types.ts';
 
-// EMPRESA_SERVICIOS. Public: published companies and offerings. Route gates by permission; the service adds
-// organization membership (OWNER/ADMIN to edit) and requester ownership on top.
+// EMPRESA_SERVICIOS. Público: empresas y servicios publicados. Las rutas filtran por permiso; el servicio suma
+// membresía de organización (OWNER/ADMIN para editar) y propiedad del solicitante.
 export function servicesRoutes(database: Database, authenticate: RequestHandler): Router {
     const router = Router();
     const controller = new ServicesController(new ServicesService(database));
@@ -38,7 +38,7 @@ export function servicesRoutes(database: Database, authenticate: RequestHandler)
     router.post('/services/providers/:id/archive', authenticate, manage, empty, controller.providerStatus('ARCHIVED'));
     router.post('/services/providers/:id/verify', authenticate, requirePermission(P.servicesAdmin), empty, controller.verify(true));
     router.post('/services/providers/:id/unverify', authenticate, requirePermission(P.servicesAdmin), empty, controller.verify(false));
-    // Members: any member reads the list; OWNER/ADMIN manage it (rules in the service, as for venue organizations).
+    // Miembros: cualquier miembro lee la lista; OWNER/ADMIN la gestionan (reglas en el servicio, igual que en espacios).
     router.post('/services/providers/:id/members', authenticate, manage, controller.members);
     router.post('/services/providers/:id/members/add', authenticate, manage, validateRequest(memberSchema), controller.addMember);
     router.post('/services/providers/:id/members/:userId/update', authenticate, manage, controller.updateMember);

@@ -21,14 +21,19 @@ import { query } from "../../services/http";
 import type { Statistics } from "../../types/api";
 import StatisticsCharts from "./StatisticsCharts";
 
+// Pantalla de estadísticas: muestra KPIs, gráficos y actividad para organizador o admin (global).
 export default function StatisticsScreen({ global = false }: { global?: boolean }) {
+  // Permite precargar un concierto específico desde el query param ?concert_id=...
   const params = useLocalSearchParams<{ concert_id?: string }>();
+  // Estado borrador de filtros mientras el usuario edita fechas o concierto.
   const [draft, setDraft] = useState({
     from: "",
     to: "",
     concert_id: typeof params.concert_id === "string" ? params.concert_id : "",
   });
+  // Filtros confirmados que disparan la consulta al backend.
   const [filters, setFilters] = useState(draft);
+  // Consulta estadísticas propias (/organizer/statistics) o globales (/admin/statistics).
   const resource = useResource<Statistics>(
     `${global ? "/admin" : "/organizer"}/statistics${query(filters)}`,
   );

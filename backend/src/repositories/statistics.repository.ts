@@ -2,14 +2,18 @@ import type { PoolConnection } from 'mysql2/promise';
 import type { Value } from '../types/management.types.ts';
 import type { StatisticsQuery } from '../validators/statistics.schemas.ts';
 import { ManagementRepository } from './management.repository.ts';
+// Repositorio de estadísticas: ejecuta consultas agregadas de ventas, asistencia y capacidad en MySQL.
 export class StatisticsRepository {
     private readonly sql: ManagementRepository;
     constructor(connection: PoolConnection) { this.sql = new ManagementRepository(connection); }
+    // Calcula métricas generales, serie diaria de ventas y actividad de órdenes según filtros.
     async summary(query: StatisticsQuery, organizerId?: string) {
+        // Filtros de alcance por organizador y/o concierto.
         const scope: string[] = ['TRUE']; const scopeValues: Value[] = [];
         if (organizerId) { scope.push('c.organizer_user_id = ?'); scopeValues.push(organizerId); }
         if (query.concert_id) { scope.push('c.id = ?'); scopeValues.push(query.concert_id); }
         const where = scope.join(' AND ');
+        // Filtros de rango de fechas sobre la creación de la orden.
         const dates: string[] = []; const dateValues: Value[] = [];
         if (query.from) { dates.push('o.created_at >= ?'); dateValues.push(query.from); }
         if (query.to) { dates.push('o.created_at < DATE_ADD(?, INTERVAL 1 DAY)'); dateValues.push(query.to); }
@@ -17,7 +21,7 @@ export class StatisticsRepository {
         const values = [...scopeValues, ...dateValues];
         const salesFrom = `FROM order_items oi JOIN orders o ON o.id = oi.order_id
             JOIN concerts c ON c.id = oi.concert_id WHERE ${filtered} AND o.status = 'CONFIRMED'`;
-        // Aggregate items separately from tickets: joining individual tickets here would multiply amounts.
+        // Agrega ítems por separado de tickets: unir tickets individuales multiplicaría los importes.
         const [sales] = await this.sql.rows(`SELECT COALESCE(SUM(oi.quantity), 0) AS tickets_sold,
             COALESCE(SUM(oi.line_total), 0) AS revenue, COUNT(DISTINCT o.id) AS confirmed_purchases ${salesFrom}`, values);
         const [tickets] = await this.sql.rows(`SELECT COALESCE(SUM(t.status = 'USED'), 0) AS tickets_used,

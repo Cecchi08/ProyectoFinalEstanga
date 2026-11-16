@@ -3,15 +3,21 @@ import Svg, { Rect, Text as SvgText } from 'react-native-svg';
 import { BentoGrid, Card, Copy, colors, money, styles, useBento } from '../../components/ui';
 import type { Statistics } from '../../types/api';
 
+// Componente de gráficos SVG para estadísticas: ventas diarias y proporción de entradas vendidas vs usadas.
 export default function StatisticsCharts({ data }: { data: Statistics }) {
+  // Toma los últimos 14 días con actividad para mantener legible el gráfico de barras.
   const days = data.sales_by_day.slice(-14);
+  // Escala máxima vertical para normalizar la altura de cada barra.
   const max = Math.max(1, ...days.map(day => day.tickets_sold));
+  // Ancho asignado a cada columna dentro del viewBox de 600px.
   const step = 600 / Math.max(1, days.length);
   const bento = useBento();
   const cols = bento.isDesktop ? 2 : 1;
 
   return (
     <BentoGrid>
+      {/* Tarjeta 1: gráfico de barras de ventas diarias */}
+      {/* Tarjeta 2: comparación de entradas vendidas vs entradas escaneadas en puerta */}
       <View style={bento.cell(1, cols)}>
         <Card style={{ flex: 1 }}>
           <View style={styles.between}>
@@ -53,6 +59,7 @@ export default function StatisticsCharts({ data }: { data: Statistics }) {
         </Card>
       </View>
 
+      {/* Tarjeta 2: comparación de entradas vendidas vs entradas escaneadas en puerta */}
       <View style={bento.cell(1, cols)}>
         <Card style={{ flex: 1 }}>
           <View style={styles.between}>

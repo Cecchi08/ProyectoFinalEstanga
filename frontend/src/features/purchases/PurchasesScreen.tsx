@@ -35,13 +35,18 @@ import {
   useHoldSync,
 } from "../../components/ui";
 
+// Etiqueta breve para compras ya reembolsadas.
 const refundLabel = (purchase: Purchase) =>
   purchase.refund_status === "REFUNDED" ? " · Reembolsada" : "";
 
+// Pantalla de historial de compras del usuario (pendientes, confirmadas y reembolsadas).
 export default function PurchasesScreen() {
+  // Página actual del listado de órdenes.
   const [page, setPage] = useState(1);
   const { mobile } = useBento();
+  // Consulta órdenes propias al backend.
   const resource = useResource<Purchase[]>(`/purchases/me?page=${page}`);
+  // Activa sincronización periódica mientras exista alguna reserva PENDING.
   const hasPending = Boolean(resource.result?.data.some((p) => p.status === "PENDING"));
   useHoldSync(hasPending, () => void resource.reload());
   return (

@@ -1,8 +1,8 @@
-// Client-side checks that mirror the server validators (backend/src/validators). They only help: the API always
-// validates again and answers 422. Each rule receives the raw value and returns a message or null.
+// Validaciones del lado del cliente que replican los validadores del servidor (backend/src/validators).
+// Solo asisten en la UI: la API siempre vuelve a validar y responde 422 si algo no cumple.
 export type Rule = (value: string) => string | null;
 
-// Same patterns as the backend: city (management.schemas.ts), person names and phone (auth.schemas.js).
+// Mismos patrones que el backend: ciudad (management.schemas.ts), nombres y teléfono (auth.schemas.js).
 export const CITY_PATTERN = /^[\p{L}\p{M}]+(?: +[\p{L}\p{M}]+)*$/u;
 export const PERSON_NAME_PATTERN = /^[\p{L}\p{M}][\p{L}\p{M} '’.-]*$/u;
 export const PHONE_PATTERN = /^\+?[\d\s()-]{6,30}$/;
@@ -30,6 +30,7 @@ const validDate = (value: string) => {
   return date.getUTCMonth() === Number(match[2]) - 1 && date.getUTCDate() === Number(match[3]);
 };
 
+// Reglas reutilizables por tipo de dato para formularios del frontend.
 export const rules = {
   required: (value: string) => (value.trim() ? null : "Este campo es obligatorio."),
   city: [pattern(CITY_PATTERN, "La ciudad solo admite letras y espacios."), maxLength(120)],
@@ -68,7 +69,7 @@ export const rules = {
   eventName: [noExecutable, maxLength(200)],
 } satisfies Record<string, Rule | Rule[] | ((max: number) => Rule[])>;
 
-// Type rules from the field label: the app's labels already state the format ("Fecha (AAAA-MM-DD)", "Precio", ...).
+// Infiere reglas de validación a partir de la etiqueta del campo (ej. "Fecha (AAAA-MM-DD)", "Precio", "CUIT").
 export function inferRules(label: string): Rule[] {
   const text = label.toLowerCase();
   if (text === "nombre" || text === "apellido") return rules.personName;

@@ -14,7 +14,7 @@ export function commerceRoutes(database: Database, authenticate: RequestHandler)
     const controller = new CommerceController(new CommerceService(database));
     router.use(['/purchases', '/tickets', '/promotions', '/admin/promotions'], authenticate, (_req, res, next) => { res.setHeader('Cache-Control', 'no-store'); next(); });
 
-    // Per-user limit on code checks: stops guessing promotion codes. Keyed by user id (the route is authenticated).
+    // Límite por usuario para validar códigos: evita fuerza bruta/adivinación de cupones. Se agrupa por user.id autenticado.
     const promotionLimiter = rateLimit({
         windowMs: 60_000,
         limit: 30,
@@ -48,7 +48,7 @@ export function commerceRoutes(database: Database, authenticate: RequestHandler)
     router.delete('/admin/promotions/:id', requirePermission(P.ordersReadAll, P.catalogsManage), controller.deletePromotion);
     router.post('/admin/promotions/:id/delete', requirePermission(P.ordersReadAll, P.catalogsManage), controller.deletePromotion);
 
-    // Every profile (guests included) keeps tickets.purchase; reading and cancelling stay owner-checked in the service.
+    // Todos los perfiles (incluidos invitados) conservan tickets.purchase; lectura y cancelación validan propiedad en el servicio.
     router.post('/purchases', requirePermission(P.ticketsPurchase), validateRequest(purchaseSchema), controller.create);
     router.get('/purchases/me', controller.list('purchases'));
     router.post('/purchases/me', controller.list('purchases'));
@@ -59,7 +59,7 @@ export function commerceRoutes(database: Database, authenticate: RequestHandler)
     router.get('/tickets', controller.list('tickets'));
     router.post('/tickets', controller.list('tickets'));
 
-    // Authorized per concert in the service: a concert_staff assignment for this concert, or tickets.validate_all (ADMIN).
+    // Autorizado por concierto en el servicio: asignación en concert_staff para ese concierto o tickets.validate_all (ADMIN).
     router.post('/tickets/validate', validateRequest(validationSchema), controller.validate);
     router.get('/tickets/:id', controller.ticket);
     router.post('/tickets/:id', controller.ticket);

@@ -1,5 +1,6 @@
 import { AppError, unauthorized } from '../utils/app-error.util.js';
 import { can } from '../utils/access.util.js';
+// Verifica el token Bearer de acceso y reconstruye el Principal vigente desde la base de datos.
 export function authenticate(tokens, auth) {
     return async (req, _res, next) => {
         const match = /^Bearer ([^\s]+)$/i.exec(req.headers.authorization ?? '');
@@ -10,8 +11,8 @@ export function authenticate(tokens, auth) {
         next();
     };
 }
-// Any of the given permission codes. The principal is rebuilt from the database on every request,
-// so revoking a role or a grant takes effect immediately.
+// Exige al menos uno de los códigos de permiso indicados. Como el Principal se reconstruye en cada
+// petición desde la base, revocar un rol o permiso surte efecto de inmediato.
 export function requirePermission(...codes) {
     return (req, _res, next) => {
         if (!req.user)
@@ -21,6 +22,7 @@ export function requirePermission(...codes) {
         next();
     };
 }
+// Middleware de alcance por concierto (dueño organizador o staff asignado).
 function concertGuard(service, scope, parameter) {
     return async (req, _res, next) => {
         if (!req.user)

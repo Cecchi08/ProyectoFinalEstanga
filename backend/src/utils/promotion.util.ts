@@ -29,10 +29,10 @@ export interface PromotionQuote {
 
 const refuse = (status: number, code: string, message: string): never => { throw new AppError(status, code, message, undefined); };
 
-// Codes are stored and compared in upper case without surrounding spaces; the column collation is case-insensitive anyway.
+// Los códigos se guardan y comparan en mayúsculas sin espacios; igualmente la colación de columna es case-insensitive.
 export const normalizePromotionCode = (code: string): string => code.trim().toUpperCase();
 
-// Discount in integer cents. PERCENTAGE rounds half-up to the cent; both kinds are capped at the subtotal so the total never goes negative.
+// Descuento en centavos enteros. PERCENTAGE redondea half-up al centavo; ambos tipos se topan al subtotal para evitar totales negativos.
 export function promotionDiscount(promotion: Pick<PromotionRow, 'discount_type' | 'discount_value'>, subtotal: bigint): bigint {
     if (subtotal <= 0n) return 0n;
     const value = cents(promotion.discount_value);
@@ -41,7 +41,7 @@ export function promotionDiscount(promotion: Pick<PromotionRow, 'discount_type' 
     return raw > subtotal ? subtotal : raw < 0n ? 0n : raw;
 }
 
-// Business rules shared by POST /promotions/validate and POST /purchases. Throws AppError with a stable code.
+// Reglas de negocio compartidas por POST /promotions/validate y POST /purchases. Lanza AppError con código estable.
 export function applyPromotion(promotion: PromotionRow, context: { concertId: string; subtotal: bigint; now: Date }): PromotionQuote {
     if (promotion.status === 'INACTIVE') refuse(409, 'PROMOTION_INACTIVE', 'La promoción no está activa.');
     if (promotion.status === 'EXPIRED' || promotion.valid_until.getTime() < context.now.getTime())

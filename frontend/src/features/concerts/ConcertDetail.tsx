@@ -94,9 +94,11 @@ export default function ConcertDetail() {
     }, 0)
     : 0;
 
+  // Descuento y total final calculados según la promoción aplicada.
   const discountAmount = appliedPromotion ? Number(appliedPromotion.discount) : 0;
   const finalPayTotal = appliedPromotion ? Number(appliedPromotion.total) : estimatedTotal;
 
+  // Valida el código promocional contra el backend para el carrito actual.
   const applyPromo = async () => {
     const trimmed = promoCodeInput.trim().toUpperCase();
     if (!trimmed) {
@@ -129,17 +131,20 @@ export default function ConcertDetail() {
     }
   };
 
+  // Quita el cupón aplicado y limpia el campo de descuento.
   const removePromo = () => {
     setAppliedPromotion(null);
     setPromoCodeInput("");
     setPromoError("");
   };
 
+  // Cantidad total de entradas seleccionadas entre todos los tipos.
   const totalSelectedTickets = selectedItems.reduce(
     (acc, item) => acc + (Number.isInteger(item.quantity) && item.quantity > 0 ? item.quantity : 0),
     0,
   );
 
+  // Crea la orden con clave de idempotencia y confirma el pago simulado para emitir los QR.
   const pay = () =>
     action.run(async () => {
       if (!concert) return;

@@ -29,25 +29,27 @@ function sale(concert: ConcertRow, type: TicketRow, now: Date): void {
 
 export class CommerceService {
     constructor(private readonly database: Database) {}
+    // Ejecuta una unidad de trabajo contra MySQL en modo lectura o transacción ACID.
     private run<T>(transaction: boolean, work: (repo: CommerceRepository) => Promise<T>): Promise<T> {
         const callback = (repo: { connection: ConstructorParameters<typeof CommerceRepository>[0] }) => work(new CommerceRepository(repo.connection));
         return transaction ? this.database.transaction(callback) : this.database.read(callback);
     }
+    // Crea una orden PENDING reservando stock por 15 minutos con soporte de idempotencia y cupones.
     async create(input: PurchaseInput, user: Principal, idempotencyKey: string): Promise<{ purchase: unknown; replayed: boolean }> {
         const parsed = purchaseSchema.parse(input);
         const items = [...parsed.items].sort((a, b) => ascending(a.ticketTypeId, b.ticketTypeId));
         // Mismo contenido = mismo hash, sin importar el orden de los ítems del cliente.
-        // The promotion code joins the hash only when present, so purchases without a promotion keep their historical hash.
+        // El código de promoción se suma al hash solo si existe para conservar compatibilidad histórica.
         const promotionCode = parsed.promotionCode ? normalizePromotionCode(parsed.promotionCode) : undefined;
         const requestHash = createHash('sha256').update(JSON.stringify({ concertId: parsed.concertId ?? null, items: items.map(item => [item.ticketTypeId, item.quantity]),
             ...(promotionCode ? { promotionCode } : {}) })).digest('hex');
-        // Resolve the immutable parent outside the transaction: never establish a stale RR snapshot before locks.
+        // Resuelve el concierto padre fuera de la transacción para no fijar un snapshot viejo antes de tomar locks.
         const first = await this.run(false, async repo => required(await repo.type(items[0].ticketTypeId)));
         const concertId = parsed.concertId ?? first.concert_id;
         try {
             return await this.run(true, async repo => {
                 const concert = required(await repo.concert(concertId));
-                // Locking read after the concert lock: a committed original is always visible here, so retries never re-reserve.
+                // Lectura con bloqueo tras bloquear el concierto: si un reintento llega tarde, devuelve la orden original.
                 const original = await repo.byIdempotencyKey(user.id, idempotencyKey, true);
                 if (original) return this.replay(repo, original, requestHash);
                 const types: TicketRow[] = [];
@@ -57,6 +59,7 @@ export class CommerceService {
                     types.push(type);
                 }
                 const now = await repo.now();
+                // La reserva dura hasta 15 minutos o hasta el inicio del concierto (lo que ocurra primero).
                 let expires = Math.min(now.getTime() + 15 * 60000, concert.start_datetime.getTime());
                 for (const [index, type] of types.entries()) {
                     sale(concert, type, now);
@@ -67,8 +70,8 @@ export class CommerceService {
                         fail(409, 'INSUFFICIENT_STOCK', 'No hay entradas suficientes.');
                     if (type.sale_end) expires = Math.min(expires, type.sale_end.getTime());
                 }
-                // The server prices the promotion from the locked ticket prices; nothing monetary comes from the client.
-                // The use is NOT consumed here: it is consumed when the purchase is confirmed (see transition).
+                // El servidor calcula el descuento con los precios bloqueados; nunca confía en montos del cliente.
+                // El cupón NO se consume aquí: recién se descuenta cuando la compra se confirma (ver transition).
                 let promotion: { id: string; code: string; discount: string } | undefined;
                 if (promotionCode) {
                     const found = await repo.promotions.byCode(promotionCode) ?? fail(404, 'PROMOTION_NOT_FOUND', 'El código promocional no existe.');
@@ -82,13 +85,12 @@ export class CommerceService {
                 return { purchase: { ...required(await repo.purchase(id)), items: await repo.items(id) }, replayed: false };
             });
         } catch (error) {
-            // A concurrent request with the same key committed first and the unique index rejected this insert:
-            // this attempt rolled back completely (no stock, reservation or payment), so return the original.
+            // Si otra petición concurrente con la misma Idempotency-Key ganó el insert, devuelve la compra original.
             if (!isIdempotencyCollision(error)) throw error;
             return this.run(false, async repo => this.replay(repo, required(await repo.byIdempotencyKey(user.id, idempotencyKey)), requestHash));
         }
     }
-    // Preview for the checkout screen: same rules and same arithmetic as POST /purchases, but it reserves and consumes nothing.
+    // Vista previa para el checkout: aplica exactamente las mismas reglas que POST /purchases sin reservar ni consumir cupos.
     async validatePromotion(input: PromotionValidationInput, _user?: Principal): Promise<PromotionQuote> {
         const parsed = promotionValidationSchema.parse(input);
         return this.run(false, async repo => {
@@ -117,12 +119,12 @@ export class CommerceService {
     async purchase(id: string, user: Principal) {
         return this.run(false, async repo => ({ ...required(await repo.purchase(id, ownerFilter(user))), items: await repo.items(id), payments: await repo.payments(id) }));
     }
-    // confirm = simulated payment: APPROVED confirms the purchase and issues tickets; REJECTED is recorded and the purchase stays PENDING.
-    // cancel of a CONFIRMED purchase is a refund: tickets are voided, stock returns and the approved payment becomes REFUNDED.
+    // confirm = pago simulado: APPROVED confirma la compra y emite las entradas con sus QR; REJECTED registra el rechazo y deja la orden PENDING.
+    // cancel sobre una compra CONFIRMED equivale a un reembolso: anula las entradas/QR, devuelve el stock y marca el pago como REFUNDED.
     async transition(id: string, action: 'confirm' | 'cancel', user: Principal, outcome: PaymentOutcome = 'APPROVED') {
         const initial = await this.purchase(id, user);
         const result = await this.run(true, async repo => {
-            // All writers acquire concerts -> ticket types (numeric ascending) -> purchase -> tickets.
+            // Orden estricto de bloqueos para evitar deadlocks: conciertos -> tipos de entrada (orden numérico ascendente) -> compra -> tickets.
             const concerts = new Map<string, ConcertRow>();
             for (const concertId of [...new Set(initial.items.map(item => item.concert_id))].sort(ascending))
                 concerts.set(concertId, required(await repo.concert(concertId)));
@@ -158,7 +160,7 @@ export class CommerceService {
                     return { expired: false as const, data: await this.details(repo, id) };
                 }
 
-                // Consume the promotion use only now that the purchase really becomes CONFIRMED.
+                // Consume el uso del cupón recién ahora que la compra pasa realmente a CONFIRMED.
                 // PASO 3 — PROMOCIÓN AGOTADA DURANTE LA CONFIRMACIÓN:
                 // Si la promoción ya no está disponible (inactiva, expirada o cupos agotados), cancelamos la orden de forma segura
                 // liberando el stock inmediatamente (para que no quede 15 min en limbo) y notificamos al cliente.
@@ -202,10 +204,13 @@ export class CommerceService {
                     return { expired: true as const };
                 }
 
+                // Emisión de entradas individuales: por cada unidad comprada se genera un token QR único
+                // con createQrToken() y se guarda en la tabla `tickets` con estado inicial 'VALID'.
                 for (const item of initial.items) {
                     await repo.sold(item, 1);
                     for (let index = 0; index < item.quantity; index++) await repo.addTicket(item, purchase.user_id, createQrToken());
                 }
+                // Registra el pago aprobado, deja traza en auditoría y envía notificación de compra al usuario.
                 const paymentId = await repo.addPayment(purchase, user.id, 'APPROVED');
                 await repo.audit({ actor: user.id, action: 'ORDER_PAYMENT_APPROVED', target: purchase.user_id, entity: { type: 'ORDER', id },
                     details: { payment_id: paymentId, amount: purchase.total, currency: purchase.currency, simulated: true } });
@@ -221,13 +226,13 @@ export class CommerceService {
                 if (tickets.some(ticket => ticket.used_at !== null)) fail(409, 'TICKET_ALREADY_USED', 'La compra contiene entradas utilizadas.');
                 if (purchase.status === 'CONFIRMED' && [...concerts.values()].some(concert => concert.status !== 'CANCELLED' && concert.start_datetime <= now))
                     fail(409, 'CANCELLATION_CLOSED', 'El concierto ya comenzó.');
-                // A cancelled confirmed order frees its stock, voids its tickets and refunds its simulated payment.
+                // Al cancelar una orden confirmada se libera el stock, se anulan sus tickets/QR y se reembolsa el pago simulado.
                 if (purchase.status === 'CONFIRMED') for (const item of initial.items) await repo.sold(item, -1);
                 await repo.invalidateTickets(id);
                 await repo.setPurchaseStatus(id, 'CANCELLED');
                 if (purchase.status === 'CONFIRMED') {
                     const refunded = await repo.refund(id);
-                    // Refunding a confirmed order frees the promotion use it consumed, exactly once (released_at guards a second release).
+                    // Al reembolsar una compra confirmada se libera una única vez el uso de la promoción (protegido por released_at).
                     let promotionReleased = false;
                     if (purchase.promotion_id) {
                         await repo.promotions.lock(purchase.promotion_id);
@@ -252,27 +257,34 @@ export class CommerceService {
     }
     tickets(user: Principal, query: PageQuery) { return this.run(false, repo => repo.tickets(user.id, query)); }
     ticket(id: string, user: Principal) { return this.run(false, async repo => required(await repo.ticket(id, ownerFilter(user)))); }
+    // Valida un código QR escaneado en puerta: verifica permisos del staff, estado del ticket/orden/concierto
+    // y marca la entrada como USED de forma atómica registrando cada intento en `ticket_validations`.
     async validate(input: ValidationInput, user: Principal) {
         const parsed = validationSchema.parse(input);
-        // Rejections are committed together with their ticket_validations row, then reported.
+        // Los rechazos también se guardan en `ticket_validations` dentro de la transacción antes de devolver el error.
         const outcome = await this.run(true, async repo => {
             const concert = await repo.concert(parsed.concertId);
+            // Comprueba que el usuario tenga permiso global o asignación explícita al concierto.
             if (!can(user, P.ticketsValidateAll) && !await repo.assigned(parsed.concertId, user.id))
                 fail(403, 'STAFF_NOT_ASSIGNED', 'Staff no asignado al concierto.');
             if (!concert) fail(404, 'INVALID', 'Entrada inválida.');
+            // Busca el ticket por su qr_token único.
             const ticket = await repo.scan(parsed.qrToken);
+            // Helper local para registrar el intento fallido en auditoría de escaneos y retornar error estructurado.
             const reject = async (result: ScanResult, status: number, code: string, message: string) => {
                 await repo.logScan(concert.id, ticket?.id ?? null, parsed.qrToken, result, user.id);
                 return { error: new AppError(status, code, message, undefined) };
             };
             if (!ticket) return reject('NOT_FOUND', 404, 'INVALID', 'Entrada inválida.');
             if (ticket.concert_id !== parsed.concertId) return reject('WRONG_CONCERT', 409, 'WRONG_CONCERT', 'La entrada corresponde a otro concierto.');
+            // Bloquea la orden padre para evitar carreras con reembolsos o escaneos simultáneos.
             const purchase = required(await repo.lockPurchase(ticket.purchase_id));
             if (ticket.status === 'USED' || ticket.used_at !== null) return reject('ALREADY_USED', 409, 'ALREADY_USED', 'La entrada ya fue utilizada.');
             if (ticket.status === 'CANCELLED' || purchase.status === 'CANCELLED' || concert.status === 'CANCELLED')
                 return reject('CANCELLED', 409, 'CANCELLED', 'Entrada o concierto cancelado.');
             if (ticket.status !== 'VALID' || purchase.status !== 'CONFIRMED' || concert.status !== 'PUBLISHED')
                 fail(409, 'INVALID', 'Entrada inválida.');
+            // Actualización condicional (status = 'VALID' AND used_at IS NULL) para impedir doble ingreso concurrente.
             if (await repo.useTicket(ticket.id, user.id) !== 1) return reject('ALREADY_USED', 409, 'ALREADY_USED', 'La entrada ya no está disponible.');
             await repo.logScan(concert.id, ticket.id, parsed.qrToken, 'ACCEPTED', user.id);
             return { data: { result: 'VALID', ticket_id: ticket.id, concert_id: concert.id, status: 'USED' } };

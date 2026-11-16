@@ -8,24 +8,30 @@ import { api } from '../../services/api';
 import type { Notification, Notifications } from '../../types/api';
 import { notificationTarget } from '../../utils/notificationTarget';
 import NotificationPreference from './NotificationPreference';
+// Pantalla de bandeja de notificaciones del usuario y configuración de preferencias.
 export default function NotificationsScreen() {
+  // Página actual del listado de notificaciones.
   const [page, setPage] = useState(1);
+  // Consulta paginada de notificaciones al backend.
   const resource = useResource<Notifications>(`/notifications?page=${page}`);
   const badge = useNotifications(); const action = useAction();
   const bento = useBento();
   const cols = bento.isDesktop ? 2 : 1;
 
+  // Recarga la bandeja cada vez que la pantalla vuelve a enfocarse.
   useFocusEffect(useCallback(() => { void resource.reload(); }, [resource.reload]));
+  // Marca una notificación puntual o todas como leídas y actualiza el contador global.
   const read = (id?: string) => action.run(async () => {
     await api.request(id ? `/notifications/${id}/read` : '/notifications/read-all', { method: 'POST' });
     await Promise.all([resource.reload(), badge.reload()]);
   });
-  // Each notification opens the exact resource it announces; the detail screen asks the API again,
-  // so access is checked server-side and the current state is shown. Opening it also marks it as read.
+  // Cada notificación navega al recurso que anuncia; la pantalla destino vuelve a consultar a la API
+  // para validar permisos en servidor y mostrar el estado actual. Al abrirla también se marca como leída.
   const open = (item: Notification, path: string) => {
     if (!item.read_at) void api.request(`/notifications/${item.id}/read`, { method: 'POST' }).then(() => badge.reload()).catch(() => undefined);
     router.push(path);
   };
+  // Resuelve la ruta de destino según el tipo de notificación.
   const target = (item: Notification): { title: string; path: string } | null => notificationTarget(item);
   return <Page title="Notificaciones" subtitle="Avisos de entradas, reservas, presupuestos, contrataciones y recomendaciones.">
     <NotificationPreference />
@@ -66,7 +72,7 @@ export default function NotificationsScreen() {
             </View>
             <View style={styles.row}>
               {(() => { const t = target(item); return t ? <Button title={t.title} onPress={() => open(item, t.path)} /> : null; })()}
-              {/* A reservation born from a quote also links its quote. */}
+              {/* Una reserva originada en un presupuesto también enlaza a ese presupuesto. */}
               {item.reservation_id && item.quote_id && <Button title="Ver presupuesto" secondary onPress={() => open(item, `/marketplace/quotes/${item.quote_id}`)} />}
               {!item.read_at && <Button title="Marcar como leída" secondary disabled={action.busy} onPress={() => void read(item.id)} />}
             </View>

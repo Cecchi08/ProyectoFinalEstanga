@@ -3,11 +3,14 @@ import { unauthorized } from '../utils/app-error.util.js';
 import { idSchema } from '../validators/management.schemas.ts';
 import { statisticsQuerySchema } from '../validators/statistics.schemas.ts';
 import { StatisticsService } from '../services/statistics.service.ts';
+// Controlador de estadísticas: valida filtros de consulta y delega al servicio según alcance propio o global.
 export class StatisticsController {
     constructor(private readonly service: StatisticsService) {}
+    // Devuelve métricas agregadas (para organizador o administrador).
     summary = (global: boolean) => async (req: Request, res: Response) => {
         if (!req.user) throw unauthorized();
         const query = statisticsQuerySchema.parse(req.query);
+        // Cuando la ruta incluye :id de concierto, fuerza el filtro sobre ese concierto.
         if (req.params.id) query.concert_id = idSchema.parse(req.params.id);
         res.json({ success: true, data: await this.service.summary(req.user, query, global) });
     };

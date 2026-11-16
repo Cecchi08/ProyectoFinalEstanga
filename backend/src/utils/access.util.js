@@ -1,7 +1,7 @@
-// Permission codes checked by the API. The grants per role live in the database (role_permissions);
-// backups/schema.sql seeds them. Ownership and memberships (concert owner, concert_staff,
-// organization_members) are still checked on top of these. tickets.validate is never granted by a role:
-// MysqlAuthRepository.access adds it while the user holds a concert_staff assignment.
+// Códigos de permiso validados por la API. Las asignaciones por rol viven en MySQL (role_permissions);
+// backups/schema.sql las siembra. La propiedad y membresías (dueño del concierto, concert_staff,
+// organization_members) se verifican además encima de estos permisos. tickets.validate nunca se otorga por rol:
+// MysqlAuthRepository.access lo agrega dinámicamente mientras el usuario tenga asignación en concert_staff.
 export const PERMISSIONS = Object.freeze({
     concertsManage: 'concerts.manage',
     concertsManageAll: 'concerts.manage_all',
@@ -28,5 +28,5 @@ export const PERMISSIONS = Object.freeze({
     serviceQuotesRequest: 'services.quotes.request',
     servicesAdmin: 'services.admin',
 });
-// True when the principal holds at least one of the codes.
+// Devuelve true si el Principal posee al menos uno de los permisos indicados.
 export const can = (principal, ...codes) => Boolean(principal?.permissions?.some(code => codes.includes(code)));

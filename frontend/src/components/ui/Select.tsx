@@ -18,8 +18,8 @@ function appendQuery(basePath: string, queryValues: Record<string, string | numb
   return qs ? `${pathname}?${qs}` : pathname;
 }
 
-// Modal/Bottom-Sheet searchable selector for large/paginated resources.
-// Always displays human-readable names (never raw IDs or UUIDs).
+// Selector buscable en modal/bottom-sheet para recursos grandes o paginados.
+// Siempre muestra nombres legibles (nunca IDs crudos ni UUIDs).
 export function Select<Item extends SelectItem = SelectItem>({
   label,
   path,

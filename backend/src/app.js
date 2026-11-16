@@ -85,7 +85,7 @@ export function createApp({ env, database, mailer, oauthClient }) {
         artistsRoutes(database, gate),
         servicesRoutes(database, gate),
     ];
-    // Local/tests keep /auth and /purchases; the backend Vercel project also serves /api/*.
+    // En local/tests se mantienen /auth y /purchases; en Vercel también se exponen bajo /api/*.
     app.use(['/api/auth', '/auth'], authRouter);
     for (const router of routers) {
         app.use('/api', router);

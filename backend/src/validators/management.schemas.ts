@@ -5,10 +5,10 @@ export const idSchema = z.union([z.string().regex(/^[1-9]\d*$/), z.number().int(
 const boundedId = (max: bigint) => idSchema.pipe(z.string().refine(value => BigInt(value) <= max, 'ID fuera de rango para este catálogo.'));
 const smallId = boundedId(65535n);
 const cityId = boundedId(4294967295n);
-// eslint-disable-next-line no-control-regex -- Names never carry control characters; punctuation stays allowed (bands, venues).
+// eslint-disable-next-line no-control-regex -- Los nombres nunca llevan caracteres de control; se permite puntuación (bandas, espacios).
 const name = (max: number) => z.string().trim().min(1).max(max).refine(value => !/[\x00-\x1f\x7f]/.test(value), 'Texto con caracteres de control.');
 const text = z.string().max(16000).nullable().optional();
-// City: Unicode letters (accents, ñ) and spaces between words, after trimming. Same rule in frontend/src/utils/validation.ts.
+// Ciudad: letras Unicode (acentos, ñ) y espacios entre palabras, tras recortar bordes. Misma regla en frontend/src/utils/validation.ts.
 export const cityNamePattern = /^[\p{L}\p{M}]+(?: +[\p{L}\p{M}]+)*$/u;
 const cityName = name(120).regex(cityNamePattern, 'La ciudad solo admite letras y espacios.');
 export const postalCodeSchema = z.string().trim().regex(/^[A-Za-z0-9 -]{3,10}$/, 'Código postal inválido.');
@@ -16,7 +16,7 @@ const image = z.url().max(500).refine(value => /^https?:\/\//i.test(value), 'Usa
 const date = z.iso.datetime({ offset: true }).transform(value => new Date(value))
     .refine(value => value.getUTCFullYear() >= 1000 && value.getUTCFullYear() <= 9999, 'Fecha fuera de rango MySQL.');
 const genreIds = z.array(smallId).max(100).refine(values => new Set(values).size === values.length, 'IDs duplicados.');
-// Published artist profiles performing, in billing order (first = headliner).
+// Perfiles de artistas publicados que se presentan, en orden de cartel (el primero es el principal).
 const artistIds = z.array(idSchema).max(20).refine(values => new Set(values).size === values.length, 'IDs duplicados.');
 const price = z.coerce.number().min(0).max(9999999999.99);
 const uint = z.number().int().min(0).max(4294967295);
@@ -39,7 +39,7 @@ export const ticketSchema = z.strictObject({
 export const ticketPatchSchema = ticketSchema.partial().refine(nonempty, 'Enviar al menos un campo.');
 export const concertSchema = z.strictObject({
     organizer_id: idSchema.optional(),
-    // Location: a marketplace venue (optionally through a reservation) or a free-text place in a city.
+    // Ubicación: un espacio del marketplace (opcionalmente mediante reserva) o un lugar en texto libre dentro de una ciudad.
     venue_id: idSchema.nullable().optional(), reservation_id: idSchema.nullable().optional(),
     venue_name: name(200).nullable().optional(), address_line: name(255).nullable().optional(), city_id: cityId.nullable().optional(),
     name: name(200), artist_name: name(200), description: text, image_url: image,
@@ -66,7 +66,7 @@ export const catalogQuerySchema = z.strictObject({ ...pagination, q: name(180).o
 export const cityQuerySchema = catalogQuerySchema.extend({ province_id: idSchema.optional(), district_id: idSchema.optional() });
 export const districtQuerySchema = catalogQuerySchema.extend({ province_id: idSchema.optional() });
 export const emptySchema = z.strictObject({});
-// Same normalization as the auth schemas, so the lookup matches the stored address.
+// Misma normalización que los esquemas de auth, para que la búsqueda coincida con el correo guardado.
 export const staffSchema = z.strictObject({ email: z.string().trim().toLowerCase().max(190).pipe(z.email()) });
 export type StaffInput = z.output<typeof staffSchema>;
 export type ConcertInput = z.output<typeof concertSchema>;

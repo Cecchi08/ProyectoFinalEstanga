@@ -3,12 +3,12 @@ import type { AffinityLinks, RecommendationProfile, SignalConcert } from '../typ
 
 const numericIdOrder = (left: string, right: string) => BigInt(left) < BigInt(right) ? -1 : BigInt(left) > BigInt(right) ? 1 : 0;
 
-// The only signal is ticket history: the schema has no favorites and no artist catalog (artists are artist_name).
+// La única señal es el historial de entradas: el esquema no tiene favoritos ni catálogo de artistas separado (se usa artist_name).
 export function buildProfile(history: SignalConcert[], links: AffinityLinks): RecommendationProfile {
     const historyIds = new Set(history.map(c => c.id));
     const attendedIds = new Set(history.filter(c => Number(c.attended) === 1).map(c => c.id));
     const genresFor = (ids: Set<string>) => new Set(links.genres.filter(link => ids.has(link.concert_id)).map(link => link.genre_id));
-    // One vote per distinct concert; buying several tickets cannot inflate affinity.
+    // Un voto por concierto distinto; comprar varias entradas del mismo show no infla la afinidad.
     const cities = new Map<string, number>();
     for (const concert of history) cities.set(concert.city_id, (cities.get(concert.city_id) ?? 0) + 1);
     const cityId = [...cities].sort(([idA, countA], [idB, countB]) => countB - countA || numericIdOrder(idA, idB))[0]?.[0];
@@ -17,7 +17,7 @@ export function buildProfile(history: SignalConcert[], links: AffinityLinks): Re
 }
 
 export function rankConcerts(candidates: ConcertRow[], profile: RecommendationProfile, links: AffinityLinks, limit: number) {
-    // Index batched relations once; no per-concert SQL or repeated full-array scans.
+    // Indexa las relaciones en lote una sola vez; evita SQL por concierto o barridos repetidos de arrays completos.
     function group<T extends { concert_id: string }>(rows: T[]) {
         const result = new Map<string, T[]>();
         for (const row of rows) { const values = result.get(row.concert_id) ?? []; values.push(row); result.set(row.concert_id, values); }

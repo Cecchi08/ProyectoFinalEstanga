@@ -1,4 +1,4 @@
-// A single abstraction; no tokens in URLs. Web storage is accessible to same-origin JS.
+// Abstracción única de almacenamiento; nunca se guardan tokens en URLs. En web usa localStorage del mismo origen.
 export const storage = {
   async get(key: string): Promise<string | null> {
     return typeof window === "undefined"

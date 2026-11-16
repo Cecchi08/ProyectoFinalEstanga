@@ -30,7 +30,7 @@ import {
 } from "../../components/ui";
 import { at, isDate, range } from "./time";
 
-// Shared by quotes and reservations: requester view by default, provider view for organization members.
+// Compartido entre presupuestos y reservas: vista de solicitante por defecto, o de proveedor para miembros de la organización.
 export function useListView(
   statuses: string[],
   providerPermissions: Permission[],
@@ -137,15 +137,16 @@ export function QuoteScreen() {
   const [form, setForm] = useState<Record<string, string>>({});
   const set = (key: string, value: string) => setForm((current) => ({ ...current, [key]: value }));
   const mine = quote?.requester_user_id === user?.id;
-  // The backend decides membership; organizers only see the provider form for quotes they did not request.
+  // El backend valida la membresía; el organizador solo ve el formulario de respuesta si no es el solicitante.
   const provider = !mine && can("marketplace.quotes.respond", "marketplace.admin");
   const open = quote && ["REQUESTED", "SENT"].includes(quote.status);
-  // The body is built inside run() so validation errors are shown like API errors.
+  // El cuerpo se arma dentro de run() para mostrar errores de validación local igual que los de la API.
   const post = (path: string, body: () => unknown = () => ({})) => action.run(async () => {
     await api.request(`/marketplace/quotes/${id}/${path}`, { method: "POST", body: body() });
     await resource.reload();
     action.setMessage("Presupuesto actualizado.");
   });
+  // Valida los ítems presupuestados y la fecha límite antes de enviar la cotización.
   const respond = () => post("respond", () => {
     validation.assertValid();
     if (!isDate(form.valid_date ?? "")) throw new Error("Elegí la fecha de validez del presupuesto.");

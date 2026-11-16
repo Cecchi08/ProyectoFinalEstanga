@@ -6,12 +6,16 @@ import { api } from '../services/api';
 import type { Notifications } from '../types/api';
 import { colors } from '../components/ui';
 
+// Contexto global compartido con el contador de notificaciones sin leer y función de recarga.
 const Context = createContext({ unread: 0, reload: async () => {} });
 
+// Proveedor que mantiene sincronizado el contador de notificaciones al navegar, volver al foco o cada 60s.
 export function NotificationsProvider({ children }: PropsWithChildren) {
   const [unread, setUnread] = useState(0);
   const path = usePathname();
+  // Secuencia para ignorar respuestas viejas ante recargas concurrentes.
   const sequence = useRef(0);
+  // Consulta /notifications?limit=1 para obtener el unread_count actualizado.
   const reload = useCallback(async () => {
     const current = ++sequence.current;
     try {
@@ -19,7 +23,9 @@ export function NotificationsProvider({ children }: PropsWithChildren) {
       if (current === sequence.current) setUnread(result.data.unread_count);
     } catch { /* Conserva la última cantidad conocida en caso de error de red */ }
   }, []);
+  // Recarga el contador al cambiar de ruta.
   useEffect(() => { void reload(); }, [path, reload]);
+  // Sondeo periódico cada 60s mientras la app está activa y al regresar del segundo plano.
   useEffect(() => {
     const timer = setInterval(() => { if (AppState.currentState === 'active') void reload(); }, 60000);
     const listener = AppState.addEventListener('change', state => { if (state === 'active') void reload(); });

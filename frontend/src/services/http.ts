@@ -1,9 +1,10 @@
 import type { Envelope, Session } from "../types/api";
 
-// Difference between server clock and client clock (serverNowMs - clientNowMs).
-// Captured automatically from the HTTP Date response header when available; falls back to 0.
+// Diferencia entre el reloj del servidor y el del cliente (serverNowMs - clientNowMs).
+// Se captura automáticamente desde la cabecera HTTP Date cuando está disponible; si no, usa 0.
 let serverClockOffsetMs = 0;
 
+// Actualiza el desfase horario usando la fecha del servidor.
 export function updateClockOffset(serverIsoOrDateHeader: string | null | undefined, clientNowMs = Date.now()): void {
   if (!serverIsoOrDateHeader) return;
   const parsed = Date.parse(serverIsoOrDateHeader);
@@ -12,6 +13,7 @@ export function updateClockOffset(serverIsoOrDateHeader: string | null | undefin
   }
 }
 
+// Devuelve la hora estimada del servidor para cálculos de vencimiento (reservas/holds).
 export function getServerNow(clientNowMs = Date.now()): number {
   return clientNowMs + serverClockOffsetMs;
 }
@@ -51,7 +53,7 @@ export class HttpClient {
   private revision = 0;
   private writes: Promise<void> = Promise.resolve();
   onSession: (session: Session | null) => void = () => {};
-  // A 403 may mean a profile was revoked since /auth/me was read: the app reloads its permissions.
+  // Un 403 puede indicar que un perfil fue revocado desde que se leyó /auth/me: la app recarga sus permisos.
   onForbidden: () => void = () => {};
   constructor(
     readonly base: string,
@@ -134,16 +136,19 @@ export class HttpClient {
         auth: false,
       });
   }
+  // Ejecuta una petición HTTP al backend, adjunta Bearer token, sincroniza reloj y reintenta tras refresh si da 401.
   async request<T>(
     path: string,
     options: { method?: string; body?: unknown; auth?: boolean; headers?: Record<string, string> } = {},
     retry = true,
   ): Promise<Envelope<T>> {
+    // Omite el token cuando auth === false (endpoints públicos).
     const token =
       options.auth === false ? undefined : this.session?.accessToken;
     const userId = this.session?.user.id;
     let response: Response;
     try {
+      // Llama al endpoint del backend combinando base + path.
       response = await this.transport(this.base + path, {
         method: options.method ?? "POST",
         headers: {
@@ -157,6 +162,7 @@ export class HttpClient {
         body:
           options.body === undefined ? undefined : JSON.stringify(options.body),
       });
+      // Sincroniza el reloj local con la cabecera Date del servidor.
       updateClockOffset(response.headers?.get?.("date"));
     } catch {
       throw new ApiError(
@@ -164,6 +170,7 @@ export class HttpClient {
         "No pudimos conectar con VENTI. Revisá tu conexión.",
       );
     }
+    // Si expiró el access token (401), intenta renovarlo una sola vez y reintenta la petición.
     if (response.status === 401 && token && retry) {
       if (this.session?.user.id !== userId)
         throw new ApiError(
@@ -176,6 +183,7 @@ export class HttpClient {
         throw new ApiError("SESSION_EXPIRED", "Iniciá sesión nuevamente.", 401);
       return this.request(path, options, false);
     }
+    // Respuestas 204 sin cuerpo devuelven sobre vacío exitoso.
     if (response.status === 204) return { success: true, data: undefined as T };
     let payload: unknown;
     try {
@@ -187,7 +195,9 @@ export class HttpClient {
         response.status,
       );
     }
+    // Ante 403 autenticado, notifica para recargar permisos vigentes desde /auth/me.
     if (response.status === 403 && token) this.onForbidden();
+    // Traduce errores de API al modelo tipado ApiError.
     if (!response.ok) {
       const error = record(payload) && record(payload.error) ? payload.error : {};
       throw new ApiError(
@@ -199,11 +209,13 @@ export class HttpClient {
         response.status,
       );
     }
+    // Verifica la estructura estándar { success: true, data } del backend.
     if (!record(payload) || payload.success !== true || !("data" in payload) || payload.data === null)
       throw new ApiError("INVALID_RESPONSE", "Respuesta inesperada del servidor. Intentá nuevamente.", response.status);
     return payload as unknown as Envelope<T>;
   }
 }
+// Normaliza la URL base de la API y evita usar por error la URL del propio frontend en Vercel/local.
 export const normalizeApiBase = (
   value: string | undefined,
   fallback = "http://localhost:3000",

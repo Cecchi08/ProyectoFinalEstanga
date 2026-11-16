@@ -20,9 +20,12 @@ import {
 } from "../../components/ui";
 import { subscribeTicketUpdates } from "./ticketEvents";
 
+// Pantalla de pases digitales: lista las entradas del usuario y renderiza su código QR.
 export default function TicketsScreen() {
   const { width, mobile } = useBento();
+  // Página actual de entradas paginadas.
   const [page, setPage] = useState(1);
+  // Consulta GET /tickets al backend con paginación.
   const resource = useResource<Ticket[]>(`/tickets?page=${page}`);
 
   // Escuchar evento directo de validación en tiempo real (mismo cliente/sesión)
@@ -98,7 +101,9 @@ export default function TicketsScreen() {
                   gap: 18,
                 }}
               >
+                {/* Información principal del concierto y tipo de entrada */}
                 <View style={{ flex: 1, gap: 8, minWidth: 0 }}>
+                  {/* Indicador visual de pase activo vs inactivo */}
                   <View aria-hidden style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
                     <View
                       style={{
@@ -134,6 +139,7 @@ export default function TicketsScreen() {
                     </Copy>
                   </View>
                 </View>
+                {/* Solo renderiza el QR si la entrada es VALID y el concierto está PUBLISHED */}
                 {ticket.status === "VALID" &&
                 ticket.concert_status === "PUBLISHED" ? (
                   <View
@@ -147,6 +153,7 @@ export default function TicketsScreen() {
                       borderColor: colors.border,
                     }}
                   >
+                    {/* Generación visual del código QR en SVG a partir de ticket.qr_token */}
                     <QRCode
                       value={ticket.qr_token}
                       size={Math.min(180, Math.max(120, width - 148))}
@@ -154,6 +161,7 @@ export default function TicketsScreen() {
                     />
                   </View>
                 ) : (
+                  // Mensaje alternativo cuando la entrada fue usada, cancelada o el show no está publicado
                   <View
                     style={{
                       padding: 14,

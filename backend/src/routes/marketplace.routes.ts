@@ -13,7 +13,7 @@ export function marketplaceRoutes(database: Database, authenticate: RequestHandl
     const router = Router();
     const controller = new MarketplaceController(new MarketplaceService(database));
     const optionalAuth: RequestHandler = (req, res, next) => req.headers.authorization !== undefined ? authenticate(req, res, next) : next();
-    // Route gates by permission; the service adds ownership and organization membership on top.
+    // Las rutas validan permisos por rol; el servicio agrega propiedad y membresía de organización.
     const establishments = requirePermission(P.establishmentsManage, P.marketplaceAdmin);
     const quoting = requirePermission(P.quotesRequest, P.marketplaceAdmin);
     const responding = requirePermission(P.quotesRespond, P.marketplaceAdmin);
@@ -26,7 +26,7 @@ export function marketplaceRoutes(database: Database, authenticate: RequestHandl
 
     router.post('/marketplace/cities', controller.cities);
     router.post('/marketplace/catalogs', controller.catalogs);
-    // /venues kept as an alias: concert venues are now marketplace spaces.
+    // /venues se mantiene como alias: los espacios de conciertos ahora pertenecen al marketplace.
     router.post(['/marketplace/venues', '/venues'], controller.venues);
     router.post(['/marketplace/venues/:id', '/venues/:id'], optionalAuth, controller.venue);
     router.post('/marketplace/venues/:id/availability', optionalAuth, controller.availability);
@@ -42,7 +42,7 @@ export function marketplaceRoutes(database: Database, authenticate: RequestHandl
     router.post('/marketplace/establishments/:id/update', authenticate, establishments, validateRequest(establishmentPatchSchema), controller.updateEstablishment);
     router.post('/marketplace/establishments/:id/publish', authenticate, establishments, empty, controller.establishmentStatus('PUBLISHED'));
     router.post('/marketplace/establishments/:id/archive', authenticate, establishments, empty, controller.establishmentStatus('ARCHIVED'));
-    // Review of establishments sent by their owners (PENDING_REVIEW); approving publishes them.
+    // Revisión administrativa de establecimientos enviados por sus dueños (PENDING_REVIEW); aprobarlos los publica.
     const reviewing = requirePermission(P.marketplaceAdmin);
     router.post('/marketplace/establishments/pending', authenticate, reviewing, controller.pendingEstablishments);
     router.post('/marketplace/establishments/:id/approve', authenticate, reviewing, empty, controller.reviewEstablishment(true));
@@ -69,7 +69,7 @@ export function marketplaceRoutes(database: Database, authenticate: RequestHandl
     router.post('/marketplace/reservations/:id', authenticate, reservationReaders, controller.reservation);
     router.post('/marketplace/reservations/:id/cancel', authenticate, reservationReaders, controller.cancelReservation);
     router.post('/marketplace/reservations/:id/payments', authenticate, booking, controller.pay);
-    // The venue side answers direct bookings; the service also requires membership in the venue's organization.
+    // El lado del espacio responde reservas directas; el servicio también exige membresía en la organización del espacio.
     const venueSide = requirePermission(P.reservationsManage, P.marketplaceAdmin);
     router.post('/marketplace/reservations/:id/accept', authenticate, venueSide, empty, controller.acceptReservation);
     router.post('/marketplace/reservations/:id/reject', authenticate, venueSide, controller.rejectReservation);

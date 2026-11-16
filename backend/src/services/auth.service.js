@@ -101,7 +101,7 @@ export class AuthService {
         console.info(`[AUTH_STAGE:lockedToken:${kind}:find_done]`, `token_found=${Boolean(initial)}`);
         if (!initial)
             throw unauthorized();
-        // Every operation locks the user before token rows, including password reset.
+        // Toda operación bloquea al usuario antes que a las filas de tokens, incluido el restablecimiento de clave.
         console.info(`[AUTH_STAGE:lockedToken:${kind}:lock_user]`);
         const user = await repo.findUserById(initial.user_id, true);
         this.active(user);
@@ -239,7 +239,7 @@ export class AuthService {
             });
             if (result.mail)
                 this.mailer.enqueue(result.mail);
-            // Check after commit so a new unverified OAuth account and verification token survive.
+            // Se verifica después del commit para conservar la nueva cuenta OAuth sin verificar y su token de verificación.
             await this.principal(result.id);
             return result.id;
         }

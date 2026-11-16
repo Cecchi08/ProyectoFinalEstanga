@@ -3,9 +3,9 @@ import { Platform, type FontVariant } from "react-native";
 import { palettes, shadowPalettes as themeShadows, type ThemeName } from "./palette";
 export { palettes, shadowPalettes, type ColorToken, type ThemeName } from "./palette";
 
-// On the web every token is a CSS variable, so switching theme only flips data-theme on <html>.
-// On iOS/Android the token objects are filled in place with the active palette (applyNativePalette)
-// and Root remounts the screens, so styles read at render time pick up the new values.
+// En web cada token es una variable CSS, por lo que cambiar de tema solo alterna data-theme en <html>.
+// En iOS/Android los objetos de tokens se rellenan en sitio con la paleta activa (applyNativePalette)
+// y Root remonta las pantallas para que los estilos leídos al renderizar tomen los nuevos valores.
 export const cssVar = (name: string) => `--venti-${name.replace(/[A-Z]/g, (letter) => `-${letter.toLowerCase()}`)}`;
 const web = Platform.OS === "web";
 const asVars = <T extends Record<string, string>>(source: T, prefix = "") =>
@@ -14,7 +14,7 @@ const asVars = <T extends Record<string, string>>(source: T, prefix = "") =>
 export const colors = web ? asVars(palettes.light) : { ...palettes.light };
 export const shadows = web ? asVars(themeShadows.light, "shadow-") : { ...themeShadows.light };
 const derived = new Set<() => void>();
-// Module-level objects built from the tokens (the shared StyleSheet) register here to be rebuilt.
+// Los objetos de módulo construidos con tokens (el StyleSheet compartido) se registran aquí para reconstruirse.
 export const onNativePalette = (rebuild: () => void) => void derived.add(rebuild);
 export function applyNativePalette(theme: ThemeName) {
   if (web) return;
@@ -26,7 +26,7 @@ export function applyNativePalette(theme: ThemeName) {
 export const radius = { xs: 6, sm: 10, md: 14, lg: 18, xl: 24, pill: 999 } as const;
 export const space = { xs: 4, sm: 8, md: 16, lg: 24, xl: 32, xxl: 40 } as const;
 
-// Geist, Inter, and Manrope prioritized for Urbano Contemporáneo, with clean system fallbacks.
+// Tipografías Geist, Inter y Manrope priorizadas para Urbano Contemporáneo, con fallbacks limpios de sistema.
 export const fonts = {
   display: Platform.select({
     web: '"Geist", "Inter", "Manrope", -apple-system, BlinkMacSystemFont, "Segoe UI Variable Display", "Segoe UI", sans-serif',

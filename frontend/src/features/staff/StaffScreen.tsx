@@ -25,15 +25,21 @@ import type { Concert, Attendee } from "../../types/api";
 import { scanMessage } from "./validation";
 import { notifyTicketValidated } from "../tickets/ticketEvents";
 
+// Pantalla de control de acceso para personal Staff: selección de concierto y escaneo QR.
 export default function StaffScreen() {
   const { can } = useAuth();
   const { mobile } = useBento();
+  // Página de conciertos asignados.
   const [page, setPage] = useState(1);
+  // Concierto seleccionado actualmente para validar entradas.
   const [selected, setSelected] = useState<Concert | null>(null);
+  // Página de asistentes del concierto seleccionado.
   const [attendeePage, setAttendeePage] = useState(1);
+  // Carga conciertos asignados al staff cuando no hay uno seleccionado.
   const assignments = useResource<Concert[]>(
     selected ? null : `/staff/assignments?page=${page}`,
   );
+  // Carga listado de asistentes del concierto seleccionado.
   const attendees = useResource<Attendee[]>(
     selected ? `/concerts/${selected.id}/attendees?page=${attendeePage}` : null,
   );
@@ -187,6 +193,7 @@ export default function StaffScreen() {
   );
 }
 
+// Subcomponente encargado exclusivamente del escaneo de códigos QR por cámara.
 function Scanner({
   concert,
   onValidated,
@@ -194,11 +201,17 @@ function Scanner({
   concert: string;
   onValidated(): void;
 }) {
+  // Estado de permisos de cámara del dispositivo/navegador.
   const [permission, requestPermission] = useCameraPermissions();
+  // Controla si el visor de cámara está abierto.
   const [camera, setCamera] = useState(false);
+  // Mensaje legible del último escaneo o error.
   const [result, setResult] = useState("");
+  // Indica si la última validación fue exitosa (VALID).
   const [valid, setValid] = useState(false);
+  // Bloqueo visual mientras se consulta al backend.
   const [busy, setBusy] = useState(false);
+  // Lock sincrónico para evitar múltiples envíos por lecturas consecutivas del mismo QR.
   const locked = useRef(false);
 
   useEffect(() => {
@@ -208,6 +221,7 @@ function Scanner({
     };
   }, []);
 
+  // Solicita permisos de cámara si faltan y abre el visor QR.
   const openScanner = async () => {
     if (busy || locked.current || !concert.trim()) return;
     setResult("");
@@ -229,6 +243,7 @@ function Scanner({
     }
   };
 
+  // Envía el qrToken leído por cámara al backend para validar y marcar la entrada.
   const scan = async (value: string) => {
     if (locked.current) return;
     const qrToken = value.trim();
@@ -248,6 +263,7 @@ function Scanner({
       );
       setValid(data.result === "VALID");
       setResult(scanMessage(data.result));
+      // Notifica en tiempo real al resto de vistas abiertas y refresca asistentes.
       if (data.result === "VALID") {
         notifyTicketValidated();
       }
@@ -258,6 +274,7 @@ function Scanner({
       setBusy(false);
     }
   };
+  // Libera el lock para habilitar el escaneo de la siguiente entrada.
   const next = () => {
     locked.current = false;
     setResult("");

@@ -4,6 +4,7 @@ import { PERMISSIONS as P } from '../utils/access.util.js';
 import type { Database } from '../types/management.types.ts';
 import { StatisticsService } from '../services/statistics.service.ts';
 import { StatisticsController } from '../controllers/statistics.controller.ts';
+// Rutas de estadísticas (organizador y administrador) sin caché HTTP para reflejar datos en tiempo real.
 export function statisticsRoutes(database: Database, authenticate: RequestHandler): Router {
     const router = Router(); const controller = new StatisticsController(new StatisticsService(database));
     router.use(['/organizer/statistics', '/organizer/concerts/:id/statistics', '/admin/statistics'], authenticate,

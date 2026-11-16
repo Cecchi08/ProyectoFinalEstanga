@@ -253,9 +253,10 @@ export default function ConcertList({
             : {}),
       }),
   );
+  // Actualiza un campo del borrador de filtros.
   const set = (key: string, value: string) =>
     setDraft((prev) => ({ ...prev, [key]: value }));
-  // min_price/max_price match concerts with at least one active ticket type inside the range.
+  // min_price/max_price coinciden con conciertos que tengan al menos un tipo de entrada activo dentro del rango.
   const apply = (close = false) => commitFilters(draft, close);
   return (
     <Page

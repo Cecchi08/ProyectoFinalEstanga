@@ -1,5 +1,5 @@
-// Marketplace and concert dates/times operate in Argentina time (America/Argentina/Buenos_Aires, fixed UTC-03:00)
-// and are serialized to UTC ISO 8601 strings when sent to the API.
+// Las fechas y horarios del marketplace y conciertos operan en hora de Argentina (America/Argentina/Buenos_Aires, UTC-03:00 fijo)
+// y se serializan como strings ISO 8601 en UTC al enviarse a la API.
 export const TZ = "America/Argentina/Buenos_Aires";
 const ARG_OFFSET_MS = -3 * 60 * 60 * 1000;
 

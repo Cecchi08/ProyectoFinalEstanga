@@ -17,9 +17,10 @@ export function managementRoutes(database: Database, authenticate: RequestHandle
     const manage = requirePermission(P.concertsManage, P.concertsManageAll);
     const staff = requirePermission(P.concertsStaffManage, P.concertsManageAll);
     const catalogs = requirePermission(P.catalogsManage);
-    // Authenticated and public representations must never share a cached response.
+    // Las respuestas autenticadas y públicas nunca deben compartir caché HTTP.
     router.use((_req, res, next) => { res.setHeader('Cache-Control', 'no-store'); next(); });
     for (const param of ['id', 'concertId', 'userId']) router.param(param, (_req, _res, next, value) => { idSchema.parse(value); next(); });
+    // CRUD genérico de catálogos del sistema (ciudades, provincias, géneros, etc.).
     for (const kind of Object.keys(catalogSchemas) as Catalog[]) {
         const schema = catalogSchemas[kind];
         router.post(`/${kind}`, controller.catalogList(kind));
@@ -28,7 +29,7 @@ export function managementRoutes(database: Database, authenticate: RequestHandle
         router.post(`/${kind}/:id/update`, authenticate, catalogs, validateRequest(schema.partial().refine(value => Object.keys(value).length > 0, 'Enviar al menos un campo.')), controller.catalogUpdate(kind));
         router.post(`/${kind}/:id/delete`, authenticate, catalogs, controller.catalogDelete(kind));
     }
-    // The schema has no concert types or concert-only venues (venues are marketplace spaces now).
+    // El esquema ya no tiene tipos de concierto ni venues sueltos (ahora los espacios pertenecen al marketplace).
     router.post('/concert-types', gone('Los tipos de concierto ya no existen en el esquema.'));
     router.post('/venues', gone('Los espacios se gestionan en /marketplace/establishments/:id/venues.'));
     router.all('/venues/:id', gone('Los espacios se gestionan en /marketplace/venues/:id.'));

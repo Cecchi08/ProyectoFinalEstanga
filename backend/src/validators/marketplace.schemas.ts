@@ -3,7 +3,7 @@ import { cityIdSchema, idSchema, nameSchema, postalCodeSchema } from './manageme
 import { phoneSchema } from './auth.schemas.js';
 import { pageSchema } from './commerce.schemas.ts';
 
-// Marketplace slots are whole minutes: DATETIME(0) would silently round seconds and shift a slot.
+// Las franjas del marketplace usan minutos exactos: DATETIME(0) redondearía segundos silenciosamente y correría el turno.
 const slot = z.iso.datetime({ offset: true }).transform(value => new Date(value))
     .refine(value => value.getUTCFullYear() >= 2000 && value.getUTCFullYear() <= 9999, 'Fecha fuera de rango.')
     .refine(value => value.getUTCSeconds() === 0 && value.getUTCMilliseconds() === 0, 'Usar horarios en minutos exactos.');
@@ -49,7 +49,7 @@ export const blockSchema = z.strictObject({
     description: text(255), starts_at: slot, ends_at: slot,
 }).refine(value => value.starts_at < value.ends_at, 'El bloqueo debe terminar después de empezar.');
 
-// Optional setup/teardown default to the event edges, which is what the occupancy procedure expects.
+// El armado y desarme opcionales toman por defecto los bordes del evento, que es lo que espera el procedimiento de ocupación.
 const schedule = {
     venue_id: idSchema, occupancy_mode: occupancyModeSchema.default('VENUE'), event_name: nameSchema(200),
     expected_attendance: uint.nullable().optional(),
@@ -85,7 +85,7 @@ export const venueQuerySchema = pageSchema.extend({
     available_from: queryDate.optional(), available_to: queryDate.optional(), mode: occupancyModeSchema.default('VENUE'),
 }).strict().refine(q => (q.available_from === undefined) === (q.available_to === undefined), 'Enviar available_from y available_to juntos.')
     .refine(q => !q.available_from || !q.available_to || q.available_from < q.available_to, 'Franja inválida.');
-// A calendar date is a day in Argentina (all marketplace cities are UTC-03:00, without DST).
+// Un día calendario corresponde a la hora de Argentina (todas las ciudades del marketplace operan en UTC-03:00, sin DST).
 export const MARKETPLACE_UTC_OFFSET = '-03:00';
 export const availabilityQuerySchema = z.strictObject({
     date: z.iso.date().optional(), from: queryDate.optional(), to: queryDate.optional(), mode: occupancyModeSchema.default('VENUE'),

@@ -10,7 +10,7 @@ export { otherTheme, readStoredTheme, resolveTheme, storeTheme, THEME_STORAGE_KE
 const web = Platform.OS === "web";
 const hasDocument = web && typeof document !== "undefined";
 const systemQuery = () => (hasDocument && typeof window.matchMedia === "function" ? window.matchMedia("(prefers-color-scheme: light)") : null);
-// Native reads the saved choice asynchronously: until then Root renders only the background.
+// En nativo la preferencia guardada se lee de forma asíncrona: hasta entonces Root solo renderiza el fondo.
 let state: { theme: ThemeName; ready: boolean } = { theme: "dark", ready: web };
 let started = false;
 let chosen = false;
@@ -20,7 +20,7 @@ function apply(theme: ThemeName, ready = state.ready) {
   if (hasDocument) {
     document.documentElement.dataset.theme = theme;
     document.documentElement.style.colorScheme = theme;
-    // Browser chrome (address bar, Android system bars in PWAs) follows the page background.
+    // La barra del navegador y barras del sistema en PWA acompañan el color de fondo de la página.
     let meta = document.querySelector<HTMLMetaElement>('meta[name="theme-color"]');
     if (!meta) {
       meta = document.createElement("meta");
@@ -33,8 +33,8 @@ function apply(theme: ThemeName, ready = state.ready) {
   listeners.forEach((listener) => listener());
 }
 
-// Called once at startup, before the first render: no flash of the wrong theme.
-// First visit (nothing saved) follows the system, also live, until the person chooses.
+// Se llama una sola vez al iniciar, antes del primer render: evita destellos del tema incorrecto.
+// En la primera visita (sin preferencia guardada) sigue al sistema en vivo hasta que la persona elija.
 export function initTheme() {
   if (started) return;
   started = true;
@@ -57,7 +57,7 @@ export function initTheme() {
     .catch(() => null)
     .then((stored) => {
       chosen = stored === "light" || stored === "dark";
-      // System UI (keyboard, alerts, pickers) follows the saved choice too.
+      // La UI del sistema (teclado, alertas, selectores) también sigue la preferencia guardada.
       if (chosen) Appearance.setColorScheme?.(stored as ThemeName);
       apply(resolveTheme(stored, system()), true);
     });

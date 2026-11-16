@@ -1,3 +1,4 @@
+// Traduce códigos de resultado o error de validación QR a mensajes legibles para el personal de puerta.
 export const scanMessage = (code: string): string =>
   ({
     VALID: "Entrada válida · Ingreso registrado",

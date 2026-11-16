@@ -75,6 +75,7 @@ export default function PromotionsAdminScreen() {
   const bento = useBento();
   const cols = bento.cols;
 
+  // Query string memorizada para filtrar cupones por búsqueda y estado.
   const filterQuery = query({
     page,
     q: debouncedSearch.trim() || undefined,
@@ -88,6 +89,7 @@ export default function PromotionsAdminScreen() {
 
   const promos = resource.result?.data ?? [];
 
+  // Abre el panel de creación limpiando validaciones previas.
   const openCreate = () => {
     setEditingPromo(null);
     createForm.reset();
@@ -95,6 +97,7 @@ export default function PromotionsAdminScreen() {
     setIsCreating(true);
   };
 
+  // Precarga los datos de un cupón existente en el formulario de edición.
   const openEdit = (promo: AdminPromotion) => {
     setIsCreating(false);
     editForm.reset();

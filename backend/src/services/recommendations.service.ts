@@ -23,7 +23,7 @@ export class RecommendationsService {
         });
         const first = result.recommendations[0];
         if (first) await this.database.transaction(async db => {
-            // Same parent-first order as commerce/management; never hold a user lock while waiting for a concert.
+            // Mismo orden padre-primero que en commerce/management; nunca retener lock de usuario esperando un concierto.
             await db.connection.execute('SELECT id FROM concerts WHERE id = ? FOR UPDATE', [first.concert.id]);
             await db.connection.execute('SELECT id FROM users WHERE id = ? FOR UPDATE', [userId]);
             await new NotificationsRepository(db.connection).recommendation(userId, first.concert.id, first.reason);

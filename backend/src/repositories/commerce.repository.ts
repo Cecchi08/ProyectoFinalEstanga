@@ -26,7 +26,7 @@ export interface ItemRow extends Row { id: string; ticket_type_id: string; conce
 export interface ScanRow extends Row { id: string; purchase_id: string; concert_id: string; status: string; used_at: Date | null }
 export type ScanResult = 'ACCEPTED' | 'ALREADY_USED' | 'CANCELLED' | 'WRONG_CONCERT' | 'NOT_FOUND';
 
-// The API keeps the "purchase" vocabulary; the schema stores orders.
+// La API mantiene el vocabulario "purchase" (compra); el esquema guarda órdenes en `orders`.
 const effectiveStatus = `CASE WHEN o.status = 'PENDING' AND (o.expires_at IS NULL OR o.expires_at <= NOW())
     THEN 'EXPIRED' ELSE o.status END`;
 const purchaseSelect = `SELECT o.id, o.public_code, o.user_id, ${effectiveStatus} AS status, o.expires_at, o.confirmed_at, o.cancelled_at,
@@ -70,7 +70,7 @@ export class CommerceRepository {
             starts_at AS start_datetime, ends_at AS end_datetime FROM concerts WHERE id = ? FOR UPDATE`, [id]))[0];
     }
     async committed(typeId: string): Promise<number> {
-        // First consistent table read occurs AFTER concert/type locks (also safe under REPEATABLE READ).
+        // La primera lectura consistente ocurre DESPUÉS de los locks de concierto/tipo (seguro bajo REPEATABLE READ).
         const row = (await this.rows(`SELECT COALESCE(SUM(oi.quantity), 0) AS quantity FROM order_items oi
             JOIN orders o ON o.id = oi.order_id
             WHERE oi.ticket_type_id = ? AND (o.status = 'CONFIRMED' OR (o.status = 'PENDING' AND o.expires_at > NOW()))`, [typeId]))[0];
@@ -144,47 +144,56 @@ export class CommerceRepository {
         await this.execute(`UPDATE orders SET status = ?, cancelled_at = IF(? = 'CANCELLED', COALESCE(cancelled_at, NOW()), cancelled_at)
             WHERE id = ?`, [status, status, id]);
     }
+    // Confirma una orden PENDING solo si su reserva temporal todavía no venció.
     async confirm(id: string): Promise<number> {
         return this.execute(`UPDATE orders SET status = 'CONFIRMED', confirmed_at = NOW()
             WHERE id = ? AND status = 'PENDING' AND expires_at > NOW()`, [id]);
     }
-    // Keeps ticket_types.quantity_sold in step with confirmed orders; the caller holds the ticket type locks.
+    // Mantiene sincronizado ticket_types.quantity_sold con las órdenes confirmadas (el caller posee el lock).
     async sold(item: ItemRow, sign: 1 | -1): Promise<void> {
         await this.execute('UPDATE ticket_types SET quantity_sold = quantity_sold + ? WHERE id = ?', [sign * item.quantity, item.ticket_type_id]);
     }
+    // Persiste en MySQL (tabla `tickets`) la entrada emitida junto con su token QR único y estado VALID.
     async addTicket(item: ItemRow, ownerId: string, token: string): Promise<void> {
         await this.execute(`INSERT INTO tickets (order_item_id, concert_id, ticket_type_id, owner_user_id, qr_token, status)
             VALUES (?, ?, ?, ?, ?, 'VALID')`, [item.id, item.concert_id, item.ticket_type_id, ownerId, token]);
     }
+    // Obtiene y bloquea las entradas asociadas a una orden para validar cancelaciones/reembolsos.
     async purchaseTickets(id: string): Promise<Row[]> {
         return this.rows(`SELECT id, used_at FROM tickets WHERE order_item_id IN
             (SELECT id FROM order_items WHERE order_id = ?) ORDER BY id FOR UPDATE`, [id]);
     }
+    // Anula todas las entradas/QR de una orden cancelada o reembolsada.
     async invalidateTickets(id: string): Promise<void> {
         await this.execute(`UPDATE tickets t JOIN order_items oi ON oi.id = t.order_item_id
             SET t.status = 'CANCELLED' WHERE oi.order_id = ?`, [id]);
     }
+    // Lista paginada de entradas del usuario autenticado.
     async tickets(userId: string, query: PageQuery) {
         const total = Number((await this.rows(`SELECT COUNT(*) AS total ${ticketJoins} WHERE o.user_id = ?`, [userId]))[0].total);
         const data = await this.rows(`${ticketSelect} WHERE o.user_id = ? ORDER BY t.id DESC LIMIT ? OFFSET ?`,
             [userId, String(query.limit), String((query.page - 1) * query.limit)]);
         return { data, total };
     }
+    // Devuelve el detalle de una entrada puntual (filtrando por dueño cuando no es admin).
     async ticket(id: string, ownerId?: string): Promise<Row | undefined> {
         return (await this.rows(`${ticketSelect} WHERE t.id = ?${ownerId ? ' AND o.user_id = ?' : ''}`, ownerId ? [id, ownerId] : [id]))[0];
     }
+    // Busca una entrada por su token QR escaneado para validarla en puerta.
     async scan(token: string): Promise<ScanRow | undefined> {
         return (await this.rows<ScanRow>(`SELECT t.id, oi.order_id AS purchase_id, t.concert_id, t.status, t.used_at
             FROM tickets t JOIN order_items oi ON oi.id = t.order_item_id WHERE t.qr_token = ?`, [token]))[0];
     }
+    // Verifica si el usuario staff está asignado al concierto.
     async assigned(concertId: string, userId: string): Promise<boolean> {
         return (await this.rows('SELECT user_id FROM concert_staff WHERE concert_id = ? AND user_id = ? FOR SHARE', [concertId, userId])).length > 0;
     }
+    // Marca la entrada como USED de forma atómica solo si seguía VALID y sin fecha de uso.
     async useTicket(id: string, userId: string): Promise<number> {
         return this.execute(`UPDATE tickets SET status = 'USED', used_at = NOW(), validated_by_user_id = ?
             WHERE id = ? AND status = 'VALID' AND used_at IS NULL`, [userId, id]);
     }
-    // Audit trail of every scan, including rejected ones; never stores more than the scanned token.
+    // Registro de auditoría de cada escaneo QR, incluidos los rechazados; guarda únicamente el token escaneado.
     async logScan(concertId: string, ticketId: string | null, token: string, result: ScanResult, userId: string): Promise<void> {
         await this.execute(`INSERT INTO ticket_validations (ticket_id, concert_id, scanned_token, result, validated_by_user_id)
             SELECT ?, id, ?, ?, ? FROM concerts WHERE id = ?`, [ticketId, token.slice(0, 255), result, userId, concertId]);

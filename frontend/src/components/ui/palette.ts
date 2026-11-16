@@ -1,9 +1,9 @@
-// Urbano Contemporáneo palette for Venti:
-// - Dark base: #111113 mineral charcoal canvas, #19191D / #222227 elevated graphite surfaces.
-// - Light base: #F6F5F0 warm editorial paper canvas, #FFFFFF / #ECEAE3 clean stone surfaces.
-// - Primary stage spotlight: Energetic Yellow (#F5C542) with dark charcoal text (#171305) for 10.8:1 contrast.
-// - Stage red emphasis & alert: #D9383A (dark) / #C8282B (light).
-// WCAG 2.2 AA is verified for every pairing by tests/theme-and-scroll.test.ts and backend/scripts/a11y-audit.mjs.
+// Paleta Urbano Contemporáneo para Venti:
+// - Base oscura: #111113 lienzo carbón mineral, #19191D / #222227 superficies grafito elevadas.
+// - Base clara: #F6F5F0 lienzo papel editorial cálido, #FFFFFF / #ECEAE3 superficies piedra limpias.
+// - Foco primario de escenario: Amarillo Energético (#F5C542) con texto carbón oscuro (#171305) para contraste 10.8:1.
+// - Énfasis y alerta roja de escenario: #D9383A (oscuro) / #C8282B (claro).
+// Contraste WCAG 2.2 AA verificado en cada par por tests/theme-and-scroll.test.ts y backend/scripts/a11y-audit.mjs.
 export type ThemeName = "dark" | "light";
 
 const light = {
@@ -17,17 +17,17 @@ const light = {
   borderStrong: "#76746D",
   text: "#161618",
   muted: "#575651",
-  // Primary spotlight action: Energetic Yellow with deep charcoal text.
+  // Acción primaria destacada: Amarillo Energético con texto carbón profundo.
   primary: "#F5C542",
   primaryHover: "#E5B32E",
   primaryPressed: "#CC9B1E",
   primarySoft: "#F9EFC7",
   onPrimary: "#171305",
-  // Neutral stone secondary surfaces for quiet modular actions.
+  // Superficies secundarias piedra neutra para acciones modulares discretas.
   secondary: "#ECEAE3",
   secondaryHover: "#DFDDD4",
   onSecondary: "#161618",
-  // Accessible dark amber/ochre accent for text, links, active tabs, and charts on light surfaces.
+  // Acento ámbar/ocre oscuro accesible para texto, enlaces, pestañas activas y gráficos sobre fondos claros.
   accent: "#855D00",
   accentHover: "#694900",
   accentText: "#6E4C00",

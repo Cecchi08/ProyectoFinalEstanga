@@ -2,8 +2,8 @@ import { z } from 'zod';
 export const emailSchema = z.string().trim().toLowerCase().max(190).pipe(z.email());
 export const passwordSchema = z.string().min(12).max(72).refine(v => Buffer.byteLength(v, 'utf8') <= 72, 'La contraseña no puede superar 72 bytes UTF-8.');
 export const tokenSchema = z.string().regex(/^[a-f0-9]{64}$/);
-// People: Unicode letters (accents, ñ), spaces, apostrophe, dot and hyphen; minimum 2, maximum 30 characters; never digits or control characters.
-// Same rule in frontend/src/utils/validation.ts.
+// Personas: letras Unicode (acentos, ñ), espacios, apóstrofo, punto y guion; mínimo 2 y máximo 30 caracteres; sin dígitos ni control.
+// Misma regla en frontend/src/utils/validation.ts.
 const personName = z.string().trim().min(2, 'Mínimo 2 caracteres.').max(30, 'Máximo 30 caracteres.').regex(/^[\p{L}\p{M}][\p{L}\p{M} '’.-]*$/u, 'Usá solo letras, espacios, apóstrofos, puntos o guiones.');
 export const phoneSchema = z.string().trim().regex(/^\+?[\d\s()-]{6,30}$/, 'Teléfono inválido.');
 // Roles públicos elegibles durante el registro inicial (un único rol principal por cuenta; nunca ADMIN ni GUEST).

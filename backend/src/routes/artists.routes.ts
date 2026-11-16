@@ -8,7 +8,7 @@ import { emptySchema, idSchema } from '../validators/management.schemas.ts';
 import { artistMemberSchema, artistPatchSchema, artistSchema, proposalDecisionSchema, proposalSchema } from '../validators/artists.schemas.ts';
 import type { Database } from '../types/management.types.ts';
 
-// Public: published profiles. Writes: artist.profile.manage plus membership (artists.admin overrides).
+// Público: perfiles publicados. Escrituras: artist.profile.manage más membresía (artists.admin tiene acceso total).
 export function artistsRoutes(database: Database, authenticate: RequestHandler): Router {
     const router = Router();
     const controller = new ArtistsController(new ArtistsService(database));
@@ -29,7 +29,7 @@ export function artistsRoutes(database: Database, authenticate: RequestHandler):
     router.post('/artists/:id/members/:userId/update', authenticate, manage, controller.updateMember);
     router.post('/artists/:id/members/:userId/delete', authenticate, manage, controller.removeMember);
 
-    // Bidirectional hiring & presentation proposals (Venue <-> Artist, Organizer -> Artist)
+    // Propuestas bidireccionales de contratación y fechas (Espacio <-> Artista, Organizador -> Artista).
     router.post('/proposals', authenticate, controller.proposals);
     router.post('/proposals/venue-summary/:establishmentId', authenticate, controller.venueSummary);
     router.post('/proposals/:id', authenticate, controller.proposal);

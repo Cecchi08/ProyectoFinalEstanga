@@ -9,7 +9,7 @@ export function participationRoutes(database: Database, authenticate: RequestHan
     router.use(['/staff/assignments', '/concerts/:id/attendees'], (_req, res, next) => {
         res.setHeader('Cache-Control', 'no-store'); next();
     }, authenticate);
-    // Staff is assigned per concert (concert_staff): no global role gate, the queries filter by assignment.
+    // El personal de puerta se asigna por concierto (concert_staff): no hay rol global, las consultas filtran por asignación.
     router.post('/staff/assignments', controller.assignments);
     router.post('/concerts/:id/attendees', controller.attendees);
     return router;
