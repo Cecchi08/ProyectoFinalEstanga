@@ -12,6 +12,7 @@ import {
 } from "./purchaseAttempt";
 import { api } from "../../services/api";
 import { getServerNow } from "../../services/http";
+import { subscribeDomains } from "../../services/syncEngine";
 import { useResource } from "../../hooks/useResource";
 import { useNotifications } from "../../contexts/NotificationsContext";
 import type { Concert, PromotionValidationResult, Purchase } from "../../types/api";
@@ -85,6 +86,35 @@ export default function ConcertDetail() {
       }
     }
   }, [itemsSignature, appliedPromotion]);
+
+  // Si una promoción aplicada se modifica, agota o desactiva desde otra sesión, se revalida en vivo.
+  const appliedPromoCode = appliedPromotion?.code ?? null;
+  const selectedItemsRef = useRef(selectedItems);
+  selectedItemsRef.current = selectedItems;
+  useEffect(() => {
+    if (!appliedPromoCode || !id) return;
+    return subscribeDomains(["promotions_sig", "admin_promotions"], () => {
+      const currentItems = selectedItemsRef.current;
+      if (!currentItems.length) return;
+      void api
+        .request<PromotionValidationResult>("/promotions/validate", {
+          method: "POST",
+          body: { code: appliedPromoCode, concertId: id, items: currentItems },
+        })
+        .then((res) => {
+          setAppliedPromotion(res.data);
+          setPromoError("");
+        })
+        .catch((err: unknown) => {
+          setAppliedPromotion(null);
+          setPromoError(
+            err instanceof Error
+              ? err.message
+              : "La promoción aplicada dejó de estar disponible.",
+          );
+        });
+    });
+  }, [appliedPromoCode, id]);
 
   const estimatedTotal = concert
     ? selectedItems.reduce((acc, item) => {

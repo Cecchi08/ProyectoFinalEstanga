@@ -107,11 +107,7 @@ export function ReservationScreen() {
   const venueSide = !mine && can("marketplace.reservations.manage", "marketplace.admin");
   const decide = (path: "accept" | "reject") => action.run(async () => {
     if (path === "reject" && reason.trim().length < 3) throw new Error("Indicá el motivo del rechazo (mínimo 3 caracteres).");
-    try {
-      await api.request(`/marketplace/reservations/${id}/${path}`, { method: "POST", body: path === "reject" ? { reason: reason.trim() } : {} });
-    } finally {
-      await resource.reload();
-    }
+    await api.request(`/marketplace/reservations/${id}/${path}`, { method: "POST", body: path === "reject" ? { reason: reason.trim() } : {} });
     action.setMessage(path === "accept" ? "Reserva aceptada y confirmada." : "Reserva rechazada: el pago simulado se marca como reembolsado.");
   });
   // Payments are always simulated: the request carries only the desired outcome, never card data.
@@ -119,14 +115,14 @@ export function ReservationScreen() {
     try {
       const { data } = await api.request<PaymentResult>(`/marketplace/reservations/${id}/payments`, { method: "POST", body: { outcome } });
       setNotice(`${data.notice} Referencia ${data.payment.simulated_reference} · ${statusLabel(data.payment.status)}.`);
-    } finally {
+    } catch (err) {
       await resource.reload();
+      throw err;
     }
   });
   const cancel = () => action.run(async () => {
     await api.request(`/marketplace/reservations/${id}/cancel`, { method: "POST", body: { reason: reason.trim() || null } });
     setConfirm(false);
-    await resource.reload();
     action.setMessage("Reserva cancelada.");
   });
   return (

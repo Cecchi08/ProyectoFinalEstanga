@@ -131,11 +131,18 @@ export class ManagementRepository {
             where.push('EXISTS (SELECT 1 FROM ticket_types pt WHERE pt.concert_id = c.id AND pt.is_active = 1 AND pt.price >= ? AND pt.price <= ?)');
             values.push(query.min_price ?? 0, query.max_price ?? 9999999999.99);
         }
-        for (const key of ['q', 'name'] as const) if (query[key]) { where.push('c.title LIKE ?'); values.push(`%${query[key]}%`); }
+        if (query.name) { where.push('c.title LIKE ?'); values.push(`%${query.name}%`); }
+        if (query.q) {
+            where.push(`(c.title LIKE ? OR c.artist_name LIKE ? OR COALESCE(c.venue_name, '') LIKE ? OR COALESCE(ci.name, '') LIKE ?
+                OR EXISTS (SELECT 1 FROM concert_artists ca JOIN artist_profiles ap ON ap.id = ca.artist_profile_id
+                    WHERE ca.concert_id = c.id AND ap.stage_name LIKE ?))`);
+            const term = `%${query.q}%`;
+            values.push(term, term, term, term, term);
+        }
         if (query.date_from) { where.push('c.starts_at >= ?'); values.push(query.date_from); }
         if (query.date_to) { where.push('c.starts_at <= ?'); values.push(query.date_to); }
         const clause = where.length ? ` WHERE ${where.join(' AND ')}` : '';
-        const total = Number((await this.rows(`SELECT COUNT(*) AS total FROM concerts c${clause}`, values))[0].total);
+        const total = Number((await this.rows(`SELECT COUNT(*) AS total FROM concerts c LEFT JOIN cities ci ON ci.id = c.city_id${clause}`, values))[0].total);
         const rows = await this.rows<ConcertRow>(`${concertSelect}${clause} ORDER BY c.starts_at, c.id LIMIT ? OFFSET ?`, [...values, String(query.limit), String((query.page - 1) * query.limit)]);
         return { data: await this.concertDetails(rows), total };
     }

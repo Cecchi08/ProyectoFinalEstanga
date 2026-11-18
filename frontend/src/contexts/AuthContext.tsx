@@ -7,10 +7,8 @@ import {
   useState,
   type PropsWithChildren,
 } from "react";
-import { AppState } from "react-native";
-import { invalidateCatalogCache } from "../hooks/useResource";
 import { api } from "../services/api";
-import { clearResourceStore } from "../services/resourceStore";
+import { setSessionScope, subscribeDomains } from "../services/syncEngine";
 import type { Access, Me, Permission, Role, Session, User } from "../types/api";
 import { can as allows, resolveActiveRole } from "../types/api";
 interface Auth {
@@ -77,7 +75,10 @@ export function AuthProvider({ children }: PropsWithChildren) {
     }
   }, [userId]);
   useEffect(() => {
-    api.onSession = setSession;
+    api.onSession = (nextSession) => {
+      setSessionScope(nextSession?.user.id ?? null);
+      setSession(nextSession);
+    };
     api
       .restore()
       .catch((e: unknown) =>
@@ -97,25 +98,21 @@ export function AuthProvider({ children }: PropsWithChildren) {
       sequence.current++;
     };
   }, [loadAccess]);
-  // Los perfiles pueden cambiar en el servidor (un ADMIN otorga o revoca uno): se vuelven a leer al volver
-  // al primer plano, tras un 403 y cada minuto mientras la app esté activa (con un mínimo de 5s entre lecturas).
+  // Sincroniza roles, permisos y estado de cuenta desde el motor central (y ante 403)
+  // sin crear intervalos duplicados por componente.
   const lastReload = useRef(0);
   useEffect(() => {
     if (!userId) return;
     const refresh = () => {
-      if (Date.now() - lastReload.current < 5000) return;
+      if (Date.now() - lastReload.current < 2000) return;
       lastReload.current = Date.now();
       void loadAccess(true);
     };
     api.onForbidden = refresh;
-    const subscription = AppState.addEventListener("change", (state) => {
-      if (state === "active") refresh();
-    });
-    const timer = setInterval(() => { if (AppState.currentState === "active") refresh(); }, 60000);
+    const unsubMe = subscribeDomains(["me"], refresh);
     return () => {
       api.onForbidden = () => {};
-      subscription.remove();
-      clearInterval(timer);
+      unsubMe();
     };
   }, [userId, loadAccess]);
   const roles = access?.roles ?? session?.roles ?? [];
@@ -160,10 +157,8 @@ export function AuthProvider({ children }: PropsWithChildren) {
         },
         // Acepta una sesión ya emitida (por ejemplo, tras OAuth o registro).
         accept: (session) => api.accept(session),
-        // Limpia caché de catálogos, store reactivo y revoca/elimina la sesión local.
+        // Revoca y elimina la sesión local (no hay cachés globales de datos en memoria).
         logout: async () => {
-          invalidateCatalogCache();
-          clearResourceStore();
           await api.logout();
         },
       }}

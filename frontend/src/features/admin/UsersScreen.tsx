@@ -65,7 +65,6 @@ function ProfileRequestsPanel() {
         method: "POST",
         body: approve ? (reason ? { reason } : {}) : { reason },
       });
-      await requests.reload();
       action.setMessage(
         approve
           ? `${ROLE_LABELS[item.role]} concedido a ${item.email ?? "la cuenta"}.`
@@ -235,7 +234,6 @@ export function UserScreen() {
       });
       setConfirmStatus(false);
       setStatusReason("");
-      await Promise.all([resource.reload(), activeAdmins.reload(), audit.reload()]);
       action.setMessage(suspend ? "Cuenta suspendida y sesiones cerradas." : "Cuenta reactivada.");
     });
 
@@ -249,12 +247,9 @@ export function UserScreen() {
       );
       setConfirm(null);
       setReason("");
-      await Promise.all([
-        resource.reload(),
-        activeAdmins.reload(),
-        audit.reload(),
-        ...(auth.user?.id === id ? [auth.reloadAccess()] : []),
-      ]);
+      if (auth.user?.id === id) {
+        await auth.reloadAccess();
+      }
       action.setMessage(
         data.changed
           ? `Perfil ${ROLE_LABELS[role]} ${grant ? "asignado" : "quitado"}.`

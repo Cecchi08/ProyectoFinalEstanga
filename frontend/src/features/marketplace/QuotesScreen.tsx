@@ -143,7 +143,6 @@ export function QuoteScreen() {
   // El cuerpo se arma dentro de run() para mostrar errores de validación local igual que los de la API.
   const post = (path: string, body: () => unknown = () => ({})) => action.run(async () => {
     await api.request(`/marketplace/quotes/${id}/${path}`, { method: "POST", body: body() });
-    await resource.reload();
     action.setMessage("Presupuesto actualizado.");
   });
   // Valida los ítems presupuestados y la fecha límite antes de enviar la cotización.

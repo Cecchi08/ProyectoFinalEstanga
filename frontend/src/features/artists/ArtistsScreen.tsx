@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { View } from "react-native";
 import { router, useLocalSearchParams } from "expo-router";
 import { useAuth } from "../../contexts/AuthContext";
@@ -91,7 +91,6 @@ export default function ArtistsScreen() {
         <ArtistEditor
           done={async (id) => {
             setCreating(false);
-            await resource.reload();
             if (id) router.push(`/artists/${id}`);
           }}
         />
@@ -176,7 +175,6 @@ export function ArtistProposalsPanel({ artistId }: { artistId?: string }) {
       });
       setRejectingId(null);
       setRejectReason("");
-      await proposals.reload();
       action.setMessage(
         operation === "accept"
           ? "Propuesta aceptada y confirmada."
@@ -445,7 +443,13 @@ function ArtistEditor({
   const [genres, setGenres] = useState<string[]>([]);
   const action = useAction();
   const validation = useForm();
+  const hydratedArtistId = useRef<string | null>(null);
+  const dirtyArtist = useRef(false);
   useEffect(() => {
+    const nextId = artist?.id ?? null;
+    if (hydratedArtistId.current === nextId && dirtyArtist.current) return;
+    hydratedArtistId.current = nextId;
+    dirtyArtist.current = false;
     setForm({
       stage_name: artist?.stage_name ?? "",
       bio: artist?.bio ?? "",
@@ -457,8 +461,10 @@ function ArtistEditor({
     setCity(artist?.city_id ? [artist.city_id] : []);
     setGenres(artist?.genres.map((genre) => genre.id) ?? []);
   }, [artist]);
-  const set = (key: string, value: string) =>
+  const set = (key: string, value: string) => {
+    dirtyArtist.current = true;
     setForm((current) => ({ ...current, [key]: value }));
+  };
   const save = () =>
     action.run(async () => {
       validation.assertValid();
@@ -575,7 +581,6 @@ export function ArtistScreen() {
   const status = (next: "publish" | "archive") =>
     action.run(async () => {
       await api.request(`/artists/${id}/${next}`, { method: "POST", body: {} });
-      await resource.reload();
       action.setMessage(
         next === "publish" ? "Perfil publicado." : "Perfil archivado.",
       );
@@ -588,7 +593,6 @@ export function ArtistScreen() {
         body: { email: email.trim(), member_role: role },
       });
       setEmail("");
-      await resource.reload();
       action.setMessage("Integrante agregado.");
     });
   const setMemberRole = (member: ArtistMember, next: MemberRole) =>
@@ -597,7 +601,6 @@ export function ArtistScreen() {
         method: "POST",
         body: { member_role: next },
       });
-      await resource.reload();
       action.setMessage("Rol del integrante actualizado.");
     });
   const removeMember = (member: ArtistMember) =>
@@ -606,7 +609,6 @@ export function ArtistScreen() {
         method: "POST",
       });
       setConfirm(null);
-      await resource.reload();
       action.setMessage(
         member.user_id === user?.id
           ? "Saliste del perfil."
@@ -714,7 +716,6 @@ export function ArtistScreen() {
                   artist={artist}
                   done={async () => {
                     setEditing(false);
-                    await resource.reload();
                   }}
                 />
               )}

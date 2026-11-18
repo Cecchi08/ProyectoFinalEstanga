@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { View } from "react-native";
 import { router } from "expo-router";
 import { useAuth } from "../../contexts/AuthContext";
@@ -69,7 +69,7 @@ export default function ManageScreen() {
   const createOrganization = () => action.run(async () => {
     validation.assertValid();
     await api.request("/marketplace/organizations/create", { method: "POST", body: { name: form.org_name ?? "", tax_id: text(form.tax_id) } });
-    setForm({}); await organizations.reload(); action.setMessage("Organización creada.");
+    setForm({}); action.setMessage("Organización creada.");
   });
   return (
     <Page
@@ -157,12 +157,11 @@ export default function ManageScreen() {
             action={<Button title="Nuevo establecimiento" onPress={() => setEstablishment(null)} />}
           />
           {establishment === null && (
-            <EstablishmentForm organizations={organizations.result?.data ?? []} done={async () => { setEstablishment(undefined); await establishments.reload(); }} />
+            <EstablishmentForm organizations={organizations.result?.data ?? []} done={async () => { setEstablishment(undefined); }} />
           )}
           <ResourceState {...establishments} empty={establishments.result?.data.length === 0} retry={() => void establishments.reload()} />
           {establishments.result?.data.map((item) => (
-            <EstablishmentPanel key={`${item.id}-${item.status}`} establishment={item} organizations={organizations.result?.data ?? []}
-              reload={establishments.reload} />
+            <EstablishmentPanel key={item.id} establishment={item} organizations={organizations.result?.data ?? []} />
           ))}
         </>
       )}
@@ -181,7 +180,7 @@ export function MembersPanel({ organization, path = `/marketplace/organizations/
   const [role, setRole] = useState<Member["member_role"]>("STAFF");
   const action = useAction();
   const validation = useForm();
-  const run = (work: () => Promise<unknown>, message: string) => action.run(async () => { await work(); await members.reload(); action.setMessage(message); });
+  const run = (work: () => Promise<unknown>, message: string) => action.run(async () => { await work(); action.setMessage(message); });
   const manage = admin || ["OWNER", "ADMIN"].includes(organization.member_role ?? "");
   return (
     <Card>
@@ -295,12 +294,12 @@ function EstablishmentForm({ establishment, organizations, done }: { establishme
 }
 
 // Publishing is a request: the owner sends the establishment to review and an ADMIN (marketplace.admin) publishes it.
-function EstablishmentPanel({ establishment, organizations, reload }: { establishment: Establishment; organizations: Organization[]; reload(): Promise<void> }) {
+function EstablishmentPanel({ establishment, organizations }: { establishment: Establishment; organizations: Organization[] }) {
   const [open, setOpen] = useState<"edit" | "venues" | "blocks" | "hirings" | "hire_artist">("venues");
   const reviewer = useAuth().can("marketplace.admin");
   const action = useAction();
   const status = (next: "publish" | "archive") => action.run(async () => {
-    await api.request(`/marketplace/establishments/${establishment.id}/${next}`, { method: "POST", body: {} }); await reload();
+    await api.request(`/marketplace/establishments/${establishment.id}/${next}`, { method: "POST", body: {} });
   });
   return (
     <Card variant="featured">
@@ -337,7 +336,7 @@ function EstablishmentPanel({ establishment, organizations, reload }: { establis
         </View>
       )}
       <ActionFeedback action={action} />
-      {open === "edit" && <EstablishmentForm establishment={establishment} organizations={organizations} done={async () => { setOpen("venues"); await reload(); }} />}
+      {open === "edit" && <EstablishmentForm establishment={establishment} organizations={organizations} done={async () => { setOpen("venues"); }} />}
       {open === "venues" && <VenuesPanel establishment={establishment} />}
       {open === "blocks" && <BlocksPanel establishment={establishment} />}
       {open === "hirings" && <VenueHiringsPanel establishment={establishment} />}
@@ -365,7 +364,6 @@ function VenueHiringsPanel({ establishment }: { establishment: Establishment }) 
       });
       setRejectingId(null);
       setRejectReason("");
-      await summary.reload();
       action.setMessage(
         operation === "accept"
           ? "Solicitud aceptada."
@@ -707,13 +705,13 @@ function VenuesPanel({ establishment }: { establishment: Establishment }) {
   const [editing, setEditing] = useState<string | null | undefined>(undefined);
   const action = useAction();
   const status = (venue: Venue, next: "publish" | "archive") => action.run(async () => {
-    await api.request(`/marketplace/venues/${venue.id}/${next}`, { method: "POST", body: {} }); await venues.reload();
+    await api.request(`/marketplace/venues/${venue.id}/${next}`, { method: "POST", body: {} });
   });
   return (
     <View style={{ gap: 12, paddingTop: 10, borderTopWidth: 1, borderColor: colors.border }}>
       <Button title={`Nuevo espacio en ${establishment.name}`} onPress={() => setEditing(null)} />
       {editing !== undefined && (
-        <VenueForm key={editing ?? "new"} establishmentId={establishment.id} venueId={editing} done={async () => { setEditing(undefined); await venues.reload(); }} />
+        <VenueForm key={editing ?? "new"} establishmentId={establishment.id} venueId={editing} done={async () => { setEditing(undefined); }} />
       )}
       <ActionFeedback action={action} />
       <ResourceState {...venues} empty={venues.result?.data.length === 0} retry={() => void venues.reload()} />
@@ -847,8 +845,13 @@ function VenueForm({ establishmentId, venueId, done }: { establishmentId: string
   const action = useAction();
   const validation = useForm();
   const venue = current.result?.data;
+  const hydratedVenueId = useRef<string | null>(null);
+  const dirtyVenue = useRef(false);
   useEffect(() => {
     if (!venue) return;
+    if (hydratedVenueId.current === venue.id && dirtyVenue.current) return;
+    hydratedVenueId.current = venue.id;
+    dirtyVenue.current = false;
     setForm({
       name: venue.name, description: venue.description ?? "", capacity_standing: String(venue.capacity_standing ?? ""),
       capacity_seated: String(venue.capacity_seated ?? ""), area_m2: venue.area_m2 ?? "", price_per_hour: venue.price_per_hour,
@@ -865,7 +868,10 @@ function VenueForm({ establishmentId, venueId, done }: { establishmentId: string
       })),
     );
   }, [venue]);
-  const set = (key: string, value: string) => setForm({ ...form, [key]: value });
+  const set = (key: string, value: string) => {
+    dirtyVenue.current = true;
+    setForm({ ...form, [key]: value });
+  };
   const save = () => action.run(async () => {
     validation.assertValid();
     if (!type[0]) throw new Error("Elegí el tipo de espacio.");
@@ -946,7 +952,7 @@ function BlocksPanel({ establishment }: { establishment: Establishment }) {
     await api.request(`/marketplace/establishments/${establishment.id}/blocks/create`, { method: "POST", body: {
       venue_id: venue[0] ?? null, reason: reason[0] ?? "OTHER", description: text(form.description), starts_at: starts.toISOString(), ends_at: ends.toISOString(),
     } });
-    setForm({}); await blocks.reload(); action.setMessage("Bloqueo creado.");
+    setForm({}); action.setMessage("Bloqueo creado.");
   });
   const name = (id: string | null) => (id ? venues.result?.data.find((v) => v.id === id)?.name ?? "Sala del establecimiento" : "Todo el establecimiento");
   return (
@@ -957,7 +963,7 @@ function BlocksPanel({ establishment }: { establishment: Establishment }) {
           <View key={block.id} style={styles.row}>
             <Copy muted>{range(block.starts_at, block.ends_at)} · {name(block.venue_id)} · {reasonLabel[block.reason] ?? statusLabel(block.reason)}{block.description ? ` · ${block.description}` : ""}</Copy>
             <Button title="Quitar bloqueo" secondary danger disabled={action.busy}
-              onPress={() => void action.run(async () => { await api.request(`/marketplace/blocks/${block.id}/delete`, { method: "POST" }); await blocks.reload(); })} />
+              onPress={() => void action.run(async () => { await api.request(`/marketplace/blocks/${block.id}/delete`, { method: "POST" }); })} />
           </View>
         ))}
         <Codes label="Espacio bloqueado (sin elegir: todo el establecimiento)" items={venues.result?.data} values={venue} onChange={setVenue} />

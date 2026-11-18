@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { router, useLocalSearchParams } from "expo-router";
 import { View } from "react-native";
 import { useResource } from "../../hooks/useResource";
@@ -104,28 +104,34 @@ export default function ConcertEditor() {
   const [artists, setArtists] = useState<Billed[]>([]);
   const [artistsChanged, setArtistsChanged] = useState(false);
   const [confirm, setConfirm] = useState("");
+  const hydratedConcertId = useRef<string | null>(null);
+  const dirtyForm = useRef(false);
   const concert = resource.result?.data;
-  const set = (key: string, value: string) =>
+  const set = (key: string, value: string) => {
+    dirtyForm.current = true;
     setForm((current) => ({ ...current, [key]: value }));
+  };
   useEffect(() => {
-    if (concert) {
-      setForm({
-        name: concert.name,
-        description: concert.description ?? "",
-        image_url: concert.image_url ?? "",
-        start_datetime: concert.start_datetime,
-        end_datetime: concert.end_datetime ?? "",
-        artist_name: concert.artist_name,
-        venue_id: concert.venue_id ?? "",
-        reservation_id: concert.reservation_id ?? "",
-        venue_name: concert.venue_name ?? "",
-        address_line: concert.address_line ?? "",
-        city_id: concert.city_id ?? "",
-      });
-      setGenres(concert.genres.map((g) => g.id));
-      setArtists(concert.artists.flatMap((a) => (a.id ? [{ id: a.id, name: a.name }] : [])));
-      setArtistsChanged(false);
-    }
+    if (!concert) return;
+    if (hydratedConcertId.current === concert.id && dirtyForm.current) return;
+    hydratedConcertId.current = concert.id;
+    dirtyForm.current = false;
+    setForm({
+      name: concert.name,
+      description: concert.description ?? "",
+      image_url: concert.image_url ?? "",
+      start_datetime: concert.start_datetime,
+      end_datetime: concert.end_datetime ?? "",
+      artist_name: concert.artist_name,
+      venue_id: concert.venue_id ?? "",
+      reservation_id: concert.reservation_id ?? "",
+      venue_name: concert.venue_name ?? "",
+      address_line: concert.address_line ?? "",
+      city_id: concert.city_id ?? "",
+    });
+    setGenres(concert.genres.map((g) => g.id));
+    setArtists(concert.artists.flatMap((a) => (a.id ? [{ id: a.id, name: a.name }] : [])));
+    setArtistsChanged(false);
   }, [concert]);
   const save = () =>
     action.run(async () => {
@@ -152,6 +158,7 @@ export default function ConcertEditor() {
         editing ? `/concerts/${id}/update` : "/concerts/create",
         { method: "POST", body },
       );
+      dirtyForm.current = false;
       if (!editing) router.replace(`/organizer/${data.id}`);
       else {
         action.setMessage("Concierto guardado.");
@@ -294,9 +301,12 @@ export default function ConcertEditor() {
         {!form.reservation_id && (
           <Select
             label="Espacio del marketplace (opcional)"
-            path="/venues"
+            path="/marketplace/venues"
             values={form.venue_id ? [form.venue_id] : []}
-            onChange={(v) => setForm((current) => ({ ...current, venue_id: v[0] ?? "", venue_name: "", address_line: "", city_id: "" }))}
+            onChange={(v) => {
+              dirtyForm.current = true;
+              setForm((current) => ({ ...current, venue_id: v[0] ?? "", venue_name: "", address_line: "", city_id: "" }));
+            }}
           />
         )}
         {form.venue_id && !form.reservation_id && (
@@ -487,7 +497,6 @@ function OrganizerArtistHiringPanel({ concert }: { concert: Concert }) {
       setBudget("");
       setMessage("");
       setOpen(false);
-      await proposals.reload();
       action.setMessage("Propuesta de contratación enviada al artista.");
     });
 

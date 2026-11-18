@@ -29,10 +29,8 @@ export function managementRoutes(database: Database, authenticate: RequestHandle
         router.post(`/${kind}/:id/update`, authenticate, catalogs, validateRequest(schema.partial().refine(value => Object.keys(value).length > 0, 'Enviar al menos un campo.')), controller.catalogUpdate(kind));
         router.post(`/${kind}/:id/delete`, authenticate, catalogs, controller.catalogDelete(kind));
     }
-    // El esquema ya no tiene tipos de concierto ni venues sueltos (ahora los espacios pertenecen al marketplace).
+    // El esquema ya no tiene tipos de concierto; los espacios pertenecen al marketplace (/marketplace/venues).
     router.post('/concert-types', gone('Los tipos de concierto ya no existen en el esquema.'));
-    router.post('/venues', gone('Los espacios se gestionan en /marketplace/establishments/:id/venues.'));
-    router.all('/venues/:id', gone('Los espacios se gestionan en /marketplace/venues/:id.'));
     router.post('/concerts', optionalAuth, controller.concertList);
     router.post('/concerts/create', authenticate, manage, validateRequest(concertSchema), controller.concertCreate);
     router.post('/concerts/:id', optionalAuth, controller.concertGet);

@@ -1,10 +1,22 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Modal, Platform, Pressable, ScrollView, Text, View } from "react-native";
 import { useDebouncedValue } from "../../hooks/useDebouncedValue";
 import { useResource } from "../../hooks/useResource";
+import { api } from "../../services/api";
+import { ApiError } from "../../services/http";
+import { domainsForPath, subscribeDomains } from "../../services/syncEngine";
 import { Button, Copy, Field, Pager, ResourceState, colors, radius, shadows, styles, useBento } from "./index";
 
 type SelectItem = { id: string | number; name?: string } & Record<string, unknown>;
+
+const RESOLVABLE_BY_ID = new Set([
+  "/cities",
+  "/provinces",
+  "/districts",
+  "/genres",
+  "/concerts",
+  "/marketplace/venues",
+]);
 
 function appendQuery(basePath: string, queryValues: Record<string, string | number | undefined>) {
   const [pathname, searchStr] = basePath.split("?");
@@ -19,7 +31,7 @@ function appendQuery(basePath: string, queryValues: Record<string, string | numb
 }
 
 // Selector buscable en modal/bottom-sheet para recursos grandes o paginados.
-// Siempre muestra nombres legibles (nunca IDs crudos ni UUIDs).
+// Siempre muestra nombres legibles (nunca IDs crudos ni UUIDs) y se sincroniza ante cambios remotos.
 export function Select<Item extends SelectItem = SelectItem>({
   label,
   path,
@@ -46,6 +58,34 @@ export function Select<Item extends SelectItem = SelectItem>({
   const debouncedSearch = useDebouncedValue(search, 300);
   const [selectedLabels, setSelectedLabels] = useState<Record<string, string>>({});
   const [attemptedIds, setAttemptedIds] = useState<Record<string, boolean>>({});
+  const [domainRevision, setDomainRevision] = useState(0);
+
+  const itemLabelRef = useRef(itemLabel);
+  itemLabelRef.current = itemLabel;
+  const valuesRef = useRef(values);
+  valuesRef.current = values;
+  const onChangeRef = useRef(onChange);
+  onChangeRef.current = onChange;
+
+  const basePath = path ? path.split("?")[0] : null;
+
+  // Reinicia paginación y búsqueda si cambia el endpoint base (ej. provincia seleccionada).
+  useEffect(() => {
+    setPage(1);
+    setSearch("");
+  }, [path]);
+
+  // Escucha cambios en el dominio del catálogo incluso cuando el modal está cerrado,
+  // para actualizar etiquetas renombradas o limpiar selecciones eliminadas.
+  useEffect(() => {
+    if (!path) return;
+    const domains = domainsForPath(path);
+    if (!domains.length) return;
+    return subscribeDomains(domains, () => {
+      setAttemptedIds({});
+      setDomainRevision((r) => r + 1);
+    });
+  }, [path]);
 
   const needsResolution =
     Boolean(path) &&
@@ -60,29 +100,97 @@ export function Select<Item extends SelectItem = SelectItem>({
     const items = resource.result?.data;
     if (!items) return;
     setSelectedLabels((prev) => {
+      let changed = false;
       const next = { ...prev };
       for (const item of items) {
-        next[String(item.id)] = itemLabel(item);
+        const key = String(item.id);
+        const lbl = itemLabelRef.current(item);
+        if (next[key] !== lbl) {
+          next[key] = lbl;
+          changed = true;
+        }
       }
-      return next;
+      return changed ? next : prev;
     });
     setAttemptedIds((prev) => {
+      let changed = false;
       const next = { ...prev };
       for (const id of values) {
-        next[String(id)] = true;
+        const key = String(id);
+        if (!next[key]) {
+          next[key] = true;
+          changed = true;
+        }
       }
-      return next;
+      return changed ? next : prev;
     });
   }, [resource.result?.data, values]);
+
+  // Revalida etiquetas seleccionadas (y detecta eliminaciones o cambios en páginas posteriores) cuando cambia el dominio.
+  const listDataRef = useRef(resource.result?.data);
+  listDataRef.current = resource.result?.data;
+  const valuesKey = values.map(String).join(",");
+  useEffect(() => {
+    if (domainRevision === 0) return;
+    const targetIds = valuesKey ? valuesKey.split(",") : [];
+    if (!basePath || !RESOLVABLE_BY_ID.has(basePath) || disabled || targetIds.length === 0) return;
+    let cancelled = false;
+
+    void (async () => {
+      const removed: string[] = [];
+      const updates: Record<string, string> = {};
+      for (const id of targetIds) {
+        const fromCurrentList = listDataRef.current?.find((item) => String(item.id) === id);
+        if (fromCurrentList) {
+          updates[id] = itemLabelRef.current(fromCurrentList);
+          continue;
+        }
+        try {
+          const res = await api.request<Item>(`${basePath}/${encodeURIComponent(id)}`);
+          if (cancelled) return;
+          updates[id] = itemLabelRef.current(res.data);
+        } catch (err) {
+          if (cancelled) return;
+          if (err instanceof ApiError && err.status === 404) {
+            removed.push(id);
+          }
+        }
+      }
+      if (cancelled) return;
+      if (Object.keys(updates).length > 0) {
+        setSelectedLabels((prev) => ({ ...prev, ...updates }));
+      }
+      if (removed.length > 0) {
+        const nextValues = valuesRef.current.filter((id) => !removed.includes(String(id)));
+        if (nextValues.length !== valuesRef.current.length) {
+          onChangeRef.current(nextValues);
+        }
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [basePath, disabled, domainRevision, valuesKey]);
 
   useEffect(() => {
     if (!open || Platform.OS !== "web" || typeof window === "undefined") return;
     const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key === "Escape") setOpen(false);
+      if (event.key === "Escape") {
+        setOpen(false);
+        setSearch("");
+        setPage(1);
+      }
     };
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
   }, [open]);
+
+  function closeModal() {
+    setOpen(false);
+    setSearch("");
+    setPage(1);
+  }
 
   function toggle(item: Item) {
     const id = String(item.id);
@@ -90,7 +198,7 @@ export function Select<Item extends SelectItem = SelectItem>({
     setSelectedLabels((prev) => ({ ...prev, [id]: name }));
     if (!multiple) {
       onChange([id]);
-      setOpen(false);
+      closeModal();
       return;
     }
     onChange(
@@ -115,7 +223,14 @@ export function Select<Item extends SelectItem = SelectItem>({
         accessibilityLabel={label}
         accessibilityState={{ disabled: disabled || !path, expanded: open }}
         disabled={disabled || !path}
-        onPress={() => setOpen((current) => !current)}
+        onPress={() => {
+          if (open) {
+            closeModal();
+          } else {
+            setPage(1);
+            setOpen(true);
+          }
+        }}
         style={({ pressed }) => ({
           minHeight: 48,
           maxWidth: "100%",
@@ -155,7 +270,7 @@ export function Select<Item extends SelectItem = SelectItem>({
           visible
           transparent
           animationType="fade"
-          onRequestClose={() => setOpen(false)}
+          onRequestClose={closeModal}
         >
           <View
             style={{
@@ -193,10 +308,10 @@ export function Select<Item extends SelectItem = SelectItem>({
                     secondary={values.length > 0}
                     onPress={() => {
                       onChange([]);
-                      if (!multiple) setOpen(false);
+                      if (!multiple) closeModal();
                     }}
                   />
-                  <Button title="Listo" secondary onPress={() => setOpen(false)} />
+                  <Button title="Listo" secondary onPress={closeModal} />
                 </View>
               </View>
 
@@ -218,7 +333,7 @@ export function Select<Item extends SelectItem = SelectItem>({
               >
                 <ResourceState
                   {...resource}
-                  empty={!resource.result?.data.length}
+                  empty={!resource.loading && resource.result?.data.length === 0}
                   retry={() => void resource.reload()}
                 />
                 <View style={styles.row}>

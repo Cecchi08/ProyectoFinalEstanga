@@ -1,10 +1,11 @@
-import { useState, type ReactNode } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import { View } from "react-native";
 import { router, useLocalSearchParams } from "expo-router";
 import { useAuth } from "../../contexts/AuthContext";
 import { useResource } from "../../hooks/useResource";
 import { api } from "../../services/api";
 import { query } from "../../services/http";
+import { subscribeDomains } from "../../services/syncEngine";
 import type { PricingUnit, PublicationStatus, ServiceAvailability, ServiceCategory, ServiceOffering, ServiceProvider, ServiceQuote } from "../../types/api";
 import {
   ActionFeedback,
@@ -196,12 +197,23 @@ export function OfferingScreen() {
   const offering = resource.result?.data;
   const [date, setDate] = useState("");
   const [availability, setAvailability] = useState<ServiceAvailability | null>(null);
+  const lastLookupPath = useRef<string | null>(null);
   const check = useAction();
   const lookup = () => check.run(async () => {
     if (!isDate(date)) throw new Error("Elegí una fecha para consultar disponibilidad.");
-    const { data } = await api.request<ServiceAvailability>(`/services/offerings/${id}/availability${query({ date: date.trim() })}`);
+    const path = `/services/offerings/${id}/availability${query({ date: date.trim() })}`;
+    lastLookupPath.current = path;
+    const { data } = await api.request<ServiceAvailability>(path);
     setAvailability(data);
   });
+  useEffect(() => {
+    if (!availability) return;
+    return subscribeDomains(["services", "services_ops"], () => {
+      const path = lastLookupPath.current;
+      if (!path) return;
+      void api.request<ServiceAvailability>(path).then((res) => setAvailability(res.data)).catch(() => undefined);
+    });
+  }, [Boolean(availability)]);
   return (
     <Page
       eyebrow="VENTI · FICHA DE SERVICIO"

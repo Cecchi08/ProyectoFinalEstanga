@@ -21,6 +21,7 @@ import { marketplaceRoutes } from './routes/marketplace.routes.js';
 import { adminRoutes } from './routes/admin.routes.js';
 import { artistsRoutes } from './routes/artists.routes.js';
 import { servicesRoutes } from './routes/services.routes.js';
+import { syncRoutes } from './routes/sync.routes.ts';
 export function createApp({ env, database, mailer, oauthClient }) {
     const app = express();
     app.disable('x-powered-by');
@@ -84,6 +85,7 @@ export function createApp({ env, database, mailer, oauthClient }) {
         adminRoutes(database, gate, mailer),
         artistsRoutes(database, gate),
         servicesRoutes(database, gate),
+        syncRoutes(database, gate),
     ];
     // En local/tests se mantienen /auth y /purchases; en Vercel también se exponen bajo /api/*.
     app.use(['/api/auth', '/auth'], authRouter);

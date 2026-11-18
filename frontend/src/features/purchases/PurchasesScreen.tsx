@@ -4,7 +4,6 @@ import { useResource } from "../../hooks/useResource";
 import { api } from "../../services/api";
 import type { Purchase } from "../../types/api";
 import { ActivityIndicator, Text, View } from "react-native";
-import { useNotifications } from "../../contexts/NotificationsContext";
 import {
   formatCardCvv,
   formatCardExpiry,
@@ -118,7 +117,6 @@ export default function PurchasesScreen() {
 }
 
 export function PurchaseDetail() {
-  const notifications = useNotifications();
   const { id } = useLocalSearchParams<{ id: string }>();
   const { mobile } = useBento();
   const resource = useResource<Purchase>(`/purchases/${id}`);
@@ -157,7 +155,6 @@ export function PurchaseDetail() {
         setCvv("");
         setCancel(false);
         setNotice(data.notice ?? "");
-        await notifications.reload();
       } catch (err) {
         await resource.reload({ silent: true });
         throw err;
@@ -177,7 +174,6 @@ export function PurchaseDetail() {
         );
         setCancel(false);
         setNotice(data.notice ?? "");
-        await notifications.reload();
       } catch (err) {
         await resource.reload({ silent: true });
         throw err;

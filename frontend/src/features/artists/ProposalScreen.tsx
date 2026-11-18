@@ -2,7 +2,6 @@ import { useState } from "react";
 import { View } from "react-native";
 import { router, useLocalSearchParams } from "expo-router";
 import { useAuth } from "../../contexts/AuthContext";
-import { useNotifications } from "../../contexts/NotificationsContext";
 import { useResource } from "../../hooks/useResource";
 import { api } from "../../services/api";
 import { primaryRole, type ArtistProposal } from "../../types/api";
@@ -56,7 +55,6 @@ function Row({ label, value }: { label: string; value?: string | number | null }
 export default function ProposalScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const auth = useAuth();
-  const badge = useNotifications();
   const { mobile } = useBento();
   const resource = useResource<ArtistProposal>(`/proposals/${id}`);
   const proposal = resource.result?.data;
@@ -81,7 +79,6 @@ export default function ProposalScreen() {
       });
       setReason("");
       setConfirmCancel(false);
-      await Promise.all([resource.reload(), badge.reload()]);
       action.setMessage(
         operation === "accept" ? "Propuesta aceptada: la contratación quedó confirmada."
           : operation === "reject" ? "Propuesta rechazada. Se notificó a quien la envió."

@@ -1,10 +1,11 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Image, View } from "react-native";
 import { router, useLocalSearchParams } from "expo-router";
 import { useAuth } from "../../contexts/AuthContext";
 import { useResource } from "../../hooks/useResource";
 import { api } from "../../services/api";
 import { query } from "../../services/http";
+import { subscribeDomains } from "../../services/syncEngine";
 import type { Availability, OccupancyMode, Quote, Reservation, VenueDetail } from "../../types/api";
 import {
   ActionFeedback,
@@ -41,6 +42,7 @@ export default function VenueScreen() {
   const [form, setForm] = useState<Record<string, string>>({});
   const [mode, setMode] = useState<OccupancyMode>("VENUE");
   const [availability, setAvailability] = useState<Availability | null>(null);
+  const lastLookupPath = useRef<string | null>(null);
   const check = useAction();
   const book = useAction();
   const validation = useForm();
@@ -51,8 +53,18 @@ export default function VenueScreen() {
     if (!isDate(form.date ?? "")) throw new Error("Elegí la fecha para consultar disponibilidad.");
     const exact = form.start && form.end ? slot(form.date, { setup: form.setup, start: form.start, end: form.end, teardown: form.teardown }) : null;
     const params = exact ? { from: exact.setup_start_at, to: exact.teardown_end_at, mode } : { date: form.date, mode };
-    setAvailability((await api.request<Availability>(`/marketplace/venues/${id}/availability${query(params)}`)).data);
+    const path = `/marketplace/venues/${id}/availability${query(params)}`;
+    lastLookupPath.current = path;
+    setAvailability((await api.request<Availability>(path)).data);
   });
+  useEffect(() => {
+    if (!availability) return;
+    return subscribeDomains(["marketplace", "marketplace_ops"], () => {
+      const path = lastLookupPath.current;
+      if (!path) return;
+      void api.request<Availability>(path).then((res) => setAvailability(res.data)).catch(() => undefined);
+    });
+  }, [Boolean(availability)]);
   const schedule = () => {
     if (!form.event_name?.trim()) throw new Error("Poné un nombre al evento.");
     if (!form.start || !form.end) throw new Error("Completá inicio y fin del evento.");

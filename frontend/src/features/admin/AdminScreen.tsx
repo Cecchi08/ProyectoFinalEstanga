@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { View } from "react-native";
 import { router } from "expo-router";
 import { useAuth } from "../../contexts/AuthContext";
-import { invalidateCatalogCache, useResource } from "../../hooks/useResource";
+import { useResource } from "../../hooks/useResource";
 import { useDebouncedValue } from "../../hooks/useDebouncedValue";
 import { api } from "../../services/api";
 import { query } from "../../services/http";
@@ -134,10 +134,7 @@ export default function AdminScreen() {
               key={`${kind}-${selected?.id ?? "new"}`}
               kind={kind}
               item={selected}
-              done={async () => {
-                setSelected(undefined);
-                invalidateCatalogCache();
-              }}
+              done={() => setSelected(undefined)}
             />
           )}
 
@@ -177,7 +174,7 @@ function CatalogEditor({
 }: {
   kind: Catalog;
   item: CatalogItem | null;
-  done(): Promise<void>;
+  done(): void | Promise<void>;
 }) {
   const [form, setForm] = useState<Record<string, string>>({});
   const [confirm, setConfirm] = useState(false);

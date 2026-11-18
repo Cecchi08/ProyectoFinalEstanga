@@ -1,16 +1,16 @@
 // Contexto de notificaciones y badge flotante en la esquina inferior derecha del icono.
 import { createContext, useContext, useEffect, useState, useCallback, useRef, type PropsWithChildren } from 'react';
-import { AppState, Text, View } from 'react-native';
+import { Text, View } from 'react-native';
 import { usePathname } from 'expo-router';
 import { api } from '../services/api';
-import { subscribeUnreadCount } from '../services/resourceStore';
+import { subscribeDomains, subscribeUnreadEvents } from '../services/syncEngine';
 import type { Notifications } from '../types/api';
 import { colors } from '../components/ui';
 
 // Contexto global compartido con el contador de notificaciones sin leer y función de recarga.
 const Context = createContext({ unread: 0, reload: async () => {} });
 
-// Proveedor que mantiene sincronizado el contador de notificaciones al navegar, volver al foco o cada 60s.
+// Proveedor que mantiene sincronizado el contador de notificaciones mediante el motor centralizado.
 export function NotificationsProvider({ children }: PropsWithChildren) {
   const [unread, setUnread] = useState(0);
   const path = usePathname();
@@ -26,15 +26,18 @@ export function NotificationsProvider({ children }: PropsWithChildren) {
   }, []);
   // Recarga el contador al cambiar de ruta.
   useEffect(() => { void reload(); }, [path, reload]);
-  // Sondeo periódico cada 60s mientras la app está activa y al regresar del segundo plano.
+  // Suscripción centralizada a mutaciones locales y cambios remotos en notificaciones.
   useEffect(() => {
-    const unsubUnread = subscribeUnreadCount((nextUnread) => {
+    const unsubUnread = subscribeUnreadEvents((ev) => {
       sequence.current++;
-      setUnread(nextUnread);
+      if (ev.mode === 'set') setUnread(ev.value);
+      else if (ev.mode === 'delta') setUnread((prev) => Math.max(0, prev + ev.delta));
+      else void reload();
     });
-    const timer = setInterval(() => { if (AppState.currentState === 'active') void reload(); }, 60000);
-    const listener = AppState.addEventListener('change', state => { if (state === 'active') void reload(); });
-    return () => { sequence.current++; unsubUnread(); clearInterval(timer); listener.remove(); };
+    const unsubDomain = subscribeDomains(['notifications'], () => {
+      void reload();
+    });
+    return () => { sequence.current++; unsubUnread(); unsubDomain(); };
   }, [reload]);
   return <Context.Provider value={{ unread, reload }}>{children}</Context.Provider>;
 }

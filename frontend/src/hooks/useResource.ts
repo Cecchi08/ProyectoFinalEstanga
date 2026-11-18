@@ -1,177 +1,130 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { api } from "../services/api";
+import { ApiError } from "../services/http";
+import { ensureSyncLifecycle } from "../services/syncLifecycle";
 import {
-  consumeSyncFlag,
-  getResourceSnapshot,
-  hasFreshSnapshot,
-  setResourceSnapshot,
-  subscribeResourcePath,
-  subscribeSilentSync,
-} from "../services/resourceStore";
+  domainsForPath,
+  getCachedResource,
+  setCachedResource,
+  subscribeDomains,
+} from "../services/syncEngine";
 import type { Envelope } from "../types/api";
 
-// Endpoints de catálogos estáticos/semiestáticos elegibles para caché en memoria.
-const CATALOG_BASE_PATHS = [
-  "/provinces",
-  "/districts",
-  "/cities",
-  "/genres",
-  "/marketplace/catalogs",
-  "/services/categories",
-  "/marketplace/cities",
-];
-
-// Tiempo de vida de la caché de catálogos en cliente.
-const CATALOG_CACHE_TTL_MS = 5 * 60 * 1000; // 5 minutos
-
-type CacheEntry = {
-  envelope: Envelope<unknown>;
-  timestamp: number;
-};
-
-// Caché compartida en memoria indexada por ruta completa (incluye query params).
-const catalogCache = new Map<string, CacheEntry>();
-
-// Determina si una ruta corresponde a un catálogo cacheable.
-export function isCatalogEndpoint(path: string | null): boolean {
-  if (!path) return false;
-  const base = path.split("?")[0];
-  return CATALOG_BASE_PATHS.some((catalog) => base === catalog || base.startsWith(`${catalog}/`));
-}
-
-// Limpia toda la caché de catálogos (por ejemplo, al cerrar sesión).
-export function invalidateCatalogCache(): void {
-  catalogCache.clear();
-}
-
-function initialSnapshot<T>(path: string | null): Envelope<T> | null {
-  if (!path) return null;
-  const reactive = getResourceSnapshot<T>(path);
-  if (reactive) return reactive;
-  if (isCatalogEndpoint(path)) {
-    const cached = catalogCache.get(path);
-    if (cached && Date.now() - cached.timestamp < CATALOG_CACHE_TTL_MS) {
-      return cached.envelope as Envelope<T>;
-    }
-  }
-  return null;
-}
-
-// Hook reactivo de lectura: sincroniza estado local vía useState con el store global sin mostrar
-// animaciones de recarga cuando ya existen datos o cuando una mutación actualiza la vista.
+// Hook reactivo centralizado con caché SWR por sesión e invalidación automática entre sesiones:
+// - Muestra al instante snapshots válidos o en revalidación sin parpadeos ni animaciones falsas.
+// - Se suscribe automáticamente a los dominios del recurso en syncEngine para reflejar cambios locales y remotos.
+// - Evita sobrescribir datos más recientes con respuestas antiguas mediante secuencia por instancia.
 export function useResource<T>(path: string | null) {
-  const [result, setResult] = useState<Envelope<T> | null>(() => initialSnapshot<T>(path));
-  // Solo muestra estado de carga en el primer montaje frío sin instantánea previa en memoria.
-  const [loading, setLoading] = useState<boolean>(() => Boolean(path && !initialSnapshot<T>(path)));
+  const [result, setResult] = useState<Envelope<T> | null>(() => {
+    const cached = getCachedResource<T>(path);
+    return cached ? cached.envelope : null;
+  });
+  const [loading, setLoading] = useState<boolean>(() => {
+    if (!path) return false;
+    return getCachedResource<T>(path) === null;
+  });
   const [error, setError] = useState("");
   const sequence = useRef(0);
+  const activePathRef = useRef<string | null>(path);
   const resultRef = useRef(result);
   resultRef.current = result;
 
-  // Ejecuta la carga inicial o sincroniza manualmente; si ya hay datos visibles nunca activa loading.
   const reload = useCallback(
-    async (options?: { bypassCache?: boolean; silent?: boolean }) => {
+    async (options?: { silent?: boolean; bypassCache?: boolean }) => {
       const request = ++sequence.current;
-      if (!path) {
+      const targetPath = path;
+      if (!targetPath) {
         setLoading(false);
         setResult(null);
         setError("");
         return;
       }
 
-      const isCatalog = isCatalogEndpoint(path);
-      const bypass = options?.bypassCache ?? false;
       const silent = options?.silent ?? false;
-
-      if (isCatalog && !bypass) {
-        const cached = catalogCache.get(path);
-        if (cached && Date.now() - cached.timestamp < CATALOG_CACHE_TTL_MS) {
-          setResult(cached.envelope as Envelope<T>);
-          setResourceSnapshot(path, cached.envelope as Envelope<T>);
-          setLoading(false);
-          setError("");
-          return;
-        }
-      }
-
-      // Nunca muestra spinner ni skeleton cuando ya hay datos renderizados o es sincronización silenciosa.
-      const hasVisibleData = resultRef.current !== null || getResourceSnapshot<T>(path) !== null;
-      if (!silent && !hasVisibleData) {
+      const hasVisibleSamePath = activePathRef.current === targetPath && resultRef.current !== null;
+      if (!silent && !hasVisibleSamePath) {
         setLoading(true);
       }
       setError("");
+
       try {
-        const data = await api.request<T>(path);
-        if (request === sequence.current) {
+        const data = await api.request<T>(targetPath);
+        if (request === sequence.current && activePathRef.current === targetPath) {
+          setCachedResource(targetPath, data);
           setResult(data);
-          setResourceSnapshot(path, data);
-          if (isCatalog) {
-            catalogCache.set(path, {
-              envelope: data as Envelope<unknown>,
-              timestamp: Date.now(),
-            });
-          }
         }
       } catch (e) {
-        if (request === sequence.current) {
-          setError(e instanceof Error ? e.message : "Error inesperado.");
+        if (request === sequence.current && activePathRef.current === targetPath) {
+          if (silent && hasVisibleSamePath) {
+            if (e instanceof ApiError && (e.status === 404 || e.status === 403 || e.status === 401)) {
+              setResult(null);
+              setError(e.message);
+            }
+          } else {
+            setError(e instanceof Error ? e.message : "Error inesperado.");
+          }
         }
       } finally {
-        if (request === sequence.current) setLoading(false);
+        if (request === sequence.current && activePathRef.current === targetPath) {
+          setLoading(false);
+        }
       }
     },
     [path],
   );
 
-  // Al cambiar la ruta o montar: adopta al instante el estado del store reactivo sin refetch innecesario.
+  // Carga inicial o revalidación silenciosa al cambiar de ruta.
   useEffect(() => {
-    const snap = initialSnapshot<T>(path);
-    setResult(snap);
+    activePathRef.current = path;
     setError("");
     if (!path) {
+      sequence.current++;
+      setResult(null);
       setLoading(false);
       return;
     }
-    if (snap && hasFreshSnapshot(path)) {
+
+    const cached = getCachedResource<T>(path);
+    if (cached) {
+      setResult(cached.envelope);
       setLoading(false);
-      return;
+      if (cached.stale) {
+        void reload({ silent: true });
+      }
+    } else {
+      setResult(null);
+      setLoading(true);
+      void reload();
     }
-    if (snap && consumeSyncFlag(path)) {
-      setLoading(false);
-      void reload({ silent: true, bypassCache: true });
-      return;
-    }
-    if (snap) {
-      setLoading(false);
-      return;
-    }
-    void reload();
+
     return () => {
       sequence.current++;
     };
   }, [path, reload]);
 
-  // Suscripción reactiva: cualquier mutación sobre esta ruta actualiza useState automáticamente y re-renderiza.
+  // Suscripción centralizada a dominios: actualiza en segundo plano ante mutaciones locales o de otras sesiones.
   useEffect(() => {
+    ensureSyncLifecycle();
     if (!path) return;
-    return subscribeResourcePath(path, () => {
-      const next = getResourceSnapshot<T>(path);
-      setResult(next);
-      setLoading(false);
-      setError("");
-    });
-  }, [path]);
-
-  // Sincronización silenciosa automática para vistas derivadas marcadas tras compras o cambios de permisos.
-  useEffect(() => {
-    if (!path) return;
-    const base = path.split("?")[0];
-    return subscribeSilentSync((prefix) => {
-      if (base.startsWith(prefix) && consumeSyncFlag(path)) {
-        void reload({ silent: true, bypassCache: true });
+    const domains = domainsForPath(path);
+    if (!domains.length) return;
+    return subscribeDomains(domains, () => {
+      const latest = getCachedResource<T>(path);
+      if (latest && !latest.stale) {
+        setResult(latest.envelope);
+        setError("");
+        setLoading(false);
+        return;
       }
+      if (latest) {
+        setResult(latest.envelope);
+      }
+      void reload({ silent: true });
     });
   }, [path, reload]);
 
-  return { result, loading, error, reload };
+  return useMemo(
+    () => ({ result, loading, error, reload }),
+    [result, loading, error, reload],
+  );
 }

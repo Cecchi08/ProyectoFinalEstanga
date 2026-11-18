@@ -220,7 +220,6 @@ export function ProviderScreen() {
   const member = admin || Boolean(provider?.member_role);
   const run = (path: string, message: string) => action.run(async () => {
     await api.request(path, { method: "POST", body: {} });
-    await resource.reload();
     action.setMessage(message);
   });
   return (
@@ -295,7 +294,7 @@ export function ProviderScreen() {
                 )}
               </Card>
               {editing && manage && (
-                <ProviderForm provider={provider} done={async () => { setEditing(false); await resource.reload(); action.setMessage("Perfil de empresa guardado."); }} />
+                <ProviderForm provider={provider} done={async () => { setEditing(false); action.setMessage("Perfil de empresa guardado."); }} />
               )}
             </View>
 
@@ -322,7 +321,7 @@ export function ProviderScreen() {
           />
           {manage && offering !== undefined && (
             <OfferingForm key={offering?.id ?? "new"} providerId={provider.id} offering={offering ?? undefined}
-              done={async () => { setOffering(undefined); await resource.reload(); }} />
+              done={async () => { setOffering(undefined); }} />
           )}
           {!provider.offerings?.length && (
             <Card variant="subtle">

@@ -1,6 +1,6 @@
 import { HttpClient, normalizeApiBase } from "./http";
-import { applyApiMutation, isMutationRequest } from "./resourceStore";
 import { storage } from "./storage";
+import { handleApiMutation, setSyncFetcher, type SyncVersionsResponse } from "./syncEngine";
 
 // Cliente HTTP único del frontend: resuelve la URL base del backend y persiste tokens en storage.
 export const api = new HttpClient(
@@ -13,9 +13,14 @@ export const api = new HttpClient(
   storage,
 );
 
-// Sincroniza automáticamente el estado reactivo global cada vez que una mutación responde con éxito.
+// Conecta el motor centralizado de sincronización de versiones al cliente HTTP.
+setSyncFetcher(async () => {
+  const response = await api.request<SyncVersionsResponse>("/sync/versions", { method: "POST" });
+  return response.data;
+});
+
+// Propaga mutaciones exitosas a todos los recursos y contextos montados de forma inmediata.
 api.onSuccess = (path, options, payload) => {
-  if (isMutationRequest(path, options.body)) {
-    applyApiMutation(path, options.body, payload.data);
-  }
+  if (path.split("?")[0] === "/sync/versions") return;
+  handleApiMutation(path, options.body, payload.data);
 };

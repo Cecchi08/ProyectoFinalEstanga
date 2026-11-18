@@ -99,7 +99,6 @@ export function ServiceQuoteScreen() {
   const post = (path: string, message: string, body: () => unknown = () => ({})) => action.run(async () => {
     await api.request(`/services/quotes/${id}/${path}`, { method: "POST", body: body() });
     setConfirm(false);
-    await resource.reload();
     action.setMessage(message);
   });
   const respond = () => post("respond", "Cotización enviada.", () => {

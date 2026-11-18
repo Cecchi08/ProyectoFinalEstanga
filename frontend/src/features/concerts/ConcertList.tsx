@@ -1,4 +1,4 @@
-import { memo, useCallback, useEffect, useMemo, useState } from "react";
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Text, View } from "react-native";
 import { router } from "expo-router";
 import { useAuth } from "../../contexts/AuthContext";
@@ -28,7 +28,7 @@ import { useDebouncedValue } from "../../hooks/useDebouncedValue";
 import { useResource } from "../../hooks/useResource";
 import { query } from "../../services/http";
 import type { Concert } from "../../types/api";
-import { fromArgDateTimeToUtcIso } from "../marketplace/time";
+import { fromArgDateTimeToUtcIso, toArgDateParts } from "../marketplace/time";
 import { lineup, place } from "./ConcertDetail";
 
 const PRICE = /^\d+(\.\d{1,2})?$/;
@@ -186,6 +186,8 @@ export default function ConcertList({
 
   const [draft, setDraft] = useState<Record<string, string>>({});
   const [filters, setFilters] = useState<Record<string, string>>({});
+  const filtersRef = useRef(filters);
+  filtersRef.current = filters;
   const [expanded, setExpanded] = useState(false);
   const [invalid, setInvalid] = useState("");
   // Debounce de 350 ms para ejecutar la búsqueda automática sin disparar una petición por cada tecla.
@@ -221,16 +223,21 @@ export default function ConcertList({
       for (const [key, val] of Object.entries(source)) {
         const trimmed = val.trim();
         if (!trimmed) continue;
-        if (key === "date_from") next.date_from = fromArgDateTimeToUtcIso(trimmed, "00:00");
-        else if (key === "date_to") next.date_to = fromArgDateTimeToUtcIso(trimmed, "23:59");
-        else next[key] = trimmed;
+        if (key === "date_from") {
+          const ymd = toArgDateParts(trimmed)?.dateStr ?? trimmed;
+          next.date_from = fromArgDateTimeToUtcIso(ymd, "00:00");
+        } else if (key === "date_to") {
+          const ymd = toArgDateParts(trimmed)?.dateStr ?? trimmed;
+          next.date_to = new Date(`${ymd}T23:59:59.999-03:00`).toISOString();
+        } else {
+          next[key] = trimmed;
+        }
       }
       // Evita solicitudes duplicadas si el conjunto normalizado de filtros no cambió.
-      setFilters((prev) => {
-        if (query(prev) === query(next)) return prev;
+      if (query(filtersRef.current) !== query(next)) {
+        setFilters(next);
         setPage(1);
-        return next;
-      });
+      }
       if (close) setExpanded(false);
     },
     [],
@@ -253,6 +260,12 @@ export default function ConcertList({
             : {}),
       }),
   );
+  const totalPages = resource.result?.pagination?.total_pages;
+  useEffect(() => {
+    if (totalPages !== undefined && totalPages >= 1 && page > totalPages) {
+      setPage(totalPages);
+    }
+  }, [page, totalPages]);
   // Actualiza un campo del borrador de filtros.
   const set = (key: string, value: string) =>
     setDraft((prev) => ({ ...prev, [key]: value }));
@@ -358,7 +371,7 @@ export default function ConcertList({
             <View style={styles.row}>
               {[
                 ["genre_id", "Géneros", "/genres"],
-                ["venue_id", "Espacio", "/venues"],
+                ["venue_id", "Espacio", "/marketplace/venues"],
                 ["city_id", "Ciudad", "/cities"],
               ].map(([key, label, path]) => (
                 <Select

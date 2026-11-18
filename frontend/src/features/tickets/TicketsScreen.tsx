@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { AppState, Platform, Share, Text, View } from "react-native";
+import { Platform, Share, Text, View } from "react-native";
 import * as Linking from "expo-linking";
 import { router, useLocalSearchParams } from "expo-router";
 import QRCode from "react-native-qrcode-svg";
@@ -189,41 +189,16 @@ export default function TicketsScreen() {
   const [page, setPage] = useState(1);
   // Consulta GET /tickets al backend con paginación.
   const resource = useResource<Ticket[]>(`/tickets?page=${page}`);
+  const reloadTickets = resource.reload;
   const shareAction = useAction();
 
-  // Escuchar evento directo de validación en tiempo real (mismo cliente/sesión)
+  // Escuchar evento directo de validación en tiempo real (mismo cliente/sesión).
+  // La sincronización entre sesiones, foco y reconexión se gestiona de forma centralizada vía useResource + syncEngine.
   useEffect(() => {
     return subscribeTicketUpdates(() => {
-      void resource.reload();
+      void reloadTickets({ silent: true });
     });
-  }, [resource]);
-
-  // Polling inteligente: solo cuando hay al menos una entrada con estado VALID
-  // para reflejar la confirmación del servidor en tiempo real sin recarga manual
-  const hasValidTickets = Boolean(
-    resource.result?.data?.some((t) => t.status === "VALID")
-  );
-
-  useEffect(() => {
-    if (!hasValidTickets) return;
-    const interval = setInterval(() => {
-      void resource.reload();
-    }, 7000);
-    return () => clearInterval(interval);
-  }, [hasValidTickets, resource]);
-
-  // Recarga automática al volver al foco / primer plano
-  useEffect(() => {
-    if (Platform.OS === "web" && typeof window !== "undefined") {
-      const onFocus = () => void resource.reload();
-      window.addEventListener("focus", onFocus);
-      return () => window.removeEventListener("focus", onFocus);
-    }
-    const sub = AppState.addEventListener("change", (state) => {
-      if (state === "active") void resource.reload();
-    });
-    return () => sub.remove();
-  }, [resource]);
+  }, [reloadTickets]);
   return (
     <Page
       eyebrow="VENTI · PASES DIGITALES"
