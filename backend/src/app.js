@@ -21,7 +21,7 @@ import { marketplaceRoutes } from './routes/marketplace.routes.js';
 import { adminRoutes } from './routes/admin.routes.js';
 import { artistsRoutes } from './routes/artists.routes.js';
 import { servicesRoutes } from './routes/services.routes.js';
-import { syncRoutes } from './routes/sync.routes.ts';
+import { syncRoutes } from './routes/sync.routes.js';
 export function createApp({ env, database, mailer, oauthClient }) {
     const app = express();
     app.disable('x-powered-by');

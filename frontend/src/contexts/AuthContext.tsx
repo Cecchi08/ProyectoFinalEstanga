@@ -88,7 +88,7 @@ export function AuthProvider({ children }: PropsWithChildren) {
       )
       .finally(() => setLoading(false));
     return () => {
-      api.onSession = () => {};
+      api.onSession = () => { };
     };
   }, []);
   useEffect(() => {
@@ -111,7 +111,7 @@ export function AuthProvider({ children }: PropsWithChildren) {
     api.onForbidden = refresh;
     const unsubMe = subscribeDomains(["me"], refresh);
     return () => {
-      api.onForbidden = () => {};
+      api.onForbidden = () => { };
       unsubMe();
     };
   }, [userId, loadAccess]);
@@ -172,3 +172,4 @@ export function useAuth() {
   if (!value) throw new Error("AuthProvider requerido");
   return value;
 }
+cd
